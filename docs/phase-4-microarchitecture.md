@@ -82,10 +82,17 @@ Companion units:
 
 ### 4.3 CAM / lookup structure
 
-- Small on-chip CAM or indexed array, partitioned into **sub-tables** (1 =
-  EtherType, 2 = IP proto, …), loadable from the parse program's protocol tables.
-- Sizing **TBD**: entries per sub-table, total width. Start tiny (enough for the
-  slice), leave a config path to grow.
+Per the patent (see [`analysis/patent-encodings-recovered.md`](analysis/patent-encodings-recovered.md)
+§4): CAM entry = **20-bit key + 32-bit target** (target = address or code).
+- Key is a **union**: *shared* tables (Shared 1..15, ≤16-bit match) or *non-shared*
+  (8-bit match + 8-bit `Selector` **derived from the instruction PC**:
+  `(PC<<6)&0xFF00`). The RTL must compute the PC-derived selector and detect
+  selector collisions.
+- A parallel **indexed array** lookup path (32-bit entries, sub-array base index, no
+  "miss") is an alternative for small key spaces.
+- Programmable from the integer side (`CPPRSWRCAM`/`WRARRAY`).
+- Sizing **TBD**: entries per table, total width. Start small (enough for the slice),
+  leave a config/load path to grow.
 
 ### 4.4 Pipeline integration in CVA6
 
@@ -104,19 +111,35 @@ Key questions:
 - **Latency:** single- vs multi-cycle. A wide extract + CAM likely multi-cycle;
   the unit stalls issue or uses a ready/valid handshake. (Semantics unaffected —
   layer discipline.)
-- **Control-flow:** end-of-node redirects the PC. Reuse CVA6's branch/redirect
-  path rather than inventing one.
-- **Exceptions/exit:** parser exit maps to a well-defined trap/return with a
-  status register the caller reads.
+- **Control-flow — two-stage end-of-node** ([Phase 1 §1.8](phase-1-isa-spec.md)):
+  on `.stp`, the unit checks the **`Loop` register first** (advance `DataHdr.Offset`,
+  redirect to the loop head), then **`Next`** (advance `CurHdr.Offset` unless
+  **overlay**; increment `Counters.Encap` + advance the metadata-frame pointer on
+  **encapsulation**). `Next`/`Loop` carry an **address-or-code** (bit-31) with the
+  E/V/NE/NV control bits. The PC redirect reuses CVA6's branch/redirect path rather
+  than inventing one; the unit must decode the control bits itself.
+- **Exceptions/exit:** parser exit sets `ParserExitCode` (Error code + address) and
+  jumps to `OkayTarget`/`FailTarget`. Note the patent defines **no CPU traps/
+  interrupts** for the parser — exits are explicit jumps.
 
 ### 4.5 Parser-register file & hazards
 
-- Dedicated small register file for `pcurptr/pcurhdr/paccum/pnext/pktbase/pktlen`
-  (Decision from Phase 3 §3.2 lands here).
-- In-order + single parser unit ⇒ hazards are simple: RAW on parser regs handled
-  by issue interlock; no rename needed.
-- **Context switch (Risk R2):** define save/restore — parser regs exposed as CSRs
-  or a shadow block the OS can spill. Keep the set minimal to bound this cost.
+- The patent defines **32 × 64-bit `p` registers** (not the handful the blog implies)
+  — operational (`CurHdr`, `DataHdr`, `PktLen`, `Next`, `DataBndLoop` [DataBound +
+  Loop], `Counters` [Encap + Cntr1..7], `NodeLoopCnt`, `Accum`, `Flags`,
+  `MetadataBase`, `FrameOffFnumSeqno`, `ParserExitCode`, …) plus config registers
+  (`ParserConfig`, `LoopSpec`, `TLVSpec`, counter configs) and target registers
+  (`OkayTarget`, `PostLoop`, `CompareFalse`, …). Full layouts:
+  [`analysis/patent-encodings-recovered.md`](analysis/patent-encodings-recovered.md).
+- Several registers are **packed structs** (e.g. `DataBndLoop` = DataBound + Loop;
+  `Counters` = Encap + 7 counters) — the RTL register file must expose sub-field
+  read/write, not just 64-bit words.
+- In-order + single parser unit ⇒ hazards are simple: RAW on parser regs handled by
+  issue interlock; no rename needed.
+- **Context switch (Risk R2, now larger than assumed):** the live parser state is
+  ~17 operational + config/target regs. Define save/restore — parser regs as CSRs or
+  a shadow block the OS can spill. For the first slice, minimize *in-use* state
+  (single encap level, no runthread) to bound the cost.
 
 ## Step-by-step tasks
 

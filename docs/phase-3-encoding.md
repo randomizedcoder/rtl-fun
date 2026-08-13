@@ -4,132 +4,148 @@
 
 ## Objective
 
-Give every parser instruction a **bit-accurate encoding** in the RISC-V
-`custom-0..3` opcode space, with formats, funct-field assignments, and an
-assembler `.insn` mapping so code can be emitted before full toolchain support.
+Give every parser instruction a **bit-accurate encoding**, following the patent's
+actual scheme (not the class-per-opcode guess we started with). Provide formats,
+field tables, and an assembler `.insn` mapping so code can be emitted before full
+toolchain support.
+
+> **Source of truth for bits:**
+> [`analysis/patent-encodings-recovered.md`](analysis/patent-encodings-recovered.md)
+> (recovered from the patent prose — the figure images did not survive extraction).
+> **Per-instruction field *bit-positions* are TBD-from-figure** (need the official
+> USPTO drawing sheets); everything else below is from the patent text.
 
 ## Inputs / prerequisites
 
 - Phase 1 instruction set + operand forms.
-- RISC-V base ISA formats (R/I/S) and the reserved custom opcodes.
+- RISC-V base ISA formats and the reserved custom opcodes.
 
 ## Design detail
 
-### 3.1 Opcode budget
+### 3.1 Opcode framing (patent-specified)
 
-RISC-V reserves four major opcodes for non-standard use — `custom-0`, `custom-1`,
-`custom-2`, `custom-3` — which standard extensions avoid. We sub-divide them with
-`funct3` (and `funct7` where needed). Budget discipline is Risk R3: keep the set
-small and Herbert-shaped.
+- **32-bit** parser instructions: RISC-V **custom-0 primary opcode `0x0b`** + a
+  **4-bit function field** that selects the instruction. (In the patent's
+  disassembly every parser opcode byte ends in `0b`.) Targets **4-byte aligned**.
+- **64-bit** variant: uses the >32-bit opcode space; **8-byte aligned**. 32/64-bit
+  forms interoperate (branch/fall-through) if aligned. *(Companion doc; we implement
+  32-bit first.)*
+- **Coprocessor** moves + CAM/array programming: **custom-3 `0x7b`**, `CoP=0` =
+  parser coprocessor (`CPPRSRD/WR/WRIMM/WRCAM/RDCAM/WRARRAY/RDARRAY`).
 
-Proposed major-opcode partition (**Decision**, revisit if space is tight):
+> This **replaces** our earlier "partition custom-0..3 by instruction class" plan.
+> The patent uses **one** primary opcode (custom-0) + a function field, plus custom-3
+> for coprocessor transfers.
 
-| Major opcode | Instruction group |
-|--------------|-------------------|
-| `custom-0` | loads / stores (header ↔ metadata) |
-| `custom-1` | length + compare (`lensetmin`, `cmpi`) |
-| `custom-2` | CAM / lookup + end-of-node |
-| `custom-3` | move / loop / runthread |
+### 3.2 Address / code encoding (bit-31 selector)
 
-### 3.2 Formats
+Values in `Next`, `DataBndLoop.Loop`, and CAM/array targets encode an address **or**
+a parser code:
 
-Most parser instructions are register-shaped with small immediates; we lean on
-R-type and I-type.
-
-R-type (e.g. CAM lookup, move):
 ```
- 31        25 24    20 19    15 14   12 11     7 6            0
-+------------+--------+--------+-------+---------+--------------+
-|  funct7    |  rs2   |  rs1   |funct3 |   rd    |  custom-x    |
-+------------+--------+--------+-------+---------+--------------+
+ bit31 = 0 → 24-bit relative address (bits[23:0]); control bits E/V/NE/NV in [30:24]
+ bit31 = 1 → parser code (negative −1..−128; sign-extends to 16/32/64-bit)
 ```
 
-I-type (e.g. load with displacement, compare-immediate):
-```
- 31              20 19    15 14   12 11     7 6            0
-+------------------+--------+-------+---------+--------------+
-|    imm[11:0]     |  rs1   |funct3 |   rd    |  custom-x    |
-+------------------+--------+-------+---------+--------------+
-```
+Address derivations: CAM / instruction-relative `ParserInstrBase | (4*addr)`;
+`PNEXTNODE` PC-relative `PC + (addr<<2)`.
 
-Parser registers are addressed either via a dedicated parser-register file
-(encoded in the rd/rs fields, interpreted by the parser unit) or mapped onto a
-reserved integer-register subset — **Decision** pending Phase 4 (§1.1 ABI note).
+**Control bits** (address form, bits 24–30): `E` encapsulation (`0x40000000`),
+`V` overlay (`0x20000000`), `NE` next-encap, `NV` next-overlay — consumed by
+end-of-node ([Phase 1 §1.8](phase-1-isa-spec.md)).
 
-### 3.3 funct3 assignment (illustrative)
+### 3.3 `Sz` field — two meanings
 
-Within `custom-0` (loads/stores):
-| funct3 | Instr | Notes |
-|--------|-------|-------|
-| 000 | `prs.load.b` | width in funct3? or funct7? see below |
-| 001 | `prs.load.h` | |
-| 010 | `prs.load.w` | |
-| 011 | `prs.load.d` | |
-| 100 | `prs.store.b` | |
-| 101 | `prs.store.h` | |
-| … | … | |
+- **General sub-register instructions:** `Sz` 0=nibble / 1=byte / 2=half / 3=word;
+  bits = `4*(1<<Sz)`.
+- **Load / store:** `Sz` 1=byte / 2=half / 3=word / **0 = double word (8 bytes)**.
 
-Qualifiers (`.stp`, `.fail`, field selector `[i]`, multiplier/min for `lensetmin`)
-are packed into `funct7` / immediate bits. Example `lensetmin.n pcurhdr,
-paccum[i], M:MIN` packs `i`, multiplier `M`, and `MIN` into the immediate.
+**Sub-register position:** counted from the first byte (position 0 = low-order byte,
+little-endian); nibble 0 = high 4 bits of the first byte.
 
-**Design tension:** encode width in funct3 (few opcodes, many funct7 uses) vs. in
-funct7 (frees funct3 for classes). Resolve to maximize headroom for the CAM
-sub-table field and the `lensetmin` immediate.
+### 3.4 CAM key structure
 
-### 3.4 Assembler `.insn` mapping
-
-Before touching binutils/LLVM, emit raw encodings via `.insn` and inline-asm
-wrappers (bridges to Phase 7):
+20-bit key + 32-bit target. Union by the 4 high `Shared` bits:
 
 ```c
-static inline void prs_load_h(int disp) {
-    /* .insn i <opcode>, <funct3>, rd, rs1, imm  */
-    asm volatile(".insn i CUSTOM_0, 0x1, x0, x0, %0" :: "I"(disp));
+union {
+  struct { Match:16; Shared:4 /* 1..15 */ } Shared;     // shared table, ≤16-bit match
+  struct { Match:8; Selector:8; Shared:4 /* 0 */ } NonShared;  // PC-derived selector
+}
+// non-shared: Selector = (PC << 6) & 0xFF00   (collisions illegal; pad with NOPs)
+```
+
+### 3.5 Per-instruction fields (positions TBD-from-figure)
+
+The patent gives each instruction's **field set and semantics** (Phase 1), and the
+register/`Sz`/address encodings above — but the **bit positions within the 32-bit
+word** live in per-instruction figures absent from our copy. Until we obtain the
+drawing sheets, the machine-readable table (§3.6) records **fields + widths +
+semantics**, with positions marked TBD. Representative field sets:
+- **Load:** funct, X, Sz, E, Shift, Blen, rd(preg), Offset.
+- **Length:** funct, D, Sz, Pos, Shift, Len, S.
+- **CAM:** funct, Sz, Pos, F, Share, Miss, A, S.
+- **Compare:** funct, Func3, Sz, Pos, N, Er, Value/Mask.
+- **Next/imm:** funct, V(overlay), S, Next/Mask(16).
+- **Store:** funct, F, Sz, Pos, Sind, E, J, S, Offset.
+
+### 3.6 Machine-readable table
+
+Keep the encoding as data (`isa/parser-opcodes.yaml`): one row per instruction with
+primary opcode (`0x0b`/`0x7b`), function value, field list (name/width/**position or
+TBD**), operand map, and `.insn` template. Generate from it: the RTL decode table,
+the model's encoder/decoder, the assembler macros, and a disassembler stub.
+
+### 3.7 Assembler `.insn` mapping
+
+Before touching binutils/LLVM, emit raw encodings via `.insn` + inline-asm wrappers.
+Because exact bit positions are TBD, seed the header from the machine-readable table
+and fill positions once recovered:
+
+```c
+static inline uint64_t prs_load_h(int disp) {
+    uint64_t r;
+    asm volatile(".insn r CUSTOM_0, /*funct3*/0, /*funct7*/0, %0, x0, %1"
+                 : "=r"(r) : "r"(disp));   /* fields TBD-from-figure */
+    return r;
 }
 ```
 
-Every instruction gets an `.insn` template + a documented bit layout so the
-[Phase 2 model](phase-2-reference-model.md) can gain an encoder/decoder and the
-[RTL](phase-5-rtl.md) decode can be built against the exact same table.
-
-### 3.5 Machine-readable table
-
-Keep the encoding as data (`isa/parser-opcodes.yaml` or CSV): one row per
-instruction with major opcode, funct3, funct7 mask/match, format, operand map,
-and `.insn` template. Generate from it: the RTL decode case-table, the model's
-encoder/decoder, the assembler macros, and a disassembler stub. **Single source
-of truth for bits.**
-
 ## Step-by-step tasks
 
-1. Fix the major-opcode partition (3.1).
-2. Choose width-in-funct3 vs funct7 (3.3) to preserve headroom.
-3. Lay out each instruction's exact bit fields (R/I) incl. qualifiers/immediates.
-4. Author the machine-readable table (3.5).
-5. Write `.insn` templates + inline-asm wrappers for every instruction (3.4).
-6. Add encode/decode to the Phase-2 model and cross-check round-trips.
+1. Encode the framing (custom-0 `0x0b` + 4-bit function; custom-3 moves) (3.1).
+2. Encode the address/code scheme + control bits (3.2) and the `Sz`/position rules
+   (3.3) and CAM key union (3.4).
+3. Author the machine-readable table with fields + widths + semantics; mark
+   bit-positions TBD (3.5–3.6).
+4. Write `.insn` templates keyed off the table (3.7).
+5. Add encode/decode to the Phase-2 model; round-trip check what is fully known.
+6. **Recover** exact bit positions + the Parser Codes value table from the official
+   USPTO drawing sheets; fill in the table; remove the TBDs.
 
 ## Deliverables / artifacts
 
-- `isa/parser-opcodes.{yaml,csv}` — the bit-accurate table.
+- `isa/parser-opcodes.yaml` — fields/widths/semantics (+ positions once recovered).
 - `.insn` macros / inline-asm header (`toolchain/parser_insn.h`).
 - Encoder/decoder wired into the golden model.
 
 ## Exit criteria
 
-- Every instruction has a unique, bit-accurate encoding within `custom-0..3`.
-- Round-trip encode→decode matches for all instructions in the model.
-- `.insn` templates assemble with stock GNU as / LLVM MC.
+- Framing, address/code encoding, `Sz` rules, and CAM key structure are exact and
+  match the patent.
+- Every instruction has a table row; fully-known encodings round-trip in the model;
+  remaining bit-positions are explicitly flagged TBD-from-figure.
 
 ## Open questions
 
-- **Decision:** parser registers — dedicated file vs. reserved integer subset?
-  (Co-decide with Phase 4; affects rd/rs interpretation.)
-- **Decision:** 30-bit vs full 32-bit encodings (blog mentions 30-bit forms).
-- **TBD:** compressed (16-bit) forms for hot instructions — worth it? (defer.)
+- **P2 / blocking full exactness:** obtain the drawing sheets (per-instruction bit
+  layouts + Parser Codes table). Source: `patentimages` PDF or XDP2.
+- **Decision:** 32-bit only first (defer the 64-bit form).
+- **Decision:** parser registers as a dedicated file addressed in `rd/rs` — confirm
+  with Phase 4.
 
 ## References
 
-RISC-V unprivileged ISA (custom opcodes, formats); `.insn` docs. See
-[references.md](references.md).
+RISC-V custom opcodes; patent framing (custom-0 `0x0b`);
+[`analysis/patent-encodings-recovered.md`](analysis/patent-encodings-recovered.md).
+See [references.md](references.md).

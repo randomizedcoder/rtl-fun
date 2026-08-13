@@ -20,16 +20,17 @@ microarchitecture. Target: run the vertical slice in simulation.
 
 ```
 rtl/
-  parser_pkg.sv        types, opcodes (generated from isa/ table), enums
-  parser_decode.sv     custom-0..3 → parser micro-op + operands
+  parser_pkg.sv        types, opcodes (custom-0 0x0b + funct), enums, parser codes
+  parser_decode.sv     custom-0 0x0b / custom-3 0x7b → parser micro-op + operands
   parser_execute.sv    top of the parser unit; sequences the sub-units
   parser_align.sv      byte aligner over the packet window
-  parser_extract.sv    endian + shift/mask → paccum; bounds + implicit length
-  parser_length.sv     lensetmin (mul, min, pktlen check)
-  parser_compare.sv    cmpi.fail
-  parser_cam.sv        CAM / sub-table lookup → pnext
-  parser_eon.sv        end-of-node: advance cursor, redirect/exit
-  parser_regfile.sv    pcurptr/pcurhdr/paccum/pnext/pktbase/pktlen
+  parser_extract.sv    endian(E)/shift/mask(Blen) → Accum; bounds + load-sets-length
+  parser_length.sv     lenset{,add,min}/tlv/pad/eol; sets CurHdr/DataHdr len + DataBound
+  parser_compare.sv    cmpi eq/ne/lt/le/gt/ge + mask; on-false action
+  parser_cam.sv        CAM key union (shared/non-shared, PC-derived selector) → accum/next/jump
+  parser_eon.sv        two-stage end-of-node: Loop-first then Next; overlay + encap
+  parser_regfile.sv    32×64b p-regs w/ sub-field access (CurHdr/DataHdr/DataBndLoop/Counters…)
+  parser_meta.sv       metadata: common vs frame; frame-ptr advance on encap
   parser_pktbuf.sv     packet window (128/256-bit read port)
   cva6_parser_wrap.sv  glue into CVA6 EX stage
 ```

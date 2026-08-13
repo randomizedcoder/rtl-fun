@@ -24,6 +24,16 @@ golden model and prototyped on FPGA.
 
 Status legend: 🟡 Draft · 🟢 Ready · 🔵 In progress · ✅ Done.
 
+## Analysis
+
+- **[analysis/patent-conformance.md](analysis/patent-conformance.md)** — how the
+  design compares to US Patent 12,461,885, and the prioritized corrections applied to
+  follow Herbert's model closely.
+- **[analysis/patent-encodings-recovered.md](analysis/patent-encodings-recovered.md)**
+  — register struct layouts, `Sz` tables, address/code encoding, and CAM key
+  structure recovered from the patent text (the authoritative bit-level source; per-
+  instruction bit positions remain TBD-from-figure).
+
 ## Supporting docs
 
 - **[glossary.md](glossary.md)** — terms (parse graph, cursor, TLV, CAM, custom0-3, IPC, XDP2/PANDA…).

@@ -42,8 +42,11 @@ lower (~0.4 vs ~1.4 for integer parsing on x86), the net throughput speedup is
 ## 2. Goals & non-goals
 
 **Goals**
-- A small, precise **ISA specification** for Herbert-style parser instructions on
-  RISC-V (RV64), mirroring the blog's instruction set and parser registers.
+- A precise **ISA specification** following **US Patent 12,461,885** — the full
+  register file, two-level parsing model, and end-of-node semantics — using the
+  blog's worked example as the on-ramp. (The docs were first drafted from the blog;
+  see [`analysis/patent-conformance.md`](analysis/patent-conformance.md) for the gap
+  analysis that expanded them to the patent's actual ISA.)
 - A **golden software model** that defines the architecture independent of any
   implementation.
 - A synthesizable **SystemVerilog** implementation integrated into a real,
@@ -167,7 +170,7 @@ parallel once 1 is stable, and 7 (toolchain) can start as soon as 3 is fixed.
 | ID | Risk | Impact | Mitigation |
 |----|------|--------|------------|
 | **R1** | **Packet-memory bandwidth dominates.** If every parser instr does an ordinary CPU load, you cut instruction count but stay memory-bound. | The advertised speedup evaporates. | Design a wide (128/256-bit) packet window feeding the parser unit; measure cycles/packet with and without it (Phase 4/9). This is *the* make-or-break decision. |
-| **R2** | Parser register state balloons context-switch / ABI / debugger cost. | Adoption pain. | Prefer keeping cursor state in ordinary integer regs where possible; make dedicated parser regs minimal and clearly save/restore-able (Phase 1/4). |
+| **R2** | Parser register state is **large** — the patent defines 32 × 64-bit `p`-regs (operational + config + target), so context-switch / ABI / debugger cost is real, not hypothetical. | Adoption pain. | Minimize *in-use* state for the first slice (single encap level, no runthread); specify save/restore (CSR or shadow block) in Phase 1/4. |
 | **R3** | Opcode budget: only `custom-0..3` available. | Run out of encoding space. | Use funct3/funct7 sub-encoding; keep the instruction set small & Herbert-shaped (Phase 3). |
 | **R4** | Malformed / adversarial packets cause wrong parses or hangs. | Security + correctness. | Bounds checks are first-class in the ISA; the corpus is malformed-input-heavy; fuzz RTL vs model (Phase 2/6). |
 | **R5** | ISA/microarch bleed together and freeze bad decisions. | Rework. | Enforce the three-layer discipline (§4); the C model is the only semantic authority. |

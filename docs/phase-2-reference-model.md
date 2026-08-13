@@ -20,26 +20,46 @@ toolchain) is verified *against this model*, not against prose.
 A small C library, `libparsermodel`, that models parser state and executes each
 instruction as a pure function with explicit side effects:
 
+The model mirrors the patent register file and the **two-level** state (protocol
+header vs data header) — not the blog's single-cursor simplification. See
+[Phase 1 §1.1–1.2](phase-1-isa-spec.md).
+
 ```c
+typedef struct { uint32_t off, len; } hdr_t;      /* CurHdr / DataHdr */
+
 typedef struct {
-    const uint8_t *pktbase;
-    uint32_t pktlen;
-    uint32_t pcurptr;     /* offset from pktbase */
-    uint32_t pcurhdr;
-    uint64_t paccum;
-    uint32_t pnext;       /* next node id */
-    uint8_t  meta[META_SZ];
-    int      status;      /* OK / EXIT_COMPLETE / EXIT_OOB / EXIT_LEN / EXIT_CMP ... */
+    const uint8_t *pkthdrbase;
+    uint32_t all_len, parse_len;   /* PktLen.AllLen / ParseLen */
+    hdr_t    cur;                  /* CurHdr  (offset+length)  */
+    hdr_t    dat;                  /* DataHdr (offset+length)  */
+    uint32_t databound;            /* DataBndLoop.DataBound (init 0xFFFFFFFF) */
+    int32_t  loop;                 /* DataBndLoop.Loop (address or parser code) */
+    uint64_t accum, flags;         /* Accum / Flags */
+    int32_t  next;                 /* Next (address or parser code) */
+    uint8_t  encap;                /* Counters.Encap */
+    uint8_t  cntr[7];              /* Counters.Cntr1..7 */
+    uint8_t *meta_common, *meta_frame;   /* common metadata + current frame */
+    int      code;                 /* ParserExitCode.Error (parser code, negative) */
 } pstate;
 
-/* one execute_* per instruction, mirroring Phase 1 semantics exactly */
-int  execute_load (pstate*, unsigned width, int32_t disp);   /* bounds + implicit length */
-int  execute_lensetmin_n(pstate*, unsigned nib, unsigned mul, unsigned min);
-int  execute_cmpi_n_fail(pstate*, unsigned nib, unsigned imm);
-int  execute_cam  (pstate*, unsigned width, unsigned field, unsigned subtbl, int stp);
-int  execute_store(pstate*, unsigned width, uint32_t moff);
-/* ...move, loop, runthread... */
+/* one execute_* per instruction, mirroring Phase 1 semantics exactly.
+   pcurptr = pkthdrbase + cur.off ; pdatptr = pkthdrbase + dat.off  */
+int execute_load(pstate*, unsigned sz, int x, int e, unsigned shift,
+                 unsigned blen, int32_t disp);          /* bounds + load-sets-length */
+int execute_lensetmin(pstate*, unsigned sz, unsigned pos, unsigned mul, unsigned min);
+int execute_cmpi(pstate*, int op, unsigned sz, unsigned pos, uint32_t val,
+                 uint32_t mask, int on_false);          /* eq/ne/lt/le/gt/ge; stop/node/sub/fail */
+int execute_cam(pstate*, unsigned sz, unsigned pos, int f, unsigned share,
+                int disp_kind, int stp);                /* →accum/next/jump/loop */
+int execute_store(pstate*, unsigned sz, int frame, unsigned pos, int sind, uint32_t off);
+int common_end_of_node(pstate*);   /* Loop-first, then Next; overlay/encap */
+/* ...move, length family, tlvfastloop, flagsloop, counters, runthread... */
 ```
+
+Parser codes are **negative bytes** (`OKAY_RET`, `STOP_OKAY`, `STOP_SUB_NODE_OKAY`,
+`STOP_LENGTH`, `STOP_TLV_LENGTH`, `STOP_LOOP_CNT`, `STOP_OPTION_LIMIT`,
+`STOP_PADDING_LIMIT`, …) with `STOP_FAIL(−12)` splitting normal/abnormal — the
+model's `code` output must use them so Phase-6 co-sim compares real status.
 
 The model is **bit-exact and deterministic**: the same rounding, the same
 bounds/length side effects, the same error codes the RTL must reproduce.

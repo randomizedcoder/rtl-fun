@@ -34,3 +34,16 @@ Terms used throughout the design docs.
 | **Golden model** | The C reference implementation that *defines* ISA semantics; RTL is verified against it. |
 | **Co-simulation** | Running RTL (via Verilator) and the golden model on the same inputs and comparing outputs. |
 | **cocotb** | Python-based HDL verification framework; used to drive the co-sim testbench. |
+| **Data header** | A sub-protocol element (e.g. a TLV) parsed within a protocol header; its offset+length live in the `DataHdr` register. |
+| **Sub-parse node / sub-protocol table** | Level-2 parsing constructs: rules + type→node maps for TLVs, flag-fields, and arrays inside a header. |
+| **DataBound** | Max byte extent of the data elements within a header (`DataBndLoop.DataBound`); init ∞, decremented per loop iteration; loop ends at 0. |
+| **Loop register** | `DataBndLoop.Loop`: holds a loop head address (live loop) or a terminating code; **checked before `Next`** at end-of-node. |
+| **Next register** | `Next` (pnext): the next parse node — an **address or a parser code**, with E/V/NE/NV control bits. |
+| **Overlay node** | A next node whose transition does **not** advance the cursor (Next bit `0x20000000`). |
+| **Encapsulation level** | `Counters.Encap`: incremented per encapsulation layer (Next bit `0x40000000` or `prs.inc.encap`); indexes the metadata frame. |
+| **Common metadata / metadata frame** | The metadata block = whole-object "common" area + an array of per-encapsulation "frames"; stores pick one via the F-bit. |
+| **Parser code** | A negative-byte status (−1..−127); `STOP_FAIL(−12)` splits normal from abnormal exits; stored in `ParserExitCode.Error`. |
+| **Accum / Flags** | `Accum` = working accumulator (load/lookup/compare/length); `Flags` = flag-field loop register / 2nd accumulator. |
+| **Counters** | 7 user counters + encap; `prs.inc.cntr`/`setcntrbit`/`resetcntr`; limits with actions; also array indices for metadata stores. |
+| **PTLVFASTLOOP / PFLAGSLOOP** | Specialized loop-head instructions for single-byte type+length TLVs and for flag-fields (bit-position iteration). |
+| **`Sz` field** | Sub-register width selector; general instrs 0=nibble/1=byte/2=half/3=word, but **load/store** 0=**8 bytes**/1/2/3. |
