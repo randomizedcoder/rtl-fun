@@ -1,0 +1,4 @@
+# Reference library: binary + generated artifacts, kept out of language stats
+docs/references/*.pdf         binary -diff linguist-vendored
+docs/references/*.txt         -diff linguist-generated
+docs/references/linux-flow_dissector.c  linguist-vendored
