@@ -264,27 +264,33 @@ Phase-6 co-sim compares real codes.
 
 ---
 
-## 10. What the patent text does *not* pin down
+## 10. Encoding recovery — RESOLVED
 
-**Update after inspecting the PDF:** the Google-Patents PDF is the HTML print
-export and contains **no drawing images** (`pdfimages` finds exactly one 73×69 logo
-in all 49 pages), so the figures cannot be read from our copy. However, most of
-what the figures would show **survived as prose / inline C-structs** and is now
-crystallized in **[patent-encodings-recovered.md](patent-encodings-recovered.md)**:
+The Google-Patents PDF was the HTML export with no drawings, but the **official
+USPTO PDF** ([`../references/uspto-patent-us12461885.pdf`](../references/uspto-patent-us12461885.pdf),
+108 drawing sheets) has them all. The figures were rendered and **pixel-verified**;
+exact encodings are now in
+**[patent-encodings-recovered.md](patent-encodings-recovered.md)** — the `Fnc4`
+opcode map (FIG 46), **every 32-bit instruction format with exact bit ranges**
+(FIG 47) as RFC-style ASCII diagrams, the **Parser Codes value table** (FIG 45),
+the `Sz` tables, address/code + CAM-key formats, and register layouts. Superseding
+the earlier prose recovery:
 the register struct layouts (L1343–1762), the **`Sz` tables** (L1214–1224), the
 **address/code encoding** and **E/V/NE/NV control bits** (L1280–1321), the **CAM key
 union + PC-derived selector** (L1252–1278), and instruction framing (custom-0 `0x0b`
 + 4-bit function; custom-3 moves).
 
-**Genuinely still missing (needs official USPTO drawing sheets):** the exact **bit
-positions of fields within each 32-bit instruction word**, and the **"Parser Codes"
-master value table** (numeric value per `STOP_*` code). These stay **TBD-from-
-figure**. To recover them, fetch the official patent drawing sheets (the
-`patentimages` PDF, not the HTML export) or cross-reference the XDP2 sources.
+**One item remains:** the **coprocessor (custom-3)** instruction encodings are not in
+the drawing sheets — they live in the scanned spec text (pp. 111+) and can be
+recovered from there if/when the coprocessor opcodes are needed.
 
 ---
 
 ## 11. Prioritized action list
+
+**Status: ✅ all applied** (P0+P1+P2) across the phase docs, plus full encoding
+recovery from the USPTO figures. The one remaining item is the coprocessor
+(custom-3) encodings (§10).
 
 | # | Change | Doc(s) | Priority |
 |---|--------|--------|----------|
@@ -292,12 +298,12 @@ figure**. To recover them, fetch the official patent drawing sheets (the
 | 2 | Add the two-level parsing model + `DataBound` lifecycle | Phase 1, Phase 2, Phase 4 | **P0** |
 | 3 | Rewrite end-of-node: Loop-then-Next, data-vs-current advance, overlay, encapsulation, address-or-code | Phase 1, Phase 4, Phase 5 | **P0** |
 | 4 | Expand the instruction set to the full families (§7); keep varint/data-extract as later-phase | Phase 1 | **P0** |
-| 5 | Re-base encoding on custom-0 `0x0b` + 4-bit function + custom-3 moves; control bits; class-dependent `Sz`; mark bit positions TBD-from-figure | Phase 3 | **P1** |
+| 5 | Re-base encoding on custom-0 `0x0b` + `Fnc4` map + custom-3 moves; control bits; class-dependent `Sz`; **exact bit positions recovered** | Phase 3 | **P1** ✅ |
 | 6 | Add counters, encapsulation levels, metadata-frame model | Phase 1, Phase 4 | **P1** |
 | 7 | Adopt the negative-byte parser-code status scheme + named codes | Phase 1, Phase 2 | **P1** |
 | 8 | Add load attributes (endian/shift/mask/X) and compare variants + on-false actions | Phase 1 | **P1** |
 | 9 | Update Risk R2 (context state is large: 32 regs) and the overview's "Herbert-style ISA" line to reflect full-ISA scope | Overview | **P2** |
-| 10 | Read the patent **PDF figures** to recover exact bit fields; reconcile with XDP2 | Phase 3, references | **P2** |
+| 10 | Read the USPTO **PDF figures** to recover exact bit fields (done: FIG 45/46/47) | Phase 3, encodings note | **P2** ✅ |
 
 **Recommended sequencing:** apply P0 to Phase 1/2/4 first (they define semantics and
 the golden model), then P1 encoding/counters/codes, then P2. None of this changes

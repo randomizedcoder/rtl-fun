@@ -30,9 +30,10 @@ Status legend: 🟡 Draft · 🟢 Ready · 🔵 In progress · ✅ Done.
   design compares to US Patent 12,461,885, and the prioritized corrections applied to
   follow Herbert's model closely.
 - **[analysis/patent-encodings-recovered.md](analysis/patent-encodings-recovered.md)**
-  — register struct layouts, `Sz` tables, address/code encoding, and CAM key
-  structure recovered from the patent text (the authoritative bit-level source; per-
-  instruction bit positions remain TBD-from-figure).
+  — the authoritative bit-level reference: `Fnc4` opcode map, every 32-bit
+  instruction format as RFC-style ASCII bit diagrams, the Parser Codes table, `Sz`
+  tables, address/code + CAM-key formats, and register layouts (pixel-verified from
+  the USPTO drawing sheets).
 
 ## Supporting docs
 
