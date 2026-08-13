@@ -266,15 +266,21 @@ Phase-6 co-sim compares real codes.
 
 ## 10. What the patent text does *not* pin down
 
-Several exact details live in **figures** stripped by the HTML→text extraction:
-the per-instruction **bit-field diagrams**, the **`Sz` table image**, the
-**next-node address format**, and the **full "Parser Codes" master table**
-(referenced L1515, L1807). The register **struct layouts** survived as inline
-C-style text (L1343–1762), so register *fields* are known; per-instruction *bit
-positions* are not. → For Phase 3/5 we must read those figures in the **PDF**
-([`../references/patent-us12461885.pdf`](../references/patent-us12461885.pdf)) or
-cross-reference the XDP2 sources; until then, mark exact encodings **TBD-from-
-figure**.
+**Update after inspecting the PDF:** the Google-Patents PDF is the HTML print
+export and contains **no drawing images** (`pdfimages` finds exactly one 73×69 logo
+in all 49 pages), so the figures cannot be read from our copy. However, most of
+what the figures would show **survived as prose / inline C-structs** and is now
+crystallized in **[patent-encodings-recovered.md](patent-encodings-recovered.md)**:
+the register struct layouts (L1343–1762), the **`Sz` tables** (L1214–1224), the
+**address/code encoding** and **E/V/NE/NV control bits** (L1280–1321), the **CAM key
+union + PC-derived selector** (L1252–1278), and instruction framing (custom-0 `0x0b`
++ 4-bit function; custom-3 moves).
+
+**Genuinely still missing (needs official USPTO drawing sheets):** the exact **bit
+positions of fields within each 32-bit instruction word**, and the **"Parser Codes"
+master value table** (numeric value per `STOP_*` code). These stay **TBD-from-
+figure**. To recover them, fetch the official patent drawing sheets (the
+`patentimages` PDF, not the HTML export) or cross-reference the XDP2 sources.
 
 ---
 

@@ -27,8 +27,12 @@ Status legend: 🟡 Draft · 🟢 Ready · 🔵 In progress · ✅ Done.
 ## Analysis
 
 - **[analysis/patent-conformance.md](analysis/patent-conformance.md)** — how the
-  current design compares to US Patent 12,461,885, and the prioritized corrections
-  needed to follow Herbert's model closely. **Read before revising Phase 1/3/4.**
+  design compares to US Patent 12,461,885, and the prioritized corrections applied to
+  follow Herbert's model closely.
+- **[analysis/patent-encodings-recovered.md](analysis/patent-encodings-recovered.md)**
+  — register struct layouts, `Sz` tables, address/code encoding, and CAM key
+  structure recovered from the patent text (the authoritative bit-level source; per-
+  instruction bit positions remain TBD-from-figure).
 
 ## Supporting docs
 
