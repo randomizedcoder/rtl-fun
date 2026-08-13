@@ -137,6 +137,11 @@ with an explicit matrix.
 silicon vendor taping this out lives in a SystemVerilog + commercial-EDA world
 (Synopsys/Cadence lint, CDC, synthesis, DFT). That dominates the choice.
 
+The **HDL choice for the parser unit** is examined in depth — including the
+higher-level alternatives (SpinalHDL, Bluespec, Chisel, Amaranth, Veryl) and why
+the ISA's tight coupling favors staying in SystemVerilog — in
+**[ADR-002](phase-0-scope-and-stack.md#03-adr-002--parser-unit-hdl-language-choice)**.
+
 | Option | HDL | Pros | Cons |
 |--------|-----|------|------|
 | **CVA6 + SV** ✅ | SystemVerilog | Industry-standard flow, RV64 (64-bit fields), taped-out silicon, EDA-friendly | Verbose; manual decode/exec wiring |
