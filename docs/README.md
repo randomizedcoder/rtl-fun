@@ -24,6 +24,12 @@ golden model and prototyped on FPGA.
 
 Status legend: 🟡 Draft · 🟢 Ready · 🔵 In progress · ✅ Done.
 
+## Analysis
+
+- **[analysis/patent-conformance.md](analysis/patent-conformance.md)** — how the
+  current design compares to US Patent 12,461,885, and the prioritized corrections
+  needed to follow Herbert's model closely. **Read before revising Phase 1/3/4.**
+
 ## Supporting docs
 
 - **[glossary.md](glossary.md)** — terms (parse graph, cursor, TLV, CAM, custom0-3, IPC, XDP2/PANDA…).
