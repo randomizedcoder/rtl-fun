@@ -11,9 +11,11 @@ toolchain support.
 
 > **Source of truth for bits:**
 > [`analysis/patent-encodings-recovered.md`](analysis/patent-encodings-recovered.md)
-> (recovered from the patent prose — the figure images did not survive extraction).
-> **Per-instruction field *bit-positions* are TBD-from-figure** (need the official
-> USPTO drawing sheets); everything else below is from the patent text.
+> — now **complete and pixel-verified** from the official USPTO drawing sheets
+> (`Fnc4` opcode map, every 32-bit instruction format with exact bit ranges, the
+> Parser Codes table, `Sz` tables, address/code + CAM-key formats, register
+> layouts). The only piece still open is the **coprocessor (custom-3)** encodings
+> (in the scanned spec text, not the drawings).
 
 ## Inputs / prerequisites
 
@@ -24,9 +26,10 @@ toolchain support.
 
 ### 3.1 Opcode framing (patent-specified)
 
-- **32-bit** parser instructions: RISC-V **custom-0 primary opcode `0x0b`** + a
-  **4-bit function field** that selects the instruction. (In the patent's
-  disassembly every parser opcode byte ends in `0b`.) Targets **4-byte aligned**.
+- **32-bit** parser instructions: RISC-V **custom-0 opcode `[6:0]=0b0001011` (0x0B)**
+  + **`Fnc4=[10:7]`** selecting the instruction group (full map:
+  [encodings §1.1](analysis/patent-encodings-recovered.md)). Targets **4-byte
+  aligned**.
 - **64-bit** variant: uses the >32-bit opcode space; **8-byte aligned**. 32/64-bit
   forms interoperate (branch/fall-through) if aligned. *(Companion doc; we implement
   32-bit first.)*
@@ -75,19 +78,19 @@ union {
 // non-shared: Selector = (PC << 6) & 0xFF00   (collisions illegal; pad with NOPs)
 ```
 
-### 3.5 Per-instruction fields (positions TBD-from-figure)
+### 3.5 Per-instruction fields (recovered, exact)
 
-The patent gives each instruction's **field set and semantics** (Phase 1), and the
-register/`Sz`/address encodings above — but the **bit positions within the 32-bit
-word** live in per-instruction figures absent from our copy. Until we obtain the
-drawing sheets, the machine-readable table (§3.6) records **fields + widths +
-semantics**, with positions marked TBD. Representative field sets:
-- **Load:** funct, X, Sz, E, Shift, Blen, rd(preg), Offset.
-- **Length:** funct, D, Sz, Pos, Shift, Len, S.
-- **CAM:** funct, Sz, Pos, F, Share, Miss, A, S.
-- **Compare:** funct, Func3, Sz, Pos, N, Er, Value/Mask.
-- **Next/imm:** funct, V(overlay), S, Next/Mask(16).
-- **Store:** funct, F, Sz, Pos, Sind, E, J, S, Offset.
+Every 32-bit instruction format is now pixel-verified with exact bit ranges — see
+the RFC-style diagrams and per-group discriminator tables in
+[encodings §2](analysis/patent-encodings-recovered.md). Examples (bit ranges exact):
+- **Load `Fnc4=0000`:** `X[31] D[30] Sz[29:28] Blen[27:24] Shift[23:21] E[20]
+  Offset[19:11] Fnc4[10:7] Opcode[6:0]`.
+- **CAM `Fnc4=1000`:** `S[31] D[30] Sz[29:28] Pos[27:24] Func3[23:21] F[20]
+  Share[19:16] Miss[15:11] …`.
+- **Store `Fnc4=0100`:** `S[31] F[30] Sz[29:28] Pos[27:24] J[23] Sind[22:20]
+  Offset[19:11] …`.
+- **Compare `Fnc4=1011`:** `S[31] D[30] Sz[29:28] Pos[27:24] Func3[23:21] Er[20:19]
+  Value[18:11] …`.
 
 ### 3.6 Machine-readable table
 
@@ -98,15 +101,15 @@ the model's encoder/decoder, the assembler macros, and a disassembler stub.
 
 ### 3.7 Assembler `.insn` mapping
 
-Before touching binutils/LLVM, emit raw encodings via `.insn` + inline-asm wrappers.
-Because exact bit positions are TBD, seed the header from the machine-readable table
-and fill positions once recovered:
+Before touching binutils/LLVM, emit raw encodings via `.insn` + inline-asm wrappers,
+built directly from the exact fields (opcode `0x0b`, `Fnc4`, and the per-instruction
+bit ranges in [encodings §2](analysis/patent-encodings-recovered.md)):
 
 ```c
-static inline uint64_t prs_load_h(int disp) {
-    uint64_t r;
-    asm volatile(".insn r CUSTOM_0, /*funct3*/0, /*funct7*/0, %0, x0, %1"
-                 : "=r"(r) : "r"(disp));   /* fields TBD-from-figure */
+/* PLOAD .h from pcurptr+disp: X=0 D=0 Sz=2 Fnc4=0000 Opcode=0x0b */
+static inline uint64_t prs_load_h(unsigned off) {
+    uint64_t r; uint32_t w = 0x0b | (0x0 << 7) | ((off & 0x1ff) << 11) | (2u << 28);
+    asm volatile(".insn 0x%x" : "=r"(r) : "i"(w));   /* fields now exact */
     return r;
 }
 ```
@@ -116,12 +119,12 @@ static inline uint64_t prs_load_h(int disp) {
 1. Encode the framing (custom-0 `0x0b` + 4-bit function; custom-3 moves) (3.1).
 2. Encode the address/code scheme + control bits (3.2) and the `Sz`/position rules
    (3.3) and CAM key union (3.4).
-3. Author the machine-readable table with fields + widths + semantics; mark
-   bit-positions TBD (3.5–3.6).
+3. Author the machine-readable table with fields + **exact bit positions** +
+   semantics from [encodings §2](analysis/patent-encodings-recovered.md) (3.5–3.6).
 4. Write `.insn` templates keyed off the table (3.7).
-5. Add encode/decode to the Phase-2 model; round-trip check what is fully known.
-6. **Recover** exact bit positions + the Parser Codes value table from the official
-   USPTO drawing sheets; fill in the table; remove the TBDs.
+5. Add encode/decode to the Phase-2 model; round-trip check every instruction.
+6. Recover the **coprocessor (custom-3)** encodings from the scanned spec text
+   (pp. 111+) — the one family not in the drawing sheets.
 
 ## Deliverables / artifacts
 
@@ -131,15 +134,14 @@ static inline uint64_t prs_load_h(int disp) {
 
 ## Exit criteria
 
-- Framing, address/code encoding, `Sz` rules, and CAM key structure are exact and
-  match the patent.
-- Every instruction has a table row; fully-known encodings round-trip in the model;
-  remaining bit-positions are explicitly flagged TBD-from-figure.
+- Framing, `Fnc4` map, per-instruction bit ranges, address/code encoding, `Sz`
+  rules, CAM key structure, and Parser Codes are exact and match the patent.
+- Every 32-bit instruction has a table row that round-trips in the model; only the
+  coprocessor (custom-3) family remains to be recovered.
 
 ## Open questions
 
-- **P2 / blocking full exactness:** obtain the drawing sheets (per-instruction bit
-  layouts + Parser Codes table). Source: `patentimages` PDF or XDP2.
+- **Coprocessor (custom-3) encodings:** recover from the scanned spec text (pp. 111+).
 - **Decision:** 32-bit only first (defer the 64-bit form).
 - **Decision:** parser registers as a dedicated file addressed in `rd/rs` — confirm
   with Phase 4.

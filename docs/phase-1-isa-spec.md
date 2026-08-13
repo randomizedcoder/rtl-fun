@@ -209,8 +209,9 @@ Exit status is a **negative-byte parser code** (−1..−127; high bit set = cod
 `ParserExitCode` holds `Error:16` + the exit instruction `Address:24`. Named codes in
 the text: `OKAY_RET`, `STOP_OKAY`, `STOP_NODE_OKAY`, `STOP_SUB_NODE_OKAY`,
 `STOP_LENGTH`, `STOP_TLV_LENGTH`, `STOP_LOOP_CNT`, `STOP_OPTION_LIMIT`,
-`STOP_PADDING_LIMIT`. (The full numeric value table is a patent figure not in our
-text — **TBD-from-figure**.)
+`STOP_PADDING_LIMIT`. The **full Parser Codes table with numeric values**
+(`STOP_FAIL=−13`, `STOP_LENGTH=−14`, … `STOP_CNTR7=−32`) is recovered in
+[`analysis/patent-encodings-recovered.md`](analysis/patent-encodings-recovered.md) §4.
 
 ### 1.11 Worked example — Ethernet + IPv4 (blog subset, real mnemonics)
 
