@@ -29,8 +29,22 @@ yet. The docs plan the full journey so it can be executed phase by phase.
 
 ```
 docs/          Design documentation (start here)
+flake.nix      Nix flake — reproducible dev environment (`nix develop`)
+nix/           Modular Nix files (tool groups, dev shell)
 LICENSE        Public domain (Unlicense)
 ```
+
+## Development environment
+
+All tooling (Verilator, cocotb, poppler, Spike, QEMU, …) is provided by a **Nix
+flake** so every contributor gets the same versions:
+
+```sh
+nix develop      # enter the dev shell
+rtl-help         # list the tools
+```
+
+See **[docs/nix.md](docs/nix.md)** for the layout and how to extend it.
 
 ## Read the docs
 
