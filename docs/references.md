@@ -17,8 +17,11 @@ page is paywalled or 403s, the key facts are summarized in the relevant doc.
   instruction set, parser registers, worked Ethernet/IPv4 example, and performance
   figures.
 - **US Patent 12,461,885 — "Parser instructions for CPUs"** (Tom Herbert).
-  📄 [local copy](references/patent-us12461885.pdf) ·
-  [Google Patents](https://patents.google.com/patent/US12461885B2/en).
+  📄 [Google export (text)](references/patent-us12461885.pdf) ·
+  📄 [USPTO PDF (108 drawing sheets)](references/uspto-patent-us12461885.pdf) ·
+  [Google Patents](https://patents.google.com/patent/US12461885B2/en). Bit-field
+  encodings extracted from the drawings:
+  [`analysis/patent-encodings-recovered.md`](analysis/patent-encodings-recovered.md).
   Describes the underlying PANDA parser approach: parser state (current offset /
   header length), bounds checks, metadata extraction, next-protocol
   determination, and native TLV / flag-field handling.
