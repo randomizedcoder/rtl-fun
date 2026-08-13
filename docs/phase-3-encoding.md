@@ -11,11 +11,11 @@ toolchain support.
 
 > **Source of truth for bits:**
 > [`analysis/patent-encodings-recovered.md`](analysis/patent-encodings-recovered.md)
-> — now **complete and pixel-verified** from the official USPTO drawing sheets
+> — **complete and pixel-verified** from the official USPTO drawing sheets
 > (`Fnc4` opcode map, every 32-bit instruction format with exact bit ranges, the
-> Parser Codes table, `Sz` tables, address/code + CAM-key formats, register
-> layouts). The only piece still open is the **coprocessor (custom-3)** encodings
-> (in the scanned spec text, not the drawings).
+> custom-3 **coprocessor** formats, the Parser Codes table, `Sz` tables, address/
+> code + CAM-key formats, register layouts, and the p0–p31 init table). **No
+> remaining encoding gaps.**
 
 ## Inputs / prerequisites
 
@@ -33,8 +33,10 @@ toolchain support.
 - **64-bit** variant: uses the >32-bit opcode space; **8-byte aligned**. 32/64-bit
   forms interoperate (branch/fall-through) if aligned. *(Companion doc; we implement
   32-bit first.)*
-- **Coprocessor** moves + CAM/array programming: **custom-3 `0x7b`**, `CoP=0` =
-  parser coprocessor (`CPPRSRD/WR/WRIMM/WRCAM/RDCAM/WRARRAY/RDARRAY`).
+- **Coprocessor** moves + CAM/array programming: **custom-3 `0x7b`**, R-form with
+  `CoP=[31:29]=000`, `Cpreg=[28:24]`, `Rs=[19:15]`, `Func3=[14:12]`, `Rd=[11:7]`
+  (`CPPRSRD/WR/WRIMM/WRCAM/RDCAM/WRARRAY/RDARRAY`; full table:
+  [encodings §2.2](analysis/patent-encodings-recovered.md)).
 
 > This **replaces** our earlier "partition custom-0..3 by instruction class" plan.
 > The patent uses **one** primary opcode (custom-0) + a function field, plus custom-3
@@ -122,9 +124,8 @@ static inline uint64_t prs_load_h(unsigned off) {
 3. Author the machine-readable table with fields + **exact bit positions** +
    semantics from [encodings §2](analysis/patent-encodings-recovered.md) (3.5–3.6).
 4. Write `.insn` templates keyed off the table (3.7).
-5. Add encode/decode to the Phase-2 model; round-trip check every instruction.
-6. Recover the **coprocessor (custom-3)** encodings from the scanned spec text
-   (pp. 111+) — the one family not in the drawing sheets.
+5. Add encode/decode to the Phase-2 model; round-trip check every instruction
+   (custom-0 and custom-3).
 
 ## Deliverables / artifacts
 
@@ -134,14 +135,13 @@ static inline uint64_t prs_load_h(unsigned off) {
 
 ## Exit criteria
 
-- Framing, `Fnc4` map, per-instruction bit ranges, address/code encoding, `Sz`
-  rules, CAM key structure, and Parser Codes are exact and match the patent.
-- Every 32-bit instruction has a table row that round-trips in the model; only the
-  coprocessor (custom-3) family remains to be recovered.
+- Framing, `Fnc4` map, per-instruction bit ranges (custom-0 **and** custom-3),
+  address/code encoding, `Sz` rules, CAM key structure, and Parser Codes are exact
+  and match the patent — **no encoding gaps**.
+- Every instruction has a table row that round-trips in the model.
 
 ## Open questions
 
-- **Coprocessor (custom-3) encodings:** recover from the scanned spec text (pp. 111+).
 - **Decision:** 32-bit only first (defer the 64-bit form).
 - **Decision:** parser registers as a dedicated file addressed in `rd/rs` — confirm
   with Phase 4.

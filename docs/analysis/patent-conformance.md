@@ -280,17 +280,17 @@ the register struct layouts (L1343–1762), the **`Sz` tables** (L1214–1224), 
 union + PC-derived selector** (L1252–1278), and instruction framing (custom-0 `0x0b`
 + 4-bit function; custom-3 moves).
 
-**One item remains:** the **coprocessor (custom-3)** instruction encodings are not in
-the drawing sheets — they live in the scanned spec text (pp. 111+) and can be
-recovered from there if/when the coprocessor opcodes are needed.
+The **coprocessor (custom-3)** formats were also recovered (FIG 43/44), along with
+the p0–p31 register-init table (FIG 42). **Encoding coverage is now 100% — no
+remaining gaps.**
 
 ---
 
 ## 11. Prioritized action list
 
-**Status: ✅ all applied** (P0+P1+P2) across the phase docs, plus full encoding
-recovery from the USPTO figures. The one remaining item is the coprocessor
-(custom-3) encodings (§10).
+**Status: ✅ all applied** (P0+P1+P2) across the phase docs, plus **100% encoding
+recovery** from the USPTO figures (custom-0 + custom-3 + registers). No remaining
+gaps.
 
 | # | Change | Doc(s) | Priority |
 |---|--------|--------|----------|

@@ -121,9 +121,19 @@ R64 = {
   [('Rsvd',63,46),('E',45,45),('N',44,44),('P',43,43),('Disp',42,40),('EOL',39,32),('PADN',31,24),('PAD1',23,16),('IgnMask',15,8),('IgnVal',7,0)],
 }
 
+CP32 = {  # custom-3 coprocessor instructions, Opcode[6:0]=0x7b=1111011 (FIG 43)
+"Coprocessor R-form  (custom-3): CPPRSRD/CPPRSWR/CPPRSRDCAM/RDARRAY/WRCAM/WRARRAY":
+  [('CoP',31,29),('Cpreg',28,24),('C/D',23,23),('S',22,22),('I',21,21),('R',20,20),('Rs',19,15),('Func3',14,12),('Rd',11,7),('Opcode',6,0)],
+"CPPRSWRIMM  (custom-3, I=1): 11-bit imm = Imm1 + (Imm2<<5)":
+  [('CoP',31,29),('Cpreg',28,24),('C',23,23),('S',22,22),('I',21,21),('Imm2',20,15),('Func3',14,12),('Imm1',11,7),('Opcode',6,0)],
+}
+
 import sys
 print("="*72); print("32-BIT INSTRUCTION FORMATS  (Opcode[6:0]=0x0b=0001011)"); print("="*72)
 for t,f in I32.items():
+    print(); print(diagram(32, f, t))
+print(); print("="*72); print("CUSTOM-3 COPROCESSOR FORMATS  (Opcode[6:0]=0x7b=1111011)"); print("="*72)
+for t,f in CP32.items():
     print(); print(diagram(32, f, t))
 for t,f in KEY20.items():
     print(); print(diagram(20, f, t))
