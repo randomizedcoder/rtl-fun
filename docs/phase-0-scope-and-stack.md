@@ -64,7 +64,69 @@ manufacturers* (SystemVerilog + commercial EDA), gives RV64 registers for 64-bit
 packet fields, and is real silicon. Ibex stays documented as the fallback if
 CVA6's size becomes an obstacle for early FPGA bring-up.
 
-### 0.3 Repo layout (target, created as phases land)
+### 0.3 ADR-002 — Parser-unit HDL (language choice)
+
+**Status:** Accepted (recommendation). Consistent with [ADR-001](00-overview.md#5-key-architectural-decision-adr-001-systemverilog--cva6);
+revisit only if team HDL expertise strongly favors SpinalHDL/Bluespec.
+
+**Context.** CVA6 is written in **SystemVerilog**, and the patent's parser
+instructions are a **tightly-coupled** execution unit: they intermix freely with
+integer instructions, share the PC and register-file plumbing, and redirect fetch
+at end-of-node. The hardest, most iterative work is therefore *inside* CVA6
+(decode → issue → EX functional unit → fetch redirect → hazards). That property —
+not a stylistic preference — drives the choice: a same-language seam removes an
+entire class of integration/debug pain, and loosely-coupled/generated-Verilog
+approaches hurt most exactly there.
+
+**Options considered.** (★ = better; ✦ = too new to judge)
+
+| Option | What it is | Tape-out / EDA fit | Tight CVA6 integration | Productivity (control+datapath) | Verilator+cocotb | Talent / ecosystem | Risk |
+|--------|------------|--------------------|------------------------|---------------------------------|------------------|--------------------|------|
+| **SystemVerilog** ✅ | Same language as CVA6 | ★★★ native | ★★★ no language boundary | ★★ verbose (mitigated by codegen) | ★★★ | ★★★ huge | ★ lowest |
+| **SpinalHDL** | Scala HDL → clean, readable Verilog | ★★ (DV/PD sign off on generated RTL) | ★★ generated block + SV wrapper | ★★★ excellent generators/plugins | ★★★ | ★ small | ★★ |
+| **Bluespec (BSV)** | Rule/atomic-transaction HDL | ★★ generated | ★★ | ★★★ *best semantic fit for parsing FSMs* | ★★ | ★ niche | ★★★ |
+| **Chisel (Rocket)** | Scala HDL → Verilog | ★★ noisier output | ★ natural path is RoCC = **loosely coupled** | ★★★ | ★★★ | ★★ | ★★ |
+| **Amaranth** | Python HDL → Verilog | ★ weakest tape-out track record | ★★ | ★★★ | ★★★ | ★ | ★★★ |
+| **Veryl** | Modern lang → 1:1 SystemVerilog | ★★★ (output *is* SV) | ★★★ | ★★ | ★★★ | ✦ brand-new | ★★★ |
+
+**Pros / cons that decide it:**
+- **SystemVerilog** — *pro:* zero language boundary with CVA6; every ASIC flow
+  (Synopsys/Cadence lint, CDC, DFT, synthesis) is SV-first; largest talent pool;
+  Verilator+cocotb work directly. *con:* verbose, classic footguns (latches,
+  X-prop) — largely removed by **generating the decode/encode tables from the ISA
+  table** ([`analysis/patent-encodings-recovered.md`](analysis/patent-encodings-recovered.md)).
+- **SpinalHDL** — *pro:* lovely parameterization/plugin model, emits readable
+  Verilog, VexRiscv proves tight custom-instruction integration. *con:* Scala +
+  small community; a DV/PD team still signs off on generated Verilog and debugs
+  across a language boundary at the CVA6 seam.
+- **Bluespec** — *pro:* rule-based atomics model parse-node/loop/end-of-node
+  control elegantly; strong typing; real silicon history. *con:* niche, steep
+  curve, hard to hire for — a large bet for a first effort.
+- **Chisel** — *pro:* powerful generators, Rocket ecosystem. *con:* its natural
+  integration is **RoCC (loosely coupled)** — the wrong shape for intermixed,
+  in-pipeline parser instructions; noisier generated Verilog; heavy build.
+- **Amaranth / Veryl** — productive/modern; Amaranth has the weakest tape-out
+  record, and Veryl (transpiles 1:1 to SV — appealing long-term) is too new to bet
+  a first silicon effort on.
+
+**Decision.** Write the parser unit in **SystemVerilog**, with **code-generation
+from the ISA table** (a script emitting SV packages for the `Fnc4` decode, field
+extraction, and the register/`Sz`/parser-code constants). Rationale:
+1. **The ISA is tightly coupled** — a same-language seam with CVA6 is worth more
+   than any higher-level HDL's productivity, because the integration edits live
+   inside CVA6.
+2. **It is the stated deciding axis** — "appropriate for likely chip manufacturers"
+   = SystemVerilog + commercial EDA; generated Verilog is a sign-off friction point.
+3. **We keep the generator upside anyway** — the parameterization that makes
+   Chisel/SpinalHDL attractive is mostly the decode/encode tables, which we
+   generate into SV from the machine-readable ISA table.
+
+**Flip condition.** If the team already has **deep SpinalHDL or Bluespec** expertise
+and explicitly prioritizes design-velocity over first-pass tape-out-readiness,
+**SpinalHDL** is the strongest alternative (readable output, proven tight
+custom-instruction integration in VexRiscv).
+
+### 0.4 Repo layout (target, created as phases land)
 
 ```
 docs/                 design docs (this set)
@@ -82,7 +144,7 @@ fpga/                 board build + block design  (Phase 8)
 bench/                benchmark harness + results  (Phase 9)
 ```
 
-### 0.4 Toolchain prerequisites
+### 0.5 Toolchain prerequisites
 
 - **Verilator** + **cocotb** (co-sim, Phase 6).
 - **riscv-gnu-toolchain** or an LLVM RISC-V build (for `.insn`, Phase 7).
@@ -108,6 +170,7 @@ bench/                benchmark harness + results  (Phase 9)
 ## Exit criteria
 
 - Base core chosen with a recorded rationale (matrix above).
+- **Parser-unit HDL chosen with a recorded rationale (ADR-002 §0.3).**
 - Vertical slice + output struct fixed.
 - Verilator/cocotb and Spike/QEMU installed and smoke-tested; stock CVA6 sim runs.
 
