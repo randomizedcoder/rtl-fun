@@ -21,8 +21,8 @@ instruction bit ranges are **pixel-verified** from the figure rulers.
 - **32-bit** parser instructions: RISC-V **custom-0 opcode `[6:0] = 0b0001011`
   (0x0B)** + **`Fnc4 = [10:7]`** selecting the instruction group. 4-byte aligned.
 - **64-bit** variant: >32-bit opcode space, 8-byte aligned (companion; we do 32-bit).
-- **Coprocessor** moves + CAM/array programming: **custom-3 `0x7b`** (encodings not in
-  the drawing sheets — likely in the scanned spec text, pp. 111+).
+- **Coprocessor** moves + CAM/array programming: **custom-3 `0x7b`** (formats in
+  FIG 43/44, §2.2 below — full coverage).
 
 ### 1.1 `Fnc4` opcode map (FIG 46, p. 49)
 
@@ -152,6 +152,37 @@ PRUNTHREAD (Fnc4=1111,F2=00)  |  PINITPARSER/PEVENTLOOP*(F2=01/10)  |  PDATAEXTR
 | Compare `1011` | `Func3[23:21]` | PCMPILTB (000), PCMPILTEB (001), PCMPIGTB (010), PCMPIGTEB (011) |
 | Lifecycle `1111` | `F2[29:28]` | PRUNTHREAD (00), PINITPARSER (01), PEVENTLOOP (10,Rv=00), PEVENTLOOPEND (10,Rv=01), PDATAEXTRACT (11) |
 
+### 2.2 Custom-3 coprocessor formats (FIG 43/44)
+
+Standard RISC-V R-form on `Opcode[6:0]=0x7b` with `CoP=[31:29]=000` (parser
+coprocessor), `Cpreg=[28:24]` (which `p` register), control bits `C/D[23] S[22]
+I[21] R[20]`, `Rs=[19:15]`, `Func3=[14:12]`, `Rd=[11:7]`.
+
+```
+Coprocessor R-form (custom-3)          CPPRSWRIMM (I=1): imm11 = Imm1 + (Imm2<<5)
+3     2         2 2 2 2 1         1     3     2         2 2 2 2           1
+1     8         3 2 1 0 9         4     1     8         3 2 1 0           4
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| CoP | Cpreg |C|S|I|R| Rs  |Func3|Rd…  | CoP | Cpreg |C|S|I| Imm2  |Func3|Imm1…
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+       +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+(full ASCII diagrams: run bitgen.py)
+```
+
+Discriminators & assembly (FIG 43/44):
+
+| Instr | S | I | R | Func3 | D-bit | assembly |
+|-------|---|---|---|-------|-------|----------|
+| CPPRSRD | 0 | 0 | 0 | 000 | — | `prs.mv.x.p ireg,preg` (read p→int) |
+| CPPRSWR | 0 | 0 | 0 | 001 | — | `prs.mv.p.x preg,ireg` (write int→p) |
+| CPPRSWRIMM | 0 | 1 | — | 001 | — | `prs.ld.immed preg,imm` (11-bit imm) |
+| CPPRSRDCAM | 0 | 0 | 1 | 000 | — | `prs.cam.read ireg,ireg` |
+| CPPRSWRCAM | 0 | 0 | 1 | 001 | `[23]=D` | `prs.cam.write ireg,preg` (D=0) / `prs.cam.delete ireg` (D=1) |
+| CPPRSRDARRAY | 1 | 0 | 1 | 000 | — | `prs.array.read ireg,ireg` |
+| CPPRSWRARRAY | 1 | 0 | 1 | 001 | `[23]=D` | `prs.array.write ireg,preg` (D=0) / `prs.array.delete ireg` (D=1) |
+
+(For write/CAM/array ops `Rd=[11:7]=00000`; for reads `Cpreg=00000` and `Rs` holds
+the key/index.)
+
 ## 3. Next-node address / code word & CAM key
 
 ```
@@ -228,10 +259,32 @@ FrameOffset:8,EE:1,EO:1,NumPfuncs:6,PrsBuff:8}`, `LoopSpec{MaxCnt:16,MaxNon:16,
 MaxPlen:8,MaxCPad:8,Disp:2,E:1}`. See the [conformance analysis](patent-conformance.md)
 §2 and the patent text for cites.
 
-## 6. Provenance & remaining gaps
+### 5.1 Register map p0–p31 + initialization (FIG 42)
 
-Instruction formats + Parser Codes + Func4 map: pixel-verified from the USPTO
-drawing sheets. **Coprocessor** (custom-3) instruction encodings are the one piece
-not in the drawings — they are in the scanned spec text (pp. 111+); render those
-pages if the coprocessor opcodes are needed. The ASCII diagrams here are generated
-by [`bitgen.py`](bitgen.py) from the verified field tables (`python3 bitgen.py`).
+| p# | Reg | Init | p# | Reg | Init |
+|---:|-----|------|---:|-----|------|
+| p0 | ObjectRef | from work item | p16 | Flags | — |
+| p1 | CurHdr | 0 | p17 | ParserConfig | one-time |
+| p2 | DataHdr | 0 | p18 | CounterLimitsConfig | one-time |
+| p3 | PktLen | AllLen from msg; ParseLen=min(pktlen,(PrsBuff+1)·64); F,P=1 | p19 | CounterArrayConfig | one-time |
+| p4 | FrameOffFnumSeqno | Seqno set; FrameOff=0 | p20 | CounterArraySzResEncConfig | one-time |
+| p5 | PktInfo | PktCtx, Checksum | p21 | LoopSpec | per use |
+| p6 | NodeLoopCnt | 0 | p22 | TLVSpec | per use |
+| p7 | Counters | 0 | p23 | OkayTarget | one-time |
+| p8 | PktHdrBase | from pkt ctx | p24 | FinalTarget *(a.k.a. FailTarget)* | one-time |
+| p9 | MetadataBase | from pkt ctx | p25 | Wildcard | per CAM |
+| p10 | ParserInstrBase | 0xFFFF | p26 | AltWildcard | per CAM |
+| p11 | Next | STOP_OKAY | p27 | AtEncap | one-time |
+| p12 | PendingWork | 0xFFFF | p28 | PostLoop | per loop |
+| p13 | DataBndLoop | DataBound=0xFFFFFFFF, Loop=OKAY_RET | p29 | CompareFalse *(fig: "CompFlase")* | per compare |
+| p14 | ParserExitCode | — | p30 | DataExtractBase | one-time |
+| p15 | Accum | — | p31 | Timestamp | from work item |
+
+## 6. Provenance — 100% coverage
+
+All encodings are pixel-verified from the USPTO drawing sheets: instruction formats
++ Parser Codes + `Fnc4` map (FIG 45/46/47), the **custom-3 coprocessor** formats
+(FIG 43/44), register layouts and the p0–p31 init table (FIG 42, 24, 27, 37, 41).
+**No remaining gaps** — the parser ISA encoding is fully specified. The ASCII
+diagrams here are generated by [`bitgen.py`](bitgen.py) from the verified field
+tables (`python3 bitgen.py`).
