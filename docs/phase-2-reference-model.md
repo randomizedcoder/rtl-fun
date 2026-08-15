@@ -8,6 +8,12 @@ Turn the [ISA spec](phase-1-isa-spec.md) into an **executable golden model** in 
 the single source of architectural truth. Everything downstream (RTL, sims, the
 toolchain) is verified *against this model*, not against prose.
 
+> Each `execute_*` below implements, 1:1, a routine in the normative
+> [**Phase-1 operational semantics**](phase-1-isa-semantics.md) — that doc's
+> pseudocode, shared primitives, parser codes, and `Common_End_of_Node` are the
+> contract this model must reproduce bit-for-bit (see its
+> [§7 Phase-2 binding](phase-1-isa-semantics.md#7-phase-2-binding)).
+
 ## Inputs / prerequisites
 
 - Phase 1 ISA spec (semantics for every instruction).

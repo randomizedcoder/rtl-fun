@@ -18,6 +18,13 @@ the **semantics of every parser instruction** — following **US Patent 12,461,8
 > the gap analysis that drove this rewrite is in
 > [`analysis/patent-conformance.md`](analysis/patent-conformance.md).
 
+> **➡ Normative spec:** this file is the overview. The precise, per-instruction
+> **operational semantics** — one pseudocode routine per instruction plus the shared
+> primitives and the two-stage end-of-node algorithm, patent-cited and precise enough
+> for the golden model — are in
+> [**`phase-1-isa-semantics.md`**](phase-1-isa-semantics.md). That is the Phase-1
+> deliverable [Phase 2](phase-2-reference-model.md) binds to.
+
 ## Inputs / prerequisites
 
 - Phase 0 scope (the vertical slice defines the minimum instruction subset to cover).
@@ -245,7 +252,10 @@ around its multi-protocol example.
 ## Deliverables / artifacts
 
 - This ISA spec, complete for the vertical slice, conformant to the patent.
-- A per-instruction semantics table precise enough to implement the golden model.
+- ✅ A per-instruction semantics spec precise enough to implement the golden model:
+  [`phase-1-isa-semantics.md`](phase-1-isa-semantics.md) (normative pseudocode +
+  shared primitives + `Common_End_of_Node` + the patent's worked trace + the
+  Phase-2 `execute_*` binding).
 
 ## Exit criteria
 
