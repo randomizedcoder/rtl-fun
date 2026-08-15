@@ -146,11 +146,38 @@ bench/                benchmark harness + results  (Phase 9)
 
 ### 0.5 Toolchain prerequisites
 
+All of the below (except the FPGA vendor flow) are provided reproducibly by the
+Nix dev shell — `nix develop`. See [nix.md](nix.md) and the pinned versions in
+[environment.md](environment.md).
+
 - **Verilator** + **cocotb** (co-sim, Phase 6).
-- **riscv-gnu-toolchain** or an LLVM RISC-V build (for `.insn`, Phase 7).
-- **Spike** and **QEMU** (functional ISA reference, Phase 7).
-- CVA6 checkout + its Verilator sim target.
+- **RISC-V bare-metal toolchain** (`riscv64-none-elf-gcc`/binutils, newlib) — in
+  the shell now; used to compile the CVA6 sim test programs and, later, `.insn`
+  parser tests (Phase 7).
+- **Spike** and **QEMU** (functional ISA reference, Phase 7). Spike also supplies
+  the DPI libraries (`libfesvr`/`libriscv`/`libdisasm`) the CVA6 testharness links.
+- **CVA6** base core — pinned via Nix (`nix/cva6.nix`, v5.3.0) and built into a
+  Verilator model by [`scripts/cva6-baseline.sh`](../scripts/cva6-baseline.sh).
 - (Later) FPGA vendor flow — board **TBD** (Phase 8).
+
+### 0.6 CVA6 Verilator baseline (task 4)
+
+The stock CVA6 core builds to a Verilator simulator with no RTL changes yet — the
+baseline we will later extend with the parser unit:
+
+```sh
+nix run .#cva6-baseline
+# -> build/cva6/work-ver/Variane_testharness   (target: cv64a6_imafdc_sv39, RV64GC)
+```
+
+The builder is a Nix `writeShellApplication` (`nix/cva6-baseline.nix`, body in
+[`scripts/cva6-baseline.sh`](../scripts/cva6-baseline.sh)) — so its tools come from
+`runtimeInputs` and `shellcheck` gates it at build time. It assembles a unified
+`$RISCV` prefix from the scattered Nix outputs (toolchain + Spike + yaml-cpp),
+copies the read-only pinned source into `build/cva6/`, and runs `make verilate`.
+One local patch is applied: CVA6 v5.3.0's root `verilate` target links none of the
+DPI elf-loader sources, so the script adds the vendored `fesvr_dpi.cc` (which
+defines `read_elf`/`get_section`/`read_section_void`/`read_symbol`).
 
 ## Step-by-step tasks
 

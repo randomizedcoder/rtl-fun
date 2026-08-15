@@ -32,10 +32,14 @@ echo 'experimental-features = nix-command flakes' | sudo tee -a /etc/nix/nix.con
 flake.nix                     # description, inputs (nixpkgs + flake-utils), outputs
 flake.lock                    # pinned inputs — commit this for reproducibility
 nix/
-  packages.nix                # tool groups (docs / rtl / sim / toolchain / common)
-  devshell.nix                # mkShell: tools + banner + rtl-help
+  packages.nix                # tool groups (docs / rtl / sim / toolchain / riscv / common)
+  cva6.nix                    # pinned CVA6 base-core source (fetchFromGitHub)
+  cva6-baseline.nix           # `cva6-baseline` app (writeShellApplication)
+  devshell.nix                # mkShell: tools + CVA6_SRC/CV_SW_PREFIX + banner + rtl-help
   shell-functions/
     help.nix                  # the rtl-help function
+scripts/
+  cva6-baseline.sh            # body of the cva6-baseline app (Phase 0 sim baseline)
 ```
 
 `flake.nix` stays thin: it imports `nix/packages.nix` and `nix/devshell.nix` and
@@ -53,11 +57,13 @@ Grouped in [`nix/packages.nix`](../nix/packages.nix) by the phase they serve:
 | **rtl** | `verilator`, `verible`, `svlint`, `gtkwave`, `yosys` | SystemVerilog design + lint (Phase 5) |
 | **sim** | `python3` + `cocotb`, `pytest`, `scapy` | co-simulation testbenches + corpus (Phase 2/6) |
 | **toolchain** | `spike`, `qemu` | RISC-V ISA sim + emulation (Phase 7) |
+| **riscv** | `pkgsCross.riscv64-embedded` `gcc`/`binutils` | bare-metal RISC-V cross compiler (CVA6 sim, `.insn` tests) |
 | **common** | `git`, `gh`, `gnumake`, `gcc`, `ripgrep`, `jq`, `curl` | everyday work |
 
-RISC-V **cross-GCC** is left commented in `nix/packages.nix` until the Phase-7
-toolchain work starts (it can build from source on first use); enable the
-`pkgsCross.riscv64-embedded.buildPackages.gcc` line then.
+The RISC-V cross toolchain is the **bare-metal** (`riscv64-none-elf`, newlib)
+target — CVA6's Verilator sim runs freestanding ELFs with no OS. It is fully
+cached in `cache.nixos.org` (no source build). The prefix is `riscv64-none-elf-`
+(exported as `$CV_SW_PREFIX`).
 
 ## Extending
 
@@ -66,8 +72,11 @@ toolchain work starts (it can build from source on first use); enable the
 - **Add a buildable binary / derivation:** create `nix/<thing>.nix` returning a
   derivation, import it in `flake.nix`, and expose it under `packages.<name>` so
   `nix build .#<name>` works.
-- **Add a script runner / check:** same pattern under `apps.<name>` (run with
-  `nix run .#<name>`) or `checks.<name>` (run with `nix flake check`).
+- **Add a script:** package it as a `pkgs.writeShellApplication` in
+  `nix/<name>.nix` (put its tools in `runtimeInputs`; keep the body in
+  `scripts/<name>.sh` and `readFile` it). This sets up PATH reproducibly *and*
+  runs `shellcheck` at build time, so a broken script fails the build. Expose it
+  under `apps.<name>` (run with `nix run .#<name>`) — see `nix/cva6-baseline.nix`.
 - Always **commit `flake.lock`** so builds are reproducible; bump inputs with
   `nix flake update` when you intend to.
 
