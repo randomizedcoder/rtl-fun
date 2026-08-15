@@ -37,6 +37,7 @@ Status legend: 🟡 Draft · 🟢 Ready · 🔵 In progress · ✅ Done.
 
 ## Supporting docs
 
+- **[nix.md](nix.md)** — the Nix dev environment (`nix develop`), its layout, and how to extend it.
 - **[glossary.md](glossary.md)** — terms (parse graph, cursor, TLV, CAM, custom0-3, IPC, XDP2/PANDA…).
 - **[references.md](references.md)** — external links (blog, patent, RISC-V spec, CVA6/Ibex, flow_dissector, tooling).
 
