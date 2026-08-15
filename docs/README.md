@@ -11,8 +11,8 @@ golden model and prototyped on FPGA.
 
 | Phase | Doc | Objective | Status |
 |------:|-----|-----------|--------|
-| 0 | [Scope & stack](phase-0-scope-and-stack.md) | Lock goals, base core, first vertical slice | 🔵 In progress |
-| 1 | [ISA spec](phase-1-isa-spec.md) · [**semantics**](phase-1-isa-semantics.md) | Define parser registers & instruction semantics | 🟢 Ready |
+| 0 | [Scope & stack](phase-0-scope-and-stack.md) | Lock goals, base core, first vertical slice | ✅ Done |
+| 1 | [ISA spec](phase-1-isa-spec.md) · [**semantics**](phase-1-isa-semantics.md) | Define parser registers & instruction semantics | ✅ Done |
 | 2 | [Reference model](phase-2-reference-model.md) | Golden C model + packet corpus | 🟡 Draft |
 | 3 | [Encoding](phase-3-encoding.md) | Allocate `custom-0..3` opcodes & formats | 🟡 Draft |
 | 4 | [Microarchitecture](phase-4-microarchitecture.md) | Parser datapath + core integration | 🟡 Draft |
@@ -22,7 +22,15 @@ golden model and prototyped on FPGA.
 | 8 | [FPGA](phase-8-fpga.md) | Prototype & bring-up on hardware | 🟡 Draft |
 | 9 | [Benchmark](phase-9-benchmark.md) | flow_dissector comparison | 🟡 Draft |
 
-Status legend: 🟡 Draft · 🟢 Ready · 🔵 In progress · ✅ Done.
+Status legend (tracks phase **execution**, not just the doc):
+🟡 Draft (design written, not yet executed) · 🔵 In progress (being executed) ·
+✅ Done (executed & merged to `main`).
+
+**Progress:** Phase 0 done — CVA6 Verilator baseline builds from Nix
+(`nix run .#cva6-baseline`) with the RISC-V cross-toolchain and a reproducibility
+snapshot ([environment.md](environment.md)). Phase 1 done — the normative
+[per-instruction semantics](phase-1-isa-semantics.md) are complete and patent-cited.
+**Next:** Phase 2 (golden C model + hostile packet corpus).
 
 ## Analysis
 
