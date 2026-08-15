@@ -39,13 +39,23 @@ let
     pkgs.yosys # synthesis / elaboration sanity (optional)
   ];
 
-  # ISA simulation & toolchain (Phase 7).
+  # ISA simulation & toolchain (Phase 7 + CVA6 baseline).
   toolchainTools = [
     pkgs.spike # RISC-V ISA simulator (golden ISA reference)
     pkgs.qemu # RISC-V functional emulation
-    # RISC-V cross GCC (Phase 7) — enable when the toolchain work starts; may
-    # build from source the first time:
-    #   pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc
+  ];
+
+  # RISC-V cross toolchain (bare-metal / newlib) — needed to compile the
+  # CVA6 sim test programs (hello-world) and, later, the .insn parser tests.
+  #
+  # Bare-metal (riscv64-none-elf, newlib) rather than the linux-gnu cross used
+  # in ~/Downloads/xdp2: CVA6's Verilator sim runs freestanding ELFs with no OS.
+  # Same "native cross-compiler on x86_64" idea as xdp2's crossSystem pattern,
+  # just the embedded target. Fully cached in cache.nixos.org (no source build).
+  # Toolchain prefix is `riscv64-none-elf-` (pass to CVA6 as CV_SW_PREFIX).
+  riscvToolchain = [
+    pkgs.pkgsCross.riscv64-embedded.buildPackages.gcc
+    pkgs.pkgsCross.riscv64-embedded.buildPackages.binutils
   ];
 
   # Common utilities used everywhere.
@@ -61,8 +71,8 @@ let
     pkgs.bashInteractive
   ];
 
-  allPackages = docsTools ++ rtlTools ++ toolchainTools ++ common;
+  allPackages = docsTools ++ rtlTools ++ toolchainTools ++ riscvToolchain ++ common;
 in
 {
-  inherit pythonEnv docsTools rtlTools toolchainTools common allPackages;
+  inherit pythonEnv docsTools rtlTools toolchainTools riscvToolchain common allPackages;
 }

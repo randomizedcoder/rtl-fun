@@ -27,8 +27,20 @@ is the human-readable snapshot.
 | scapy | 2.7.0 | 2 | packet-corpus generation |
 | pytest | 9.1.1 | 6 | test runner |
 | poppler-utils (pdftotext) | 26.06.0 | docs | patent PDF extraction |
-| GCC | 15.3.0 | — | golden C model host compiler |
+| riscv64-none-elf-gcc | 15.3.0 | 0/7 | bare-metal RISC-V cross compiler |
+| riscv64-none-elf-binutils | 2.46 | 0/7 | assembler / linker / nm / objdump |
+| GCC (host) | 15.3.0 | — | golden C model + Verilator C++ |
 | GNU Make | 4.4.1 | — | build driver |
+
+## Base core
+
+- **CVA6** (OpenHW Group), pinned to **v5.3.0**
+  (commit `2ef1c1b1fca419354920c5487293bc605294904e`), fetched via Nix
+  (`nix/cva6.nix`, `sha256-Z39Q3CAbgT1VUv83RcnNwbO2EP/HkUcxhOrQbfiOzbs=`) and
+  exposed in the dev shell as `$CVA6_SRC`.
+- Baseline build: `nix run .#cva6-baseline` (a `writeShellApplication`) assembles
+  a unified `$RISCV` prefix (toolchain + Spike libs/headers + yaml-cpp) and runs
+  `make verilate`, producing `build/cva6/work-ver/Variane_testharness`.
 
 ## Known follow-ups
 
@@ -39,8 +51,10 @@ is the human-readable snapshot.
   the explicit pin.
 - **RISC-V cross-GCC.** Left commented in `nix/packages.nix`; enable at Phase 7
   (`.insn` macros / toolchain work). May build from source the first time.
-- **CVA6 checkout.** Base-core commit hash to be recorded here once the stock CVA6
-  Verilator sim baseline is stood up (Phase 0 task 4 / Phase 4).
+- **CVA6 packaging.** The source is pinned via Nix, but `make verilate` runs
+  imperatively in the dev shell (see the base-core note above). Turning the whole
+  sim into a pure Nix derivation is deferred — it is a real project (Spike DPI,
+  writable-tree build). Revisit if CI reproducibility demands it.
 
 ## How to regenerate this snapshot
 

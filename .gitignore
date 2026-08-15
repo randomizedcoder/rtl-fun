@@ -5,3 +5,6 @@
 # direnv
 /.direnv/
 .envrc.local
+
+# CVA6 baseline build tree (imperative, not tracked)
+/build/

@@ -34,11 +34,33 @@
         # Tool groups (docs / rtl / sim / toolchain / common).
         packages = import ./nix/packages.nix { inherit pkgs; };
 
-        # The default development shell.
-        devshell = import ./nix/devshell.nix { inherit pkgs lib packages; };
+        # Pinned CVA6 base-core source (fetched via Nix; built imperatively).
+        cva6-src = import ./nix/cva6.nix { inherit pkgs; };
+
+        # The `cva6-baseline` app (writeShellApplication: PATH + shellcheck).
+        cva6-baseline = import ./nix/cva6-baseline.nix { inherit pkgs cva6-src; };
+
+        # The default development shell (exports CVA6_SRC -> the pinned source,
+        # and puts the cva6-baseline app on PATH).
+        devshell = import ./nix/devshell.nix {
+          inherit pkgs lib packages cva6-src cva6-baseline;
+        };
       in
       {
         devShells.default = devshell;
+
+        packages = {
+          # The pinned CVA6 source: `nix build .#cva6-src`.
+          cva6-src = cva6-src;
+          # The baseline builder as a package too: `nix build .#cva6-baseline`.
+          cva6-baseline = cva6-baseline;
+        };
+
+        # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
+        apps.cva6-baseline = {
+          type = "app";
+          program = "${cva6-baseline}/bin/cva6-baseline";
+        };
 
         # `nix fmt` formats the .nix files.
         formatter = pkgs.nixpkgs-fmt;

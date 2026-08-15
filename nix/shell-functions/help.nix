@@ -24,6 +24,11 @@
     ISA sim / toolchain (Phase 7)
       spike                RISC-V ISA simulator
       qemu-system-riscv64  RISC-V emulation
+      riscv64-none-elf-gcc bare-metal RISC-V cross compiler ($CV_SW_PREFIX)
+
+    Base core (CVA6)
+      $CVA6_SRC            pinned CVA6 source (read-only; copy out to build)
+      cva6-baseline        build the stock CVA6 Verilator model (Phase 0 baseline)
 
     Meta
       rtl-help             show this message
