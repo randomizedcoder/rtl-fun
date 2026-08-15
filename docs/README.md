@@ -13,7 +13,7 @@ golden model and prototyped on FPGA.
 |------:|-----|-----------|--------|
 | 0 | [Scope & stack](phase-0-scope-and-stack.md) | Lock goals, base core, first vertical slice | ✅ Done |
 | 1 | [ISA spec](phase-1-isa-spec.md) · [**semantics**](phase-1-isa-semantics.md) | Define parser registers & instruction semantics | ✅ Done |
-| 2 | [Reference model](phase-2-reference-model.md) | Golden C model + packet corpus | 🟡 Draft |
+| 2 | [Reference model](phase-2-reference-model.md) | Golden C model + packet corpus | 🔵 In progress |
 | 3 | [Encoding](phase-3-encoding.md) | Allocate `custom-0..3` opcodes & formats | 🟡 Draft |
 | 4 | [Microarchitecture](phase-4-microarchitecture.md) | Parser datapath + core integration | 🟡 Draft |
 | 5 | [RTL](phase-5-rtl.md) | SystemVerilog implementation | 🟡 Draft |
@@ -30,7 +30,12 @@ Status legend (tracks phase **execution**, not just the doc):
 (`nix run .#cva6-baseline`) with the RISC-V cross-toolchain and a reproducibility
 snapshot ([environment.md](environment.md)). Phase 1 done — the normative
 [per-instruction semantics](phase-1-isa-semantics.md) are complete and patent-cited.
-**Next:** Phase 2 (golden C model + hostile packet corpus).
+Phase 2 in progress — the golden C model (`model/libparsermodel`) runs the
+Ethernet→IPv4/IPv6→TCP/UDP vertical slice green against a pinned xdp2
+`proto_audit` corpus (`nix run .#model-test`); a single-step tracer lives in
+[tools/pm-trace](../tools/README.md).
+**Next:** finish Phase 2 — extend the corpus and model beyond the smoke slice
+(IPv4 options / IPv6 ext-header TLV loops / VLAN stacking).
 
 ## Analysis
 

@@ -30,6 +30,10 @@
       $CVA6_SRC            pinned CVA6 source (read-only; copy out to build)
       cva6-baseline        build the stock CVA6 Verilator model (Phase 0 baseline)
 
+    Golden model (Phase 2)
+      nix run .#model-test        run the reference-model unit + corpus tests
+      nix run .#pm-trace [-- pcap] single-step a parse (tools/pm-trace)
+
     Meta
       rtl-help             show this message
 

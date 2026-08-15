@@ -40,6 +40,12 @@
         # The `cva6-baseline` app (writeShellApplication: PATH + shellcheck).
         cva6-baseline = import ./nix/cva6-baseline.nix { inherit pkgs cva6-src; };
 
+        # Pinned xdp2 source (for the proto_audit packet corpus, Phase 2).
+        xdp2-src = import ./nix/xdp2.nix { inherit pkgs; };
+
+        # Golden-model apps: `model-test` (unit + corpus tests) and `pm-trace`.
+        model = import ./nix/model.nix { inherit pkgs xdp2-src; };
+
         # The default development shell (exports CVA6_SRC -> the pinned source,
         # and puts the cva6-baseline app on PATH).
         devshell = import ./nix/devshell.nix {
@@ -54,12 +60,29 @@
           cva6-src = cva6-src;
           # The baseline builder as a package too: `nix build .#cva6-baseline`.
           cva6-baseline = cva6-baseline;
+          # The pinned xdp2 source (packet corpus): `nix build .#xdp2-src`.
+          xdp2-src = xdp2-src;
+          # Golden-model runners as packages too.
+          model-test = model.model-test;
+          pm-trace = model.pm-trace;
         };
 
         # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
         apps.cva6-baseline = {
           type = "app";
           program = "${cva6-baseline}/bin/cva6-baseline";
+        };
+
+        # Run the golden-model tests: `nix run .#model-test`.
+        apps.model-test = {
+          type = "app";
+          program = "${model.model-test}/bin/model-test";
+        };
+
+        # Single-step a parse for debugging: `nix run .#pm-trace [-- x.pcap]`.
+        apps.pm-trace = {
+          type = "app";
+          program = "${model.pm-trace}/bin/pm-trace";
         };
 
         # `nix fmt` formats the .nix files.

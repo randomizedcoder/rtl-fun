@@ -120,6 +120,40 @@ expected exit status. Generate with a mix of hand-authored cases and a fuzzer.
      bit-exact compare  (mismatch ⇒ bug in RTL, model, or spec)
 ```
 
+### 2.5 Implementation status (this repo)
+
+The model is built as a **decoded-instruction interpreter**, not direct C control
+flow: the program is a table of decoded `instr`s (`program.c`) that a PC loop
+(`pm_run`) walks, so the *same* table is what Phase 3 encodes to bits and Phase 6
+replays on RTL. Each opcode dispatches to one `execute_*` mirroring the Phase-1
+semantics 1:1.
+
+Files (`model/`):
+- `libparsermodel/parser.{h,c}` — machine state (`pstate`), the parser-code enum,
+  `pm_extract_subreg`, every `execute_*`, `common_end_of_node`, and `pm_run`.
+- `libparsermodel/program.c` — the vertical-slice parse program as a decoded
+  table (Ethernet→IPv4/IPv6→TCP/UDP → `flow_keys`) plus its shared CAM tables.
+- `libparsermodel/pcap.{h,c}` — minimal classic-pcap reader (first packet).
+- `test/` — a dependency-free assert harness (`test.h`) + unit and corpus tests.
+
+**Corpus:** rather than hand-rolling packets, the corpus is the
+[xdp2](https://github.com/randomizedcoder/xdp2) `samples/proto_audit/pcap_templates`
+set (378 protocol pcaps), **pinned by commit + narHash** via `nix/xdp2.nix` so the
+vectors are reproducible. The Nix wrapper injects that path as `CORPUS_DIR`.
+The current smoke slice targets basic `eth + ip + udp/tcp`; the hostile/well-formed
+matrix in §2.3 is the follow-up (see Exit criteria).
+
+**Run:** `nix run .#model-test` (unit + corpus smoke tests, corpus auto-pinned).
+Debug a single parse with `nix run .#pm-trace [-- some.pcap]`, which prints the
+machine state before every instruction (see [tools/README](../tools/README.md)).
+
+> Regression found & fixed during bring-up: on a node transition the `Next`
+> register held a return code (`P_STOP_OKAY = 0xFFFFFFFC`) whose low bits fall
+> inside `NEXT_CTRL_MASK`; `execute_camnext`/`execute_nextnode` were OR-ing those
+> stale bits into the target, spuriously setting the ENCAP/OVERLAY control bits so
+> `Common_End_of_Node` took the overlay path and never advanced `CurHdr.Offset`.
+> Control bits must come from the *target encoding*, never a carried-over code.
+
 ## Step-by-step tasks
 
 1. Define `pstate` + the status-code enum matching Phase 1 §1.6.
@@ -131,14 +165,19 @@ expected exit status. Generate with a mix of hand-authored cases and a fuzzer.
 
 ## Deliverables / artifacts
 
-- `model/libparsermodel` (C) + unit tests.
-- `corpus/` with well-formed + malformed vectors and expected outputs.
-- A stable, documented corpus file format.
+- `model/libparsermodel` (C) + unit tests. ✅
+- Pinned reproducible corpus (`nix/xdp2.nix` → xdp2 `proto_audit`), wired as
+  `nix run .#model-test`. ✅ (smoke slice)
+- `tools/pm-trace` single-step debugger. ✅
+- Full hostile/well-formed vector matrix (§2.3) with expected outputs. ⏭ follow-up.
 
 ## Exit criteria
 
-- Model parses the entire corpus and produces expected `flow_keys` + status,
-  including every malformed case (no crashes, no hangs — loop guards work).
+- ✅ **Smoke slice:** model parses `eth + ip + udp/tcp` from the pinned corpus and
+  the directed unit tests, producing the expected `flow_keys` + exit status
+  (`nix run .#model-test` → all checks green).
+- ⏭ **Full:** model parses the entire hostile corpus (§2.3) — every malformed
+  case, no crashes, no hangs (loop guards work) — before Phase 6 co-sim.
 - The model, not the prose, is treated as the semantic authority from here on.
 
 ## Open questions
