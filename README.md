@@ -31,10 +31,15 @@ complete; phases are now being built in order.
   [docs/environment.md](docs/environment.md).
 - ✅ **Phase 1 — ISA spec:** normative, patent-cited
   [per-instruction semantics](docs/phase-1-isa-semantics.md) for the vertical slice.
-- ⏭ **Phase 2 (next) — Golden model + corpus.**
+- 🔵 **Phase 2 (in progress) — Golden model + corpus:** the C reference model
+  (`model/libparsermodel`) parses the Ethernet→IPv4/IPv6→TCP/UDP slice and passes
+  its unit + corpus smoke tests against a pinned [xdp2](https://github.com/randomizedcoder/xdp2)
+  `proto_audit` corpus — `nix run .#model-test`. Debug a parse with
+  `nix run .#pm-trace`. Remaining: extend the corpus/model past the smoke slice
+  (IPv4 options, IPv6 ext-header TLV loops, VLAN stacking).
 
-No RTL yet — the `model/`, `rtl/`, etc. source directories are skeletons until
-their phase lands (per-phase status: [docs/README.md](docs/README.md)).
+No RTL yet — the `rtl/`, etc. source directories are skeletons until their phase
+lands (per-phase status: [docs/README.md](docs/README.md)).
 
 ## Repo map
 
