@@ -22,8 +22,19 @@ protocol parsing"](https://tomaherbert.com/parser-instructions-worlds-fastest-mo
 
 ## Status
 
-📝 **Design phase.** This repo currently holds the *design-doc set* only — no RTL
-yet. The docs plan the full journey so it can be executed phase by phase.
+🔨 **Executing phase by phase.** The full [design-doc set](docs/README.md) is
+complete; phases are now being built in order.
+
+- ✅ **Phase 0 — Scope & stack:** base core locked (CVA6, RV64GC); the stock CVA6
+  Verilator model builds end-to-end from Nix (`nix run .#cva6-baseline`) with the
+  RISC-V cross-toolchain; reproducibility snapshot in
+  [docs/environment.md](docs/environment.md).
+- ✅ **Phase 1 — ISA spec:** normative, patent-cited
+  [per-instruction semantics](docs/phase-1-isa-semantics.md) for the vertical slice.
+- ⏭ **Phase 2 (next) — Golden model + corpus.**
+
+No RTL yet — the `model/`, `rtl/`, etc. source directories are skeletons until
+their phase lands (per-phase status: [docs/README.md](docs/README.md)).
 
 ## Repo map
 
@@ -41,8 +52,6 @@ flake.nix      Nix flake — reproducible dev environment (`nix develop`)
 nix/           Modular Nix files (tool groups, dev shell)
 LICENSE        Public domain (Unlicense)
 ```
-
-The source directories are skeletons (a README each) until their phase lands.
 
 ## Development environment
 
