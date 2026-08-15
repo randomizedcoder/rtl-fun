@@ -12,7 +12,7 @@ golden model and prototyped on FPGA.
 | Phase | Doc | Objective | Status |
 |------:|-----|-----------|--------|
 | 0 | [Scope & stack](phase-0-scope-and-stack.md) | Lock goals, base core, first vertical slice | 🔵 In progress |
-| 1 | [ISA spec](phase-1-isa-spec.md) | Define parser registers & instruction semantics | 🟡 Draft |
+| 1 | [ISA spec](phase-1-isa-spec.md) · [**semantics**](phase-1-isa-semantics.md) | Define parser registers & instruction semantics | 🟢 Ready |
 | 2 | [Reference model](phase-2-reference-model.md) | Golden C model + packet corpus | 🟡 Draft |
 | 3 | [Encoding](phase-3-encoding.md) | Allocate `custom-0..3` opcodes & formats | 🟡 Draft |
 | 4 | [Microarchitecture](phase-4-microarchitecture.md) | Parser datapath + core integration | 🟡 Draft |
