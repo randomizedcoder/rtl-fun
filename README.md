@@ -29,10 +29,20 @@ yet. The docs plan the full journey so it can be executed phase by phase.
 
 ```
 docs/          Design documentation (start here)
+model/         Golden C reference model            (Phase 2)
+isa/           Machine-readable encoding tables     (Phase 3)
+rtl/           SystemVerilog parser unit            (Phase 5)
+tb/            cocotb / Verilator testbench         (Phase 6)
+corpus/        Packet corpus (incl. malformed)      (Phase 2)
+toolchain/     .insn macros, intrinsics, sim patches (Phase 7)
+fpga/          Board build + block design           (Phase 8)
+bench/         Benchmark harness + results          (Phase 9)
 flake.nix      Nix flake — reproducible dev environment (`nix develop`)
 nix/           Modular Nix files (tool groups, dev shell)
 LICENSE        Public domain (Unlicense)
 ```
+
+The source directories are skeletons (a README each) until their phase lands.
 
 ## Development environment
 
