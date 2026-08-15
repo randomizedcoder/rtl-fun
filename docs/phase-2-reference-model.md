@@ -131,17 +131,31 @@ semantics 1:1.
 Files (`model/`):
 - `libparsermodel/parser.{h,c}` — machine state (`pstate`), the parser-code enum,
   `pm_extract_subreg`, every `execute_*`, `common_end_of_node`, and `pm_run`.
-- `libparsermodel/program.c` — the vertical-slice parse program as a decoded
-  table (Ethernet→IPv4/IPv6→TCP/UDP → `flow_keys`) plus its shared CAM tables.
+- `libparsermodel/program.c` — the parse program as a decoded table plus its CAM
+  tables. Nodes: ether, vlan (802.1Q/802.1ad, self-looping for stacking), ipv4,
+  ipv6, ip6ext (HBH/routing/dest-opts, `len=(ExtLen+1)*8`), ip6frag (fixed 8),
+  done ("no next header" → clean stop), tcp, udp. IPv6 next-header routing uses
+  its own CAM table (`share=3`) so it never pollutes IPv4's next-protocol table.
 - `libparsermodel/pcap.{h,c}` — minimal classic-pcap reader (first packet).
-- `test/` — a dependency-free assert harness (`test.h`) + unit and corpus tests.
+- `test/` — a dependency-free assert harness (`test.h`) + unit, malformed, and
+  corpus tests, including a robustness sweep over the whole corpus.
+
+**Coverage:** Ethernet · VLAN (single + stacked QinQ) · IPv4 (incl. options via
+IHL) · IPv6 (0..N hop-by-hop / routing / fragment / dest-opts extension headers) ·
+TCP · UDP → `flow_keys`. Notably, VLAN and the IPv6 ext-header chain needed no new
+opcodes — only new nodes and CAM tables (the ext-header loop is expressed as CAM
+transitions bounded by the node-count guard).
 
 **Corpus:** rather than hand-rolling packets, the corpus is the
 [xdp2](https://github.com/randomizedcoder/xdp2) `samples/proto_audit/pcap_templates`
 set (378 protocol pcaps), **pinned by commit + narHash** via `nix/xdp2.nix` so the
 vectors are reproducible. The Nix wrapper injects that path as `CORPUS_DIR`.
-The current smoke slice targets basic `eth + ip + udp/tcp`; the hostile/well-formed
-matrix in §2.3 is the follow-up (see Exit criteria).
+The whole-corpus sweep runs every Ethernet pcap (306 of 378) and requires each to
+terminate with a valid parser code — all do, no crashes/hangs.
+
+**Deferred to a later slice:** true TLV *extraction* loops (DataHdr/DataBound with
+`camjumptlvloop`, e.g. extracting individual IPv6 options or GRE flag-fields) and
+tunnel/encapsulation protocols (GRE/GTP/VXLAN). `flow_keys` needs neither.
 
 **Run:** `nix run .#model-test` (unit + corpus smoke tests, corpus auto-pinned).
 Debug a single parse with `nix run .#pm-trace [-- some.pcap]`, which prints the
@@ -167,17 +181,20 @@ machine state before every instruction (see [tools/README](../tools/README.md)).
 
 - `model/libparsermodel` (C) + unit tests. ✅
 - Pinned reproducible corpus (`nix/xdp2.nix` → xdp2 `proto_audit`), wired as
-  `nix run .#model-test`. ✅ (smoke slice)
+  `nix run .#model-test`. ✅
 - `tools/pm-trace` single-step debugger. ✅
-- Full hostile/well-formed vector matrix (§2.3) with expected outputs. ⏭ follow-up.
+- Well-formed (VLAN/QinQ, IPv6 ext headers) + hostile/malformed (§2.3) vectors
+  with expected outputs, plus a whole-corpus robustness sweep. ✅
 
 ## Exit criteria
 
-- ✅ **Smoke slice:** model parses `eth + ip + udp/tcp` from the pinned corpus and
-  the directed unit tests, producing the expected `flow_keys` + exit status
+- ✅ **Directed:** model parses `eth [+ VLAN] + ipv4/ipv6 [+ ext hdrs] + tcp/udp`
+  producing the expected `flow_keys` + exit status.
+- ✅ **Hostile:** every §2.3 malformed case (IHL=0, IHL=15 truncated, ext header
+  past EOF, absurd VLAN nesting, truncation, version/EtherType lies) terminates
+  with the expected parser code — no crashes, no hangs (loop + node guards work).
+- ✅ **Corpus:** all 306 Ethernet pcaps in the pinned corpus terminate cleanly
   (`nix run .#model-test` → all checks green).
-- ⏭ **Full:** model parses the entire hostile corpus (§2.3) — every malformed
-  case, no crashes, no hangs (loop guards work) — before Phase 6 co-sim.
 - The model, not the prose, is treated as the semantic authority from here on.
 
 ## Open questions

@@ -13,8 +13,8 @@ model/
   libparsermodel/
     parser.h    machine state (pstate), parser-code enum, decoded-instr + API
     parser.c    pm_extract_subreg, every execute_*, common_end_of_node, pm_run
-    program.c   the vertical-slice parse program as a decoded-instruction table
-                (Ethernet -> IPv4/IPv6 -> TCP/UDP -> flow_keys) + CAM tables
+    program.c   the parse program as a decoded-instruction table + CAM tables
+                (Ethernet -> VLAN -> IPv4/IPv6 -> IPv6 ext hdrs -> TCP/UDP)
     pcap.{h,c}  minimal classic-pcap reader (first packet of a capture)
   test/
     test.h        dependency-free assert harness (EXPECT/EXPECT_EQ + tally)
@@ -52,6 +52,11 @@ CORPUS_DIR=/path/to/pcap_templates ./pm-test
 
 ## Scope
 
-Current smoke slice: `eth + ip + udp/tcp`. IPv4 options / IPv6 extension-header
-TLV loops / VLAN stacking (loop heads, `camjumptlvloop`, overlay) are the
-follow-up — see the Phase-2 exit criteria.
+Covered: Ethernet, 802.1Q/802.1ad VLAN (incl. stacked QinQ), IPv4 (with options),
+IPv6 (with hop-by-hop / routing / fragment / dest-opts extension headers), TCP,
+UDP → `flow_keys`; plus the §2.3 hostile/malformed matrix and a whole-corpus
+robustness sweep (all Ethernet pcaps terminate cleanly).
+
+Deferred to a later slice: true TLV *extraction* loops (DataHdr/DataBound with
+`camjumptlvloop`, e.g. per-option extraction, GRE flag-fields) and tunnel
+protocols (GRE/GTP/VXLAN). `flow_keys` needs neither.
