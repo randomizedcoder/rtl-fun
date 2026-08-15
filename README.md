@@ -31,15 +31,18 @@ complete; phases are now being built in order.
   [docs/environment.md](docs/environment.md).
 - ✅ **Phase 1 — ISA spec:** normative, patent-cited
   [per-instruction semantics](docs/phase-1-isa-semantics.md) for the vertical slice.
-- 🔵 **Phase 2 (in progress) — Golden model + corpus:** the C reference model
-  (`model/libparsermodel`) parses the Ethernet→IPv4/IPv6→TCP/UDP slice and passes
-  its unit + corpus smoke tests against a pinned [xdp2](https://github.com/randomizedcoder/xdp2)
-  `proto_audit` corpus — `nix run .#model-test`. Debug a parse with
-  `nix run .#pm-trace`. Remaining: extend the corpus/model past the smoke slice
-  (IPv4 options, IPv6 ext-header TLV loops, VLAN stacking).
+- ✅ **Phase 2 — Golden model + corpus:** the C reference model
+  (`model/libparsermodel`) parses Ethernet, VLAN (802.1Q/802.1ad, stacked), IPv4
+  (with options), IPv6 (with hop-by-hop/routing/fragment/dest-opts extension
+  headers), TCP and UDP into a `flow_keys`. It passes directed, malformed (§2.3),
+  and corpus tests against a pinned [xdp2](https://github.com/randomizedcoder/xdp2)
+  `proto_audit` corpus — all 306 Ethernet pcaps terminate cleanly, no
+  crashes/hangs (`nix run .#model-test`). Debug a parse with `nix run .#pm-trace`.
+- ⏭ **Phase 3 (next) — Instruction encoding** (`custom-0..3` opcodes & formats).
 
 No RTL yet — the `rtl/`, etc. source directories are skeletons until their phase
-lands (per-phase status: [docs/README.md](docs/README.md)).
+lands (per-phase status: [docs/README.md](docs/README.md)). Deferred model work:
+TLV *extraction* loops and tunnel protocols (GRE/GTP/VXLAN).
 
 ## Repo map
 
