@@ -11,7 +11,7 @@ golden model and prototyped on FPGA.
 
 | Phase | Doc | Objective | Status |
 |------:|-----|-----------|--------|
-| 0 | [Scope & stack](phase-0-scope-and-stack.md) | Lock goals, base core, first vertical slice | 🟡 Draft |
+| 0 | [Scope & stack](phase-0-scope-and-stack.md) | Lock goals, base core, first vertical slice | 🔵 In progress |
 | 1 | [ISA spec](phase-1-isa-spec.md) | Define parser registers & instruction semantics | 🟡 Draft |
 | 2 | [Reference model](phase-2-reference-model.md) | Golden C model + packet corpus | 🟡 Draft |
 | 3 | [Encoding](phase-3-encoding.md) | Allocate `custom-0..3` opcodes & formats | 🟡 Draft |
@@ -38,6 +38,7 @@ Status legend: 🟡 Draft · 🟢 Ready · 🔵 In progress · ✅ Done.
 ## Supporting docs
 
 - **[nix.md](nix.md)** — the Nix dev environment (`nix develop`), its layout, and how to extend it.
+- **[environment.md](environment.md)** — pinned tool versions (the Phase 0 reproducibility snapshot).
 - **[glossary.md](glossary.md)** — terms (parse graph, cursor, TLV, CAM, custom0-3, IPC, XDP2/PANDA…).
 - **[references.md](references.md)** — external links (blog, patent, RISC-V spec, CVA6/Ibex, flow_dissector, tooling).
 

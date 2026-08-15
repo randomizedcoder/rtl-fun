@@ -15,6 +15,9 @@ let
   #  - pytest : test runner
   #  - scapy  : build/mutate the packet corpus (Phase 2)
   # Pinned to 3.13: cocotb 2.0.1 does not yet support the current default (3.14).
+  # TODO(python): nixpkgs default python3 is now 3.14.x — bump this back to the
+  # latest provided Python once a cocotb supporting it ships, and drop the pin.
+  # Re-check: nix eval nixpkgs#python3Packages.cocotb.version  (see docs/environment.md)
   pythonEnv = pkgs.python313.withPackages (ps: [
     ps.cocotb
     ps.pytest
