@@ -17,7 +17,8 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 | **I1** | Commit-visible parser state (Design B: speculative `st_q` + committed `st_arch_q`, roll back on flush) | ✅ | #21 | G2 | `rtl/cva6_parser_wrap.sv`, `nix/cva6-parser/issue-ex.patch` (commit wiring), `rtl/parser_wrap_tb.sv` | SVA `a_arch_committed` + `a_flush_rollback` hold under directed commit/flush stimulus (`parser-wrap-test`); `cva6-parser` builds; `cva6-parser-test` green |
 | **I2** | Metadata sink (commit-gated `meta_mem`) + in-core value-check via **sim-only backdoor** | 🔵 | #22 | G1, G8 | `rtl/cva6_parser_wrap.sv`, `rtl/parser_wrap_tb.sv`, `nix/cva6-parser/tb-backdoor.patch`, `tests/cva6-parser/parser_insn.S` | wrap-TB metadata scenario green (`parser-wrap-test`); in-core `prs.storeimm`→`meta_mem[4]=0xAB` observed via harness XMR watcher (`*** PARSER META OK ***`) in `cva6-parser-test` |
 | **I3** | custom-3 register readback (`prs.mv.x.p`) | 🔵 | #23 | G4 | `rtl/parser_decode.sv` (CPPRSRD), `rtl/parser_pkg.sv` (`cpreg`/`rd_preg`), `rtl/cva6_parser_wrap.sv` (`read_preg`), `tests/cva6-parser/parser_insn.S` | in-core `prs.mv.x.p t2,p11` == `P_STOP_OKAY`, program-self-checked via `tohost` (exercises integer-RF WB + RAW forwarding, V3); wrap-TB Scenario 5. **No `cva6.sv`/patch change** — decoder already sets `rd`, `wt_valid[PARSER_WB]` already latches result |
-| **I4** | End-of-node redirect + CAM programming | ⬜ | — | G3 | `rtl/parser_cam.sv` (program port), `rtl/cva6_parser_wrap.sv`, patch | redirect PC == expected; mux-exclusivity SVA holds |
+| **I4a** | End-of-node fetch redirect (node-index → byte PC) | 🔵 | #24 | G3 | `rtl/cva6_parser_wrap.sv` (combinational `resolve`/`redirect_pc_calc`), `nix/cva6-parser/issue-ex.patch` (latch `pc_o` for `fu==PARSER`), `rtl/parser_wrap_tb.sv`, `nix/cva6-parser/tb-backdoor.patch`, `tests/cva6-parser/parser_insn.S` | wrap-TB Scenario 6 (target = pc_i + node_delta*4); in-core next-node jump skips a poison store + lands on target (`*** PARSER REDIRECT OK ***`, tohost=0/4325 cyc). Needed same-cycle resolve + parser-PC threading (see notes) |
+| **I4b** | CAM programming (custom-3 CPPRSWRCAM) | ⬜ | — | G3 | `rtl/parser_cam.sv` (program port), `rtl/parser_decode.sv`, `nix/cva6-parser/issue-ex.patch` (rs1 operand → FU) | CAM entry programmed then CAM-hit redirect / CPPRSRDCAM read == expected; unblocks OP_CAMNEXT |
 | **I5** | All op classes + model-generated encodings + table-driven cosim | ⬜ | — | G5, G9 | `nix/cva6-parser-cosim.nix`, `scripts/cva6-parser-cosim.sh`, `rtl/gen/gen_parser_rom.c` | every op self-checked vs model; Tables A+B green in-core |
 | V-tables | Directed V1–V11 (branch-shadow, hazards, interrupts, reset/X…) | ⬜ | — | G6, G7, G13 | test programs + `parser_wrap_tb.sv` | each V-row green |
 | Regression | Base-ISA regression + negative control + coverage in CI | ⬜ | — | G10, G11, G12 | CI config | riscv-tests/RISCOF green on patched core; stock core traps; coverage target |
@@ -29,7 +30,7 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 |--|--|--|
 | G1 no in-core value checking | I2 | 🔵 (metadata sink value-checked in-core via sim-only backdoor; full packet→flow_keys cosim at I5) |
 | **G2 speculation/flush state corruption** | **I1** | ✅ (fix merged + verified by `parser-wrap-test`; PR #21) |
-| G3 redirect untested in-core | I4 | ⬜ |
+| G3 redirect untested in-core | I4a (redirect) / I4b (CAM) | 🔵 (I4a: end-of-node redirect fires + steers fetch in-core — poison skipped, target landed, node-index→byte-PC; CAM-driven redirect + mux-exclusivity SVA await I4b; PR #24) |
 | G4 custom-3 untested | I3 | 🔵 (CPPRSRD read decoded + serviced; `read_preg` p-reg selector; in-core self-check + wrap-TB Scenario 5; PR #23) |
 | G5 one op only | I5 | ⬜ |
 | G6 pipeline hazards | I3/I1 + V-tables | 🔵 (RAW forwarding on parser `rd` exercised by the I3 self-check; full hazard V-table later) |
@@ -44,10 +45,10 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 
 ## Verification-target snapshot
 
-| Target | Purpose | State (I3 branch) |
+| Target | Purpose | State (I4a branch) |
 |--|--|--|
-| `nix run .#cva6-parser-test` | in-core smoke/liveness + **I2 metadata value-check** + **I3 custom-3 readback self-check** | ✅ SUCCESS (tohost=0, 4327 cyc) + META OK (meta[4]=ab); readback self-check green |
-| `nix run .#parser-wrap-test` | I1 rollback/commit/backpressure + I2 metadata (Sc.4) + **I3 custom-3 readback** (Sc.5), assertion-based | ✅ PASS |
+| `nix run .#cva6-parser-test` | in-core smoke/liveness + **I2 metadata value-check** + **I3 custom-3 readback self-check** + **I4a end-of-node redirect** | ✅ SUCCESS (tohost=0, 4325 cyc) + META OK (meta[4]=ab) + REDIRECT OK (poison meta[5] skipped, meta[6]=cc landed); readback self-check green |
+| `nix run .#parser-wrap-test` | I1 rollback/commit/backpressure + I2 metadata (Sc.4) + **I3 custom-3 readback** (Sc.5) + **I4 redirect target** (Sc.6), assertion-based | ✅ PASS |
 | `nix run .#parser-lint` | lints the parser unit incl. `cva6_parser_wrap` | ✅ clean |
 | `nix run .#parser-sim-suite` | standalone unit vs model (unaffected by in-core work) | ✅ 15/15 |
 | `nix run .#parser-formal` | standalone `parser_execute` safety (combinational) | ✅ (pre-existing; `parser_execute` untouched) |
@@ -89,6 +90,23 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
   surface `parser_we_o` and gate `sbe.rd` in `scoreboard.sv` — deferred, not needed.
   Deferred custom-3 forms: register write (`prs.mv.p.x`, needs rs1 → FU), immediate
   load, CAM/array program (I4).
+- **I4a end-of-node redirect — two non-obvious fixes (both found in-core, not in the
+  wrap-TB).** (1) **Same-cycle resolve.** `resolve_branch_o`/`redirect_pc_o`/
+  `parse_exit_o` must be **combinational** (driven off `accept_state`), not registered:
+  CVA6's mispredict flush (`controller.sv`) kills only *un-issued* instrs + IF and
+  relies on a branch resolving the very cycle it is in EX (`branch_unit` is
+  combinational). A registered strobe fired a cycle late — after the wrong-path
+  (poison) op had issued — so it was never squashed. (2) **Redirect base PC.**
+  `redirect_pc = pc_i + (target−cur)×4` needs `pc_i` = the *parser op's own* PC, but
+  `ex_stage.pc_i` (`pc_id_ex`) is latched in `issue_read_operands` **only for
+  `fu==CTRL_FLOW`** (it feeds `branch_unit`). For a parser op it held the last
+  branch's PC (the boot ROM `jr` at `0x10014` in the smoke test) → redirect computed
+  `0x1001c`, jumping into the boot ROM (a 2M-cycle hang). Fix: a one-line
+  `issue-ex.patch` hunk also latches `pc_o <= issue_instr_i[0].pc` for `fu==PARSER`
+  (safe — parser/branch are mutually exclusive in-order). Neither bug is visible in
+  `parser-wrap-test` (which checks the delta math in isolation); both were pinned by an
+  RVFI trace + a backdoor `pc_i` dump. The **branch/parser mux-exclusivity SVA** is
+  still pending (moves to I4b with the CAM redirect).
 - **V10 context-switch contract** — design decision precedes the test.
 - **Coverage closure target** — set with the corpus.
 - **I1 formal (follow-up):** the I1 SVA (`a_arch_committed`, `a_flush_rollback`) are

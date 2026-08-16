@@ -216,6 +216,44 @@ resumes at the expected PC.
 `branch` and `parser` never both assert `resolve` in one cycle (the mux's
 mutual-exclusion assumption); a `custom-3` readback confirms state after redirect.
 
+> **As implemented — split into I4a (redirect) + I4b (CAM), PR #24 = I4a.**
+> Grounding showed the redirect path is real (the ex_stage `gen_resolved_branch_mux`
+> builds a mispredicting `resolved_branch_o` from `parser_redirect_pc`, and the
+> frontend refetches on `resolved_branch.valid & is_mispredict`), but the FU emitted
+> `redirect_pc_o` as a raw parser **node index**, not a byte PC. **I4a** fixes exactly
+> that: `redirect_pc_o = pc_i + (target_node − cur_node)×4`, deriving the base from the
+> current op's PC + node index (no external `ParserInstrBase`), valid while the parser
+> program is a contiguous stride-4 block. **Resolve is same-cycle (combinational),
+> not registered:** CVA6's mispredict flush (`controller.sv`, on
+> `resolved_branch_i.is_mispredict`) only kills *un-issued* instructions + IF — it
+> relies on a branch resolving the very cycle it is in EX (as `branch_unit.sv` does
+> combinationally), before the next (wrong-path) instruction issues. A first cut that
+> *registered* `resolve_branch_o`/`redirect_pc_o` fired one cycle late — after the
+> poison store had already issued — and the ex_stage mux then sampled a stale `pc_i`,
+> so fetch never steered and the core hung. The fix drives `resolve_branch_o`,
+> `redirect_pc_o`, and `parse_exit_o` combinationally off the accepted parse op
+> (`accept_state`), matching the branch contract exactly; only the *fetch steer* is
+> speculative — parser register state and the metadata frame stay commit-gated (I1).
+> **The redirect base needed a second fix:** `redirect_pc_calc = pc_i + delta×4` is
+> only correct if `pc_i` is the *parser op's own* PC — but `ex_stage.pc_i`
+> (`pc_id_ex`) is latched in `issue_read_operands` **only for `fu == CTRL_FLOW`**
+> (it feeds `branch_unit`), so for a non-branch parser op it held the last branch's
+> PC (in the smoke test, the boot ROM `jr` at `0x10014`). The redirect therefore
+> computed `0x10014 + 2×4 = 0x1001c` (an in-core RVFI trace + a backdoor `pc_i` dump
+> pinned this exactly: `pc_i=0x10014 nq=5 nn=7 rpc=0x1001c`) and the core jumped into
+> the boot ROM and hung. The fix threads the parser op's PC into `pc_o` too — a small
+> `issue-ex.patch` hunk latches `pc_o <= issue_instr_i[0].pc` when `fu == PARSER`
+> (safe because parser and branch ops are mutually exclusive in-order). A
+> `NEXTNODE`-driven end-of-node jump now
+> steers the frontend refetch to the byte-translated target — proven in-core by a
+> program that jumps over a **poison** store (`meta[5]` stays 0) onto a **landing**
+> store (`meta[6]=0xCC`), watched by the backdoor (`*** PARSER REDIRECT OK ***`), plus
+> wrap-TB Scenario 6. The **branch/parser
+> mux-exclusivity SVA** and the **CAM-driven redirect** move to **I4b** (CAM
+> programming needs a `parser_cam` write port + an rs1 operand threaded from ex_stage,
+> so it edits the patch anyway; the mux SVA lands there with it). Custom-3 CAM/array
+> and register-write forms are part of I4b. Tracked in the status doc.
+
 ### I5 — Full op coverage + model-generated encodings (fixes G5/G9)
 
 Extend the in-core program to touch **every** op class (store, storeimm,

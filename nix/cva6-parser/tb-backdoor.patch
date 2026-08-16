@@ -1,28 +1,37 @@
 diff --git a/corev_apu/tb/ariane_testharness.sv b/corev_apu/tb/ariane_testharness.sv
-index 1df11e7..0b349ee 100644
+index 1df11e7..62bbdfe 100644
 --- a/corev_apu/tb/ariane_testharness.sv
 +++ b/corev_apu/tb/ariane_testharness.sv
-@@ -823,4 +823,23 @@ module ariane_testharness #(
+@@ -823,4 +823,32 @@ module ariane_testharness #(
      .CSYSACK('0)
    );
  `endif
 +  // -------------------------------------------------------------------------
-+  // I2 sim-only backdoor (docs/analysis/cva6-verification-design.md §1; gaps
-+  // G1/G8). Observe the parser FU's COMMIT-GATED metadata frame on the real
-+  // core: the test program's prs.storeimm writes 0xAB to metadata offset 4, and
-+  // cva6_parser_wrap byte-scatters it into meta_mem only when that op commits.
-+  // We read meta_mem hierarchically (XMR) and print a grep-able marker the cycle
-+  // it lands, so the in-core test can value-check it. This is the deliberate
-+  // shorter path: no MMIO yet — a real memory-mapped packet buffer + metadata
-+  // frame on the SoC xbar is a tracked escalation (cva6-implementation-status.md).
-+  logic parser_meta_seen_q;
-+  initial parser_meta_seen_q = 1'b0;
++  // I2/I4 sim-only backdoor (docs/analysis/cva6-verification-design.md §1; gaps
++  // G1/G8/G3). Observe parser side-effects on the REAL core via hierarchical XMR
++  // reads of the commit-gated metadata frame, printing grep-able markers the cycle
++  // they land. Deliberate shorter path — no MMIO yet (a memory-mapped packet buffer
++  // + metadata frame on the SoC xbar is a tracked escalation; see the status doc).
++  //   I2: prs.storeimm writes 0xAB -> meta[4].
++  //   I4: an end-of-node next-node jump SKIPS a poison store (meta[5] stays 0) and
++  //       lands on the target store (meta[6]=0xCC) — proving the fetch redirect.
++  logic parser_meta_seen_q, parser_redir_seen_q;
++  initial begin parser_meta_seen_q = 1'b0; parser_redir_seen_q = 1'b0; end
 +  always @(posedge clk_i) begin
 +    if (rst_ni && !parser_meta_seen_q &&
 +        (i_ariane.i_cva6.ex_stage_i.gen_parser.u_parser_fu.meta_mem[4] == 8'hAB)) begin
 +      parser_meta_seen_q <= 1'b1;
 +      $display("*** PARSER META OK *** meta[4]=%02x committed in-core",
 +               i_ariane.i_cva6.ex_stage_i.gen_parser.u_parser_fu.meta_mem[4]);
++    end
++    if (rst_ni && !parser_redir_seen_q &&
++        (i_ariane.i_cva6.ex_stage_i.gen_parser.u_parser_fu.meta_mem[6] == 8'hCC)) begin
++      parser_redir_seen_q <= 1'b1;
++      if (i_ariane.i_cva6.ex_stage_i.gen_parser.u_parser_fu.meta_mem[5] == 8'h00)
++        $display("*** PARSER REDIRECT OK *** landed on target, poison (meta[5]) skipped");
++      else
++        $display("*** PARSER REDIRECT FAIL *** poison ran: meta[5]=%02x",
++                 i_ariane.i_cva6.ex_stage_i.gen_parser.u_parser_fu.meta_mem[5]);
 +    end
 +  end
  endmodule

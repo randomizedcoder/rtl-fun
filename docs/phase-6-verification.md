@@ -175,6 +175,21 @@ wrong readback fails the test with no backdoor needed. This also exercises the p
 integer-RF writeback and RAW forwarding (a dependent instruction consumes `rd`). No
 `cva6.sv`/patch change was required (the decoder already sets `rd` for custom-3).
 
+Increment **I4a** (end-of-node fetch redirect — gap G3) makes a `NEXTNODE` jump steer
+the frontend: `cva6_parser_wrap` drives `resolve_branch_o` + a byte-translated
+`redirect_pc_o = pc_i + (target_node − cur_node)×4`, muxed into `resolved_branch_o`
+(`is_mispredict`) in `ex_stage`. `parser_insn.S` jumps over a **poison** store onto a
+**landing** store; the backdoor confirms the poison never committed (`meta[5]==0`) and
+the target did (`meta[6]==0xCC`) → `*** PARSER REDIRECT OK ***`. Two subtleties surfaced
+only in-core (not in the isolated wrap-TB): the resolve must be **combinational**
+(same-cycle as the op in EX, matching `branch_unit` — CVA6's mispredict flush kills only
+un-issued instrs, so a registered/late strobe never squashes the wrong-path op); and the
+FU's `pc_i` base must be the parser op's **own** PC, which required latching `pc_o` for
+`fu==PARSER` in `issue_read_operands` (CVA6 latches it only for `CTRL_FLOW`, so it
+otherwise held the last branch's PC). CAM-driven redirect + the branch/parser
+mux-exclusivity SVA are deferred to I4b. See the
+[status tracker](analysis/cva6-implementation-status.md) for the increment/gap state.
+
 ## References
 
 cocotb, Verilator; Phase 2 model/corpus;

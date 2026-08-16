@@ -380,6 +380,21 @@ index 8f70016..fde3d67 100644
      end
    end
  
+@@ -1175,5 +1175,13 @@ module issue_read_operands
+       if (issue_instr_i[0].fu == CVXIF) begin
+         x_transaction_rejected_o <= x_transaction_rejected;
+       end
++      // parser end-of-node redirect base: pc_o is normally latched only for
++      // CTRL_FLOW, but the parser FU reuses ex_stage.pc_i to translate its
++      // node-index redirect (I4a) into a byte PC. parser and branch ops are
++      // mutually exclusive (in-order, single issue), so a parser op may safely
++      // drive pc_o while it is in EX. (rtl-fun, gap G3)
++      if (issue_instr_i[0].fu == PARSER) begin
++        pc_o <= issue_instr_i[0].pc;
++      end
+     end
+   end
+
 diff --git a/core/issue_stage.sv b/core/issue_stage.sv
 index 4ffc538..ca40a75 100644
 --- a/core/issue_stage.sv
