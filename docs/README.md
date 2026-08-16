@@ -15,7 +15,7 @@ golden model and prototyped on FPGA.
 | 1 | [ISA spec](phase-1-isa-spec.md) · [**semantics**](phase-1-isa-semantics.md) | Define parser registers & instruction semantics | ✅ Done |
 | 2 | [Reference model](phase-2-reference-model.md) | Golden C model + packet corpus | ✅ Done |
 | 3 | [Encoding](phase-3-encoding.md) | Allocate `custom-0..3` opcodes & formats | ✅ Done |
-| 4 | [Microarchitecture](phase-4-microarchitecture.md) | Parser datapath + core integration | 🟡 Draft |
+| 4 | [Microarchitecture](phase-4-microarchitecture.md) | Parser datapath + core integration | ✅ Done |
 | 5 | [RTL](phase-5-rtl.md) | SystemVerilog implementation | 🟡 Draft |
 | 6 | [Verification](phase-6-verification.md) | Co-sim RTL vs golden model | 🟡 Draft |
 | 7 | [Toolchain](phase-7-toolchain.md) | Assembler → LLVM/GCC → Spike/QEMU | 🟡 Draft |
@@ -43,12 +43,23 @@ wired into the model ([`encoding.c`](../model/libparsermodel/encoding.c)) and
 `.insn` emitters ([`toolchain/parser_insn.h`](../toolchain/parser_insn.h)). Every
 instruction in the slice program encodes to its exact custom-0 word and decodes
 back (round-trip + golden-vector tests in `nix run .#model-test`).
-**Next:** Phase 4 (parser microarchitecture + CVA6 integration point).
+Phase 4 done — the parser microarchitecture is decided at signal-interface
+granularity: a 256 B packet buffer with a 128-bit read window, the extract/length/
+compare/CAM/end-of-node datapath and its unit interfaces, a 32×64-bit parser
+register file with a single-in-flight hazard interlock, and a CVA6 integration
+plan mapped to the **pinned v5.3.0 source** — custom-0 as a new in-pipeline
+`fu_t::PARSER` reusing `resolved_branch_o` for end-of-node redirect, custom-3 via
+CV-X-IF ([`analysis/cva6-integration.md`](analysis/cva6-integration.md)).
+**Next:** Phase 5 (SystemVerilog RTL for the parser unit + the CVA6 patch).
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 
 ## Analysis
 
+- **[analysis/cva6-integration.md](analysis/cva6-integration.md)** — the file/signal
+  map for attaching the parser unit to CVA6, grounded in the pinned v5.3.0 source:
+  custom opcodes, `fu_t::PARSER`, the `resolved_branch_o` end-of-node redirect,
+  CV-X-IF for the custom-3 moves, and the Phase-5 patch checklist.
 - **[analysis/patent-conformance.md](analysis/patent-conformance.md)** — how the
   design compares to US Patent 12,461,885, and the prioritized corrections applied to
   follow Herbert's model closely.

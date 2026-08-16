@@ -44,7 +44,16 @@ complete; phases are now being built in order.
   encoder/decoder in the model and `.insn` emitters
   ([`toolchain/parser_insn.h`](toolchain/parser_insn.h)); every slice instruction
   round-trips (`nix run .#model-test`).
-- ⏭ **Phase 4 (next) — Microarchitecture** (parser datapath + CVA6 integration).
+- ✅ **Phase 4 — Microarchitecture:** the parser datapath (align → endian →
+  shift/mask extract, bounds/length/compare, CAM, two-stage end-of-node), a 256 B
+  packet buffer with a 128-bit read window, and a 32×64-bit parser register file
+  with a single-in-flight hazard interlock — all decided at signal-interface
+  granularity. The CVA6 integration is mapped to the **pinned v5.3.0 source**
+  ([`docs/analysis/cva6-integration.md`](docs/analysis/cva6-integration.md)):
+  custom-0 becomes a new in-pipeline `fu_t::PARSER` that reuses CVA6's
+  `resolved_branch_o` path for end-of-node fetch redirect, and the custom-3
+  coprocessor moves attach via CV-X-IF.
+- ⏭ **Phase 5 (next) — RTL** (synthesizable SystemVerilog parser unit + CVA6 patch).
 
 No RTL yet — the `rtl/`, etc. source directories are skeletons until their phase
 lands (per-phase status: [docs/README.md](docs/README.md)). Deferred: 64-bit

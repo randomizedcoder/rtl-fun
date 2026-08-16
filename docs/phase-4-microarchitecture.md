@@ -9,10 +9,28 @@ datapath, where packet bytes come from (the decisive bandwidth question), how th
 parser unit hooks into the pipeline, and how parser-register state and hazards are
 managed. Still no RTL — this is the blueprint [Phase 5](phase-5-rtl.md) builds.
 
+The CVA6 attachment is worked out against the **pinned v5.3.0 source** at
+signal granularity in [`analysis/cva6-integration.md`](analysis/cva6-integration.md);
+this doc records the microarchitecture decisions, that doc records the exact
+files/signals.
+
 ## Inputs / prerequisites
 
 - Phase 1 semantics, Phase 3 encodings.
-- CVA6 pipeline structure (6-stage in-order: PC/IF → ID → ISSUE → EX → COMMIT).
+- CVA6 pipeline structure (6-stage in-order: PC/IF → ID → ISSUE → EX → COMMIT),
+  read from the pinned tree (`nix build .#cva6-src`).
+
+## Decisions (this phase resolves the Phase-4 open questions)
+
+| # | Question | Decision |
+|--|--|--|
+| D1 | Packet-data source | **Dedicated on-chip packet buffer**, 256 B, with a **128-bit read window** (Option B-lite). A vs L1D measured in Phase 9. |
+| D2 | CVA6 attachment | custom-0 = **new in-pipeline FU** `fu_t::PARSER` (needs fetch redirect); custom-3 = **CV-X-IF**. RoCC/`acc_dispatcher` rejected. |
+| D3 | Latency / handshake | **Variable-latency** FU (ready/valid), like LSU — not the fixed-latency FLU path. 1 cycle load/len/cmp, 2–3 cycles cam+end-of-node. |
+| D4 | End-of-node redirect | Reuse `branch_unit`'s path: drive `resolved_branch_o`/`resolve_branch_o`. Target computed from `Next`/`Loop` (JALR-like). No new redirect invented. |
+| D5 | CAM sizing | 3–15 shared tables, **32 entries** provisioned (slice uses 13), entry = 20-bit key + 32-bit target (+valid). Behavioral first, synthesizable later. Loaded via custom-3 `CPPRSWRCAM`. |
+| D6 | Register file | 32 × 64-bit p-regs *inside* the unit; sub-field access keyed by `(Pos,Sz)`. **One in-flight parser op** interlock ⇒ no rename, no per-reg scoreboard. |
+| D7 | Context switch | Save/restore through the custom-3 move ABI (`prs.mv.x.p`/`prs.mv.p.x`); minimize in-use state (single encap, no runthread) for the slice. No new CSRs yet. |
 
 ## Design detail
 
@@ -40,15 +58,22 @@ Option A — reuse L1D                Option B — dedicated packet buffer
 | Bandwidth | limited by cache port | wide, sized to the win |
 | Realism for NIC/DPU | ok | matches datapath products |
 
-**Recommendation:** prototype with a **128-bit packet window** (Option B-lite: a
-small packet buffer or a widened read path) so the benchmark can actually show the
-compute-bound speedup, and measure A vs B in Phase 9. This is the single most
-important microarchitecture decision in the project.
+**Decision (D1):** prototype with a **256-byte packet buffer** exposing a
+**128-bit (16-byte) read window** at a byte-granular base. Rationale:
+
+- A field load is ≤ 8 bytes at an arbitrary byte offset; a 16-byte window based at
+  the (aligned-down) offset always contains the 8 needed bytes — one window read
+  per `prs.load`, no straddle logic for the slice.
+- 256 B covers the deepest slice header stack with margin (observed max
+  `CurHdr.Offset` ≈ 62 B for IPv6+hop-by-hop+TCP; QinQ ≈ 42 B).
+- `PKT_WINDOW_W` and buffer depth are RTL parameters (Phase 5 §5.5), so the A-vs-B
+  and window-width sweeps in Phase 9 are cheap. This remains the single most
+  important microarchitecture decision; Phase 9 measures it empirically.
 
 ### 4.2 Parser datapath (field extraction)
 
 ```
-        packet window (128/256 bits)
+        packet window (128 bits)
                   │
                   ▼
         ┌───────────────────┐
@@ -56,11 +81,11 @@ important microarchitecture decision in the project.
         └─────────┬─────────┘
                   ▼
         ┌───────────────────┐
-        │  endian / bswap   │
+        │  endian / bswap   │◄──── E (keep big-endian value)
         └─────────┬─────────┘
                   ▼
         ┌───────────────────┐
-        │  shift / mask     │◄──── width (b/h/w/d), field selector [i]
+        │  shift / mask     │◄──── width (Sz: b/h/w/d), field selector [Pos]
         └─────────┬─────────┘
                   ▼
               paccum (+ side effects)
@@ -89,86 +114,140 @@ Per the patent (see [`analysis/patent-encodings-recovered.md`](analysis/patent-e
   `(PC<<6)&0xFF00`). The RTL must compute the PC-derived selector and detect
   selector collisions.
 - A parallel **indexed array** lookup path (32-bit entries, sub-array base index, no
-  "miss") is an alternative for small key spaces.
-- Programmable from the integer side (`CPPRSWRCAM`/`WRARRAY`).
-- Sizing **TBD**: entries per table, total width. Start small (enough for the slice),
-  leave a config/load path to grow.
+  "miss") is an alternative for small key spaces — deferred past the slice.
+- Programmable from the integer side via the custom-3 R-form (`CPPRSWRCAM` /
+  `CPPRSWRARRAY`, see `isa/parser-opcodes.yaml`).
+
+**Decision (D5): sizing.** The slice needs 13 entries across 3 shared tables
+(`eth_tbl` 4, `proto_tbl` 2, `ip6nh_tbl` 7 — see `model/libparsermodel/program.c`).
+Provision **`CAM_DEPTH = 32`** entries × (20-bit key + 32-bit target + valid) with
+Shared 1..15 selected by the instruction's `Share` field. **Behavioral**
+associative match in simulation first (Phase 5), a synthesizable structure
+(registered array + parallel comparators, or a small hash) later; both hide behind
+the same `parser_cam` interface (§4.6). `CAM_DEPTH` is an RTL parameter.
 
 ### 4.4 Pipeline integration in CVA6
 
-The parser unit is a **new functional unit** in EX, alongside ALU/MUL/LSU:
+custom-0 parser instructions are a **new in-pipeline functional unit**
+(`fu_t::PARSER`) in EX, alongside ALU/MUL/LSU/CVXIF:
 
 ```
- ID ─► ISSUE ─► EX ┬─ ALU
-                   ├─ MUL/DIV
-                   ├─ LSU
-                   └─ PARSER UNIT ── reads packet window, parser regs
-                                   ── writes paccum/pcurhdr/pnext, meta
-                                   ── may redirect fetch (end-of-node)
+ ID ─► ISSUE ─► EX ┬─ ALU ┐
+                   ├─ MUL/DIV ├ FLU (fixed latency, one_cycle)
+                   ├─ CSR ┘
+                   ├─ LSU        (variable latency, own WB port)
+                   ├─ FPU        (variable latency, own WB port)
+                   ├─ CVXIF      (variable latency)  ◄── custom-3 moves
+                   └─ PARSER ── reads packet window + parser regs
+                             ── writes paccum/pcurhdr/pnext, metadata
+                             ── may redirect fetch (end-of-node)  ◄── resolved_branch_o
 ```
 
-Key questions:
-- **Latency:** single- vs multi-cycle. A wide extract + CAM likely multi-cycle;
-  the unit stalls issue or uses a ready/valid handshake. (Semantics unaffected —
-  layer discipline.)
-- **Control-flow — two-stage end-of-node** ([Phase 1 §1.8](phase-1-isa-spec.md)):
-  on `.stp`, the unit checks the **`Loop` register first** (advance `DataHdr.Offset`,
-  redirect to the loop head), then **`Next`** (advance `CurHdr.Offset` unless
-  **overlay**; increment `Counters.Encap` + advance the metadata-frame pointer on
-  **encapsulation**). `Next`/`Loop` carry an **address-or-code** (bit-31) with the
-  E/V/NE/NV control bits. The PC redirect reuses CVA6's branch/redirect path rather
-  than inventing one; the unit must decode the control bits itself.
-- **Exceptions/exit:** parser exit sets `ParserExitCode` (Error code + address) and
-  jumps to `OkayTarget`/`FailTarget`. Note the patent defines **no CPU traps/
-  interrupts** for the parser — exits are explicit jumps.
+**Decision (D2/D3).** custom-0 rides the in-pipeline FU surface because end-of-node
+is a *computed control-flow transfer* — only an EX FU can drive CVA6's fetch
+redirect. The parser is **variable-latency** (ready/valid to issue), like LSU; it is
+deliberately outside CVA6's `one_cycle_select = alu_valid | branch_valid |
+csr_valid` fast path. custom-3 coprocessor moves (register/CAM/array programming)
+have no redirect and read `rs`/write `rd`, so they map onto **CV-X-IF**
+(`cvxif_types.svh`). Full signal chain: [`analysis/cva6-integration.md`](analysis/cva6-integration.md).
+
+Key mechanisms:
+- **Latency:** wide extract + CAM is multi-cycle; the unit uses a ready/valid
+  handshake with issue. A single in-flight parser op (§4.5) keeps this simple.
+- **Two-stage end-of-node** ([Phase 1 §1.8](phase-1-isa-spec.md)): on `.stp`, check
+  the **`Loop` register first** (advance `DataHdr.Offset`, redirect to the loop
+  head), then **`Next`** (advance `CurHdr.Offset` unless **overlay**; increment
+  `Counters.Encap` + advance the metadata-frame pointer on **encapsulation**).
+  `Next`/`Loop` carry an **address-or-code** (bit-31) with E/V/NE/NV control bits
+  the unit decodes itself. **The PC redirect reuses `branch_unit`'s path** —
+  `resolved_branch_o` (`bp_resolve_t`) + `resolve_branch_o` — with
+  `target_address` computed from `Next`/`Loop` instead of an immediate/JALR reg.
+- **Exit (no traps):** parser exit sets `ParserExitCode` (error code + address) and
+  redirects to `OkayTarget`/`FailTarget` via the **same `resolved_branch_o` path**,
+  *not* CVA6's `exception_t` trap machinery — the patent defines no CPU traps for
+  the parser.
 
 ### 4.5 Parser-register file & hazards
 
-- The patent defines **32 × 64-bit `p` registers** (not the handful the blog implies)
-  — operational (`CurHdr`, `DataHdr`, `PktLen`, `Next`, `DataBndLoop` [DataBound +
-  Loop], `Counters` [Encap + Cntr1..7], `NodeLoopCnt`, `Accum`, `Flags`,
-  `MetadataBase`, `FrameOffFnumSeqno`, `ParserExitCode`, …) plus config registers
-  (`ParserConfig`, `LoopSpec`, `TLVSpec`, counter configs) and target registers
-  (`OkayTarget`, `PostLoop`, `CompareFalse`, …). Full layouts:
-  [`analysis/patent-encodings-recovered.md`](analysis/patent-encodings-recovered.md).
+- The patent defines **32 × 64-bit `p` registers** — operational (`CurHdr`,
+  `DataHdr`, `PktLen`, `Next`, `DataBndLoop` [DataBound + Loop], `Counters` [Encap +
+  Cntr1..7], `NodeLoopCnt`, `Accum`, `Flags`, `MetadataBase`, `FrameOffFnumSeqno`,
+  `ParserExitCode`, …) plus config (`ParserConfig`, `LoopSpec`, `TLVSpec`, counter
+  configs) and target registers (`OkayTarget`, `PostLoop`, `CompareFalse`, …). Full
+  layouts: [`analysis/patent-encodings-recovered.md`](analysis/patent-encodings-recovered.md).
 - Several registers are **packed structs** (e.g. `DataBndLoop` = DataBound + Loop;
-  `Counters` = Encap + 7 counters) — the RTL register file must expose sub-field
-  read/write, not just 64-bit words.
-- In-order + single parser unit ⇒ hazards are simple: RAW on parser regs handled by
-  issue interlock; no rename needed.
-- **Context switch (Risk R2, now larger than assumed):** the live parser state is
-  ~17 operational + config/target regs. Define save/restore — parser regs as CSRs or
-  a shadow block the OS can spill. For the first slice, minimize *in-use* state
-  (single encap level, no runthread) to bound the cost.
+  `Counters` = Encap + 7 counters) — the register file exposes sub-field read/write
+  keyed by `(Pos, Sz)` per the MSB-first sub-register convention, not just 64-bit
+  words.
+- **Decision (D6): hazards.** The p-regs live *inside* the parser unit (not CVA6's
+  integer RF). In-order issue + a **single in-flight parser op** interlock (a parser
+  op can't issue while one executes) removes every parser-reg RAW/WAW/WAR hazard for
+  free — no rename, no per-p-reg scoreboard. Integer-side hazards for custom-3 moves
+  are the ordinary `rs`/`rd` scoreboard dependencies CVA6 already tracks.
+- **Context switch (Risk R2) — Decision (D7).** Save/restore rides the existing
+  custom-3 move ABI: an OS spill/reload stub reads each live p-reg with
+  `prs.mv.x.p` and restores with `prs.mv.p.x`. For the first slice, *in-use* state
+  is minimized (single encap level, no runthread) to bound the cost; a dedicated
+  CSR/shadow-block spill path is revisited only if profiling demands it.
+
+### 4.6 Unit interfaces (signal-level, for Phase 5)
+
+Leaf-unit contracts the Phase-5 modules implement. Widths use CVA6 parameters
+(`XLEN`=64) and parser parameters `PKT_WINDOW_W`=128, `CAM_DEPTH`=32,
+`P_REGS`=32. `Sz`∈{dword,byte,half,word}, `Pos`=4-bit sub-register index.
+
+| Module | Inputs | Outputs |
+|--|--|--|
+| `parser_align` | `win[PKT_WINDOW_W-1:0]`, `base[8:0]` (byte offset) | `bytes[63:0]` (8 bytes at base) |
+| `parser_extract` | `bytes[63:0]`, `Sz`, `Pos`, `E`, `Blen`, `pktlen`, `curptr` | `accum[63:0]`, `last_off`, `bounds_fail`, `impl_len` |
+| `parser_length` | `field[63:0]`, `mult`, `min`, `Shift`/const, `curptr`, `pktlen` | `curhdr_len`, `len_fail` |
+| `parser_compare` | `field[63:0]`, `imm`, `mask`, `op` (eq/ne/lt/le/gt/ge) | `cmp_fail` |
+| `parser_cam` | `key[19:0]` (from accum/flags), `share[3:0]`, `pc` (selector) | `hit`, `target[31:0]` |
+| `parser_eon` | `next[31:0]`, `loop[31:0]`, `curhdr`, `datahdr` | `redirect`, `target_pc`, `encap`, `overlay`, `complete`, `exit_code` |
+| `parser_regfile` | `raddr`, `waddr`, `Pos`, `Sz`, `wdata`, `we` | `rdata[63:0]` (sub-field aware) |
+| `parser_pktbuf` | `base[8:0]`, fill port (Phase-8 DMA / Phase-5 preload) | `win[PKT_WINDOW_W-1:0]` |
+
+`parser_execute` sequences these behind the CVA6 issue handshake
+(`parser_valid_i`/`parser_ready_o` → `parser_valid_o`/`parser_trans_id_o` +
+`resolved_branch_o` on end-of-node). Exact CVA6-side port names:
+[`analysis/cva6-integration.md`](analysis/cva6-integration.md) §3–§5.
 
 ## Step-by-step tasks
 
-1. Decide the packet-window source & width (4.1) — prototype 128-bit buffer.
-2. Specify the extract datapath stages + side effects (4.2).
-3. Size & spec the CAM/sub-tables and their load path (4.3).
-4. Define the CVA6 EX hook: issue handshake, latency model, fetch redirect (4.4).
-5. Define the parser register file + hazard interlocks + save/restore (4.5).
-6. Draft block diagrams and interfaces (signal-level) for Phase 5.
+1. ✅ Decide the packet-window source & width (D1) — 256 B buffer, 128-bit window.
+2. ✅ Specify the extract datapath stages + side effects (4.2, 4.6).
+3. ✅ Size & spec the CAM/sub-tables and their load path (D5, 4.3).
+4. ✅ Define the CVA6 EX hook: FU tag, issue handshake, writeback, redirect path
+   against pinned v5.3.0 signals ([cva6-integration.md](analysis/cva6-integration.md)).
+5. ✅ Define the parser register file + hazard interlock + save/restore (D6, D7).
+6. ✅ Draft block diagrams and unit interfaces (signal-level) for Phase 5 (4.6).
 
 ## Deliverables / artifacts
 
-- This microarch doc with block diagrams and unit interfaces.
-- A decided packet-window strategy and CAM sizing.
-- A CVA6 integration plan (exact stages, signals, redirect path).
+- This microarch doc with block diagrams, decisions (D1–D7), and unit interfaces.
+- [`analysis/cva6-integration.md`](analysis/cva6-integration.md) — the file/signal
+  map against pinned CVA6 v5.3.0 (opcodes, `fu_t::PARSER`, `resolved_branch_o`
+  redirect, CVXIF for custom-3, patch checklist).
+- A decided packet-window strategy (D1) and CAM sizing (D5).
 
 ## Exit criteria
 
-- Packet-data path, extract datapath, CAM, integration point, and register/hazard
-  model are all decided and documented at signal-interface granularity.
-- No unresolved dependency blocking RTL.
+- ✅ Packet-data path, extract datapath, CAM, integration point, and
+  register/hazard model are all decided and documented at signal-interface
+  granularity.
+- ✅ No unresolved dependency blocking RTL — remaining items (below) are Phase-5
+  bring-up tuning, not blockers.
 
-## Open questions
+## Open questions (deferred to Phase-5 bring-up / Phase-9 measurement)
 
-- **Decision:** L1D vs dedicated packet buffer for production (prototype = buffer).
-- **TBD:** parser-unit latency & handshake with CVA6 issue.
-- **TBD:** CAM depth/width and its (re)load mechanism.
-- **TBD:** CSR vs shadow-file for parser-register context save/restore.
+- **Phase 9:** L1D vs dedicated packet buffer for production (prototype = buffer, D1).
+- **Phase 5 bring-up:** exact `resolved_branch_o` mux/priority between `branch_unit`
+  and the parser (mutually exclusive by the single-in-flight interlock, but pinned
+  in HW); parser-unit cycle counts confirmed against the extract/CAM critical path.
+- **Phase 8:** how the packet buffer is filled (sim preload vs DMA model).
 
 ## References
 
-CVA6 microarchitecture docs; blog for datapath intent. See [references.md](references.md).
+CVA6 microarchitecture (pinned v5.3.0 source, `nix/cva6.nix`); CV-X-IF spec;
+[`analysis/cva6-integration.md`](analysis/cva6-integration.md); blog for datapath
+intent. See [references.md](references.md).
