@@ -14,7 +14,7 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 
 | Inc | What | Status | PR | Gaps | Key files | Exit criterion / proven by |
 |--|--|--|--|--|--|--|
-| **I1** | Commit-visible parser state (Design B: speculative `st_q` + committed `st_arch_q`, roll back on flush) | 🔵 | — | G2 | `rtl/cva6_parser_wrap.sv`, `nix/cva6-parser/issue-ex.patch` (commit wiring), `rtl/parser_wrap_tb.sv` | SVA `a_arch_committed` + `a_flush_rollback` hold under directed commit/flush stimulus (`parser-wrap-test`); `cva6-parser` builds; `cva6-parser-test` green |
+| **I1** | Commit-visible parser state (Design B: speculative `st_q` + committed `st_arch_q`, roll back on flush) | 🔵 | #21 | G2 | `rtl/cva6_parser_wrap.sv`, `nix/cva6-parser/issue-ex.patch` (commit wiring), `rtl/parser_wrap_tb.sv` | SVA `a_arch_committed` + `a_flush_rollback` hold under directed commit/flush stimulus (`parser-wrap-test`); `cva6-parser` builds; `cva6-parser-test` green |
 | **I2** | Metadata sink + in-core packet feed (observability substrate) | ⬜ | — | G1, G8 | `rtl/cva6_parser_wrap.sv`, `rtl/parser_pktbuf.sv`, testharness MMIO, `toolchain/parser_mmio.h` | baseline eth/ipv4/tcp parsed in-core → `memcmp(flow_keys, model)` equal |
 | **I3** | custom-3 register readback | ⬜ | — | G4 | `rtl/cva6_parser_wrap.sv`, `nix/cva6-parser/issue-ex.patch` (`parser_we_o` → WB) | custom-3 read == expected; dependent instr sees forwarded `rd` (V3); enables V1 in software |
 | **I4** | End-of-node redirect + CAM programming | ⬜ | — | G3 | `rtl/parser_cam.sv` (program port), `rtl/cva6_parser_wrap.sv`, patch | redirect PC == expected; mux-exclusivity SVA holds |
@@ -28,7 +28,7 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 | Gap | Owner | State |
 |--|--|--|
 | G1 no in-core value checking | I2 | ⬜ |
-| **G2 speculation/flush state corruption** | **I1** | 🔵 (fix implemented + verified by `parser-wrap-test`; PR open) |
+| **G2 speculation/flush state corruption** | **I1** | 🔵 (fix implemented + verified by `parser-wrap-test`; PR #21) |
 | G3 redirect untested in-core | I4 | ⬜ |
 | G4 custom-3 untested | I3 | ⬜ |
 | G5 one op only | I5 | ⬜ |
