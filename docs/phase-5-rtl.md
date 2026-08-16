@@ -8,6 +8,21 @@ Implement the parser unit in synthesizable **SystemVerilog** realizing the
 [Phase 4](phase-4-microarchitecture.md) microarchitecture, and run the vertical
 slice in Verilator against the golden model.
 
+## Status — decode path landed
+
+Update (this increment): **`parser_decode.sv` is done and verified.** It turns a
+32-bit Phase-3 custom-0 word into a `micro_op_t` — the RTL twin of the model's
+`encoding.c` (`pm_decode_opcode` + per-group field extraction) and of
+`isa/parser-opcodes.yaml`, same bit positions. It is proven by a **decode
+co-simulation**: `nix run .#parser-sim-decode` sources the *entire* directed
+suite's program from the 32-bit words (`enc.hex`, emitted by the generator via
+`pm_encode`) decoded through `parser_decode`, and every one of the 15 cases
+produces a `flow_keys` and exit code byte-identical to the model — i.e. the
+decoder is behaviourally equivalent to the model's decoded-instruction table over
+the whole suite. (One faithful model fix rode along: `PSTP` now round-trips
+exactly, distinguished from `PSETCODE` by the `V` bit, so a decoded program stops
+where the model's does.) The in-core CVA6 decode/issue/EX patch is next.
+
 ## Status — executed (first slice)
 
 The parser datapath is implemented and **runs the whole slice in Verilator**,
@@ -53,8 +68,8 @@ rtl/
   parser_top.sv        bring-up scaffold: ROM + micro-PC + metadata RAM (sim)
   parser_smoke_tb.sv   Verilator testbench (assertion-based)
   cva6_parser_wrap.sv  the in-pipeline FU as it attaches to CVA6 (interface fidelity)
-  gen/gen_parser_rom.c host generator: model -> program/CAM/packet/expected vectors
-  parser_decode.sv     [next] 32-bit word -> micro_op_t (CVA6 decode path)
+  parser_decode.sv     32-bit Phase-3 word -> micro_op_t (the CVA6 decode path)
+  gen/gen_parser_rom.c host generator: model -> program/CAM/packet/expected/enc vectors
 ```
 
 `parser_pkg` mirrors the model's machine state and decoded-instruction table;
@@ -62,11 +77,19 @@ its ROM word layout is shared with `gen_parser_rom.c` so bits never drift betwee
 model, generator, and RTL. Full constant generation from `isa/parser-opcodes.*`
 (so `parser_pkg` is generated, not hand-written) rides on `parser_decode`.
 
-### 5.2 Decode wiring (next increment)
+### 5.2 Decode
 
-Extend CVA6 decode to recognise `custom-0..3` and emit a parser micro-op, routed
-to the parser FU at ISSUE. Exact hook points and signals:
-[`analysis/cva6-integration.md`](analysis/cva6-integration.md) §3.
+`parser_decode.sv` turns a 32-bit custom-0 word into a `micro_op_t`, mirroring
+`model/libparsermodel/encoding.c` and [`isa/parser-opcodes.yaml`](../isa/parser-opcodes.yaml)
+bit-for-bit (LSB0 numbering, `Fnc4`→opcode group, per-group field slots). It is a
+pure combinational unit; CAM/next *targets* are not in the word (they live in the
+CAM table, resolved at run time), so the decoder produces every micro-op field the
+executor needs and the target arrives on `cam_target_i`. It is proven by the
+decode co-sim (§5.6, `parser-sim-decode`).
+
+The **in-core** CVA6 decode still needs the core patch: extend CVA6 decode to set
+`fu = PARSER` for `custom-0..3` and route to the parser FU at ISSUE. Exact hook
+points and signals: [`analysis/cva6-integration.md`](analysis/cva6-integration.md) §3.
 
 ### 5.3 Execute & handshake
 
@@ -102,6 +125,7 @@ all lint-clean. Vectors are regenerated from the model on every run.
 |--|--|--|
 | `nix run .#parser-sim` | `--binary -O3 --assert +define+PARSER_ASSERT` | fast smoke test (default) |
 | `nix run .#parser-sim-suite` | `+ per-case packet/params.hex` | directed suite (pos/neg/boundary/corner) — see [Phase 6](phase-6-verification.md) |
+| `nix run .#parser-sim-decode` | `+ +define+PARSER_DECODE` | directed suite via `parser_decode` (32-bit words → micro-ops); proves decode == model |
 | `nix run .#parser-sim-trace` | `+ --trace --trace-structs +define+DUMP` | VCD waveform (packed `pstate_t`/`micro_op_t` by name) → `build/parser/parser.vcd` |
 | `nix run .#parser-sim-debug` | `-O0 -CFLAGS "-O0 -ggdb" + trace` | step the verilated model in gdb, with waves |
 | `nix run .#parser-lint` | `--lint-only -Wall` | fast strict lint, no build |
@@ -123,8 +147,9 @@ targets (`parser-analyze`, `parser-formal`, `model-analyze`, `model-fuzz`) are i
 2. ✅ Leaf units: `parser_pktbuf` (window/aligner), `parser_cam`, `parser_execute`.
 3. ✅ `parser_top` scaffold + `parser_smoke_tb`; bring up in Verilator.
 4. ✅ `cva6_parser_wrap` (interface-fidelity FU); Nix targets + lint.
-5. ⏭ `parser_decode` (word → micro-op) + generate `parser_pkg` from `isa/`.
-6. ⏭ Patch CVA6 decode/issue/EX to route custom opcodes (cva6-integration §8).
+5. ✅ `parser_decode` (32-bit word → micro-op), proven by the decode co-sim.
+6. ⏭ Patch CVA6 decode/issue/EX to route custom opcodes (cva6-integration §8);
+   generate `parser_pkg` from `isa/`.
 
 ## Deliverables / artifacts
 

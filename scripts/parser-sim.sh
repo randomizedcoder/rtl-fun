@@ -32,9 +32,10 @@ mkdir -p "$BUILD"
 # 1. generate the test vectors from the golden model (--suite emits the whole
 #    directed suite under $BUILD/cases/ plus the baseline case in $BUILD).
 cc -std=c11 -O2 -Wall -Wextra -I "$MODEL" \
-  "$RTL/gen/gen_parser_rom.c" "$MODEL/parser.c" "$MODEL/program.c" \
+  "$RTL/gen/gen_parser_rom.c" "$MODEL/parser.c" "$MODEL/program.c" "$MODEL/encoding.c" \
   -o "$BUILD/gen_parser_rom"
-if [ "$MODE" = "suite" ]; then
+# suite + decode both run every directed case; decode also needs enc.hex per case.
+if [ "$MODE" = "suite" ] || [ "$MODE" = "decode" ]; then
   "$BUILD/gen_parser_rom" "$BUILD" --suite
 else
   "$BUILD/gen_parser_rom" "$BUILD"
@@ -47,6 +48,7 @@ srcs=(
   "$RTL/parser_pkg.sv"
   "$RTL/parser_pktbuf.sv"
   "$RTL/parser_cam.sv"
+  "$RTL/parser_decode.sv"
   "$RTL/parser_execute.sv"
   "$RTL/parser_top.sv"
   "$RTL/parser_smoke_tb.sv"
@@ -78,6 +80,8 @@ case "$MODE" in
     vflags+=(-O3 --trace --trace-structs +define+DUMP) ;;
   debug)
     vflags+=(-O0 -CFLAGS -O0 -CFLAGS -ggdb --trace --trace-structs +define+DUMP) ;;
+  decode)
+    vflags+=(-O3 +define+PARSER_DECODE) ;;
   run|suite|*)
     vflags+=(-O3) ;;
 esac
@@ -85,10 +89,14 @@ esac
 # 3. verilate (once — the tb reads its per-packet params at runtime)
 ( cd "$BUILD" && rm -rf obj_dir && verilator "${vflags[@]}" "${common[@]}" "${srcs[@]}" )
 
-# 4. run. suite = every directed case in its own dir; otherwise the baseline.
-if [ "$MODE" = "suite" ]; then
+# 4. run. suite/decode = every directed case in its own dir; otherwise baseline.
+if [ "$MODE" = "suite" ] || [ "$MODE" = "decode" ]; then
   echo "=================================================="
-  echo "parser directed suite"
+  if [ "$MODE" = "decode" ]; then
+    echo "parser directed suite (decode path: 32-bit words -> parser_decode)"
+  else
+    echo "parser directed suite"
+  fi
   echo "=================================================="
   fails=0
   ncase=0
@@ -97,8 +105,8 @@ if [ "$MODE" = "suite" ]; then
   while read -r name category _expect_ok exp_code _len; do
     ncase=$((ncase + 1))
     cdir="$BUILD/cases/$name"
-    # the program + CAM are shared across cases; link them beside the vectors.
-    ln -sf ../../program.hex ../../cam.hex "$cdir"/
+    # program + CAM (+enc for decode mode) are shared; link them beside vectors.
+    ln -sf ../../program.hex ../../cam.hex ../../enc.hex "$cdir"/
     if ( cd "$cdir" && "$BUILD/obj_dir/parser-sim" ) > "$cdir/run.log" 2>&1; then
       result="PASS"
     else

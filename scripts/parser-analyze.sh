@@ -26,6 +26,7 @@ srcs=(
   "$RTL/parser_pkg.sv"
   "$RTL/parser_pktbuf.sv"
   "$RTL/parser_cam.sv"
+  "$RTL/parser_decode.sv"
   "$RTL/parser_execute.sv"
   "$RTL/parser_top.sv"
   "$RTL/cva6_parser_wrap.sv"

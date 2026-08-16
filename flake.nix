@@ -73,6 +73,7 @@
           # Parser-unit RTL sim/lint runners as packages too.
           parser-sim = rtl.parser-sim;
           parser-sim-suite = rtl.parser-sim-suite;
+          parser-sim-decode = rtl.parser-sim-decode;
           parser-sim-trace = rtl.parser-sim-trace;
           parser-sim-debug = rtl.parser-sim-debug;
           parser-lint = rtl.parser-lint;
@@ -122,6 +123,11 @@
         apps.parser-sim-suite = {
           type = "app";
           program = "${rtl.parser-sim-suite}/bin/parser-sim-suite";
+        };
+        # Directed suite via the CVA6 decode path (32-bit words -> parser_decode).
+        apps.parser-sim-decode = {
+          type = "app";
+          program = "${rtl.parser-sim-decode}/bin/parser-sim-decode";
         };
         apps.parser-sim-trace = {
           type = "app";

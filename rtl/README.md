@@ -16,8 +16,10 @@ parser_smoke_tb.sv   Verilator testbench (assertion-based, `CHECK` macro; reads
                      per-packet params at runtime so one build runs every case)
 parser_asserts.svh   toggleable assertion macros (PRS_ASSERT / PRS_ASSERT_I):
                      real SVA under +define+PARSER_ASSERT / +FORMAL, else nothing
+parser_decode.sv     32-bit Phase-3 word -> micro_op_t (the CVA6 decode path;
+                     RTL twin of model encoding.c / isa/parser-opcodes.yaml)
 cva6_parser_wrap.sv  the in-pipeline FU as it attaches to CVA6 (interface fidelity)
-gen/gen_parser_rom.c host generator: model -> program/CAM/packet/expected vectors
+gen/gen_parser_rom.c host generator: model -> program/CAM/packet/expected/enc vectors
                      (baseline + the directed suite under build/parser/cases/)
 formal/              SymbiYosys harness + .sby proving parser_execute safety
 .rules.verible_lint  verible project rules (ALL_CAPS params, explicit ranges)
@@ -34,6 +36,7 @@ co-simulation compares like with like.
 ```sh
 nix run .#parser-sim         # optimized, run the smoke test (fast default)
 nix run .#parser-sim-suite   # directed suite: pos/neg/boundary/corner packets
+nix run .#parser-sim-decode  # directed suite via parser_decode (32-bit words)
 nix run .#parser-sim-trace   # + VCD waveform (build/parser/parser.vcd)
 nix run .#parser-sim-debug   # -O0 -ggdb + waveform, for gdb
 nix run .#parser-lint        # --lint-only -Wall, no build
@@ -60,6 +63,7 @@ for the file/signal map of the CVA6 patch.
 
 ## Next increment
 
-`parser_decode.sv` (32-bit Phase-3 word → `micro_op_t`, which also lets
-`parser_pkg` be generated from [`isa/`](../isa/README.md)) and the in-core CVA6
-decode/issue/EX patch. See [`docs/phase-5-rtl.md`](../docs/phase-5-rtl.md) §5.2/§5.5.
+The in-core CVA6 decode/issue/EX patch (`parser_decode.sv` is done — proven by
+`nix run .#parser-sim-decode`), plus generating `parser_pkg` from
+[`isa/`](../isa/README.md). See [`docs/phase-5-rtl.md`](../docs/phase-5-rtl.md) §5.2/§5.5
+and [`docs/analysis/cva6-integration.md`](../docs/analysis/cva6-integration.md) §8.

@@ -53,10 +53,11 @@ let
   };
 in
 {
-  parser-sim       = mkSim "run";
-  parser-sim-suite = mkSim "suite";
-  parser-sim-trace = mkSim "trace";
-  parser-sim-debug = mkSim "debug";
-  parser-lint      = mkSim "lint";
+  parser-sim        = mkSim "run";
+  parser-sim-suite  = mkSim "suite";
+  parser-sim-decode = mkSim "decode";
+  parser-sim-trace  = mkSim "trace";
+  parser-sim-debug  = mkSim "debug";
+  parser-lint       = mkSim "lint";
   inherit parser-formal parser-analyze;
 }
