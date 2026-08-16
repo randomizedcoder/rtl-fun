@@ -16,6 +16,12 @@ signal-level integration map). This doc is specifically about the **in-core**
 surface — the parser FU wired into CVA6 — which is the newer and far thinner of
 the two verification surfaces.
 
+> **Next step:** the follow-up
+> [cva6-verification-design.md](cva6-verification-design.md) turns this risk
+> register into a *design* — ordered implementation increments that close G1–G14
+> (speculation-safety fix first), a table-driven test framework, and a
+> manufacturing/self-test (DFT) plan.
+
 ## 1. Two verification surfaces — don't conflate them
 
 The project verifies correctness at two distinct levels. They catch different
