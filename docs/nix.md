@@ -35,12 +35,37 @@ nix/
   packages.nix                # tool groups (docs / rtl / sim / toolchain / riscv / common)
   cva6.nix                    # pinned CVA6 base-core source (fetchFromGitHub)
   cva6-baseline.nix           # `cva6-baseline` app (writeShellApplication)
+  xdp2.nix                    # pinned xdp2 source (packet corpus, Phase 2)
+  model.nix                   # golden-model apps: model-test, pm-trace (Phase 2)
+  rtl.nix                     # parser-unit sim/lint apps at 4 debug levels (Phase 5)
   devshell.nix                # mkShell: tools + CVA6_SRC/CV_SW_PREFIX + banner + rtl-help
   shell-functions/
     help.nix                  # the rtl-help function
 scripts/
   cva6-baseline.sh            # body of the cva6-baseline app (Phase 0 sim baseline)
+  model-test.sh, pm-trace.sh  # bodies of the golden-model apps (Phase 2)
+  parser-sim.sh               # body of the parser-sim* apps; PARSER_MODE picks the level
 ```
+
+## Runnable apps (`nix run .#<name>`)
+
+One `writeShellApplication` per runner; each puts its tools on `PATH` via
+`runtimeInputs` and is shellcheck-clean at build time.
+
+| App | What it does | Phase |
+|-----|--------------|------:|
+| `cva6-baseline` | build the stock CVA6 Verilator model | 0 |
+| `model-test` | golden-model unit + corpus tests | 2 |
+| `pm-trace` | single-step a parse (optionally `-- x.pcap`) | 2 |
+| `parser-sim` | parser-unit smoke test, optimized (`-O3`) | 5 |
+| `parser-sim-trace` | + VCD waveform (`--trace-structs`) → `build/parser/parser.vcd` | 5 |
+| `parser-sim-debug` | `-O0 -ggdb` + waveform, for gdb | 5 |
+| `parser-lint` | `--lint-only -Wall`, no build (fast strict lint) | 5 |
+
+The four `parser-*` targets share **one** script body (`scripts/parser-sim.sh`,
+selected by `PARSER_MODE`) so build flags can't drift between debug levels — the
+pattern to copy when a phase needs several build variants. See
+[phase-5-rtl.md](phase-5-rtl.md) §5.6.
 
 `flake.nix` stays thin: it imports `nix/packages.nix` and `nix/devshell.nix` and
 exposes `devShells.default` and a `formatter` (`nix fmt`). New modules (build

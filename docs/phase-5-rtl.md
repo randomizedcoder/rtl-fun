@@ -4,15 +4,41 @@
 
 ## Objective
 
-Implement the parser unit in synthesizable **SystemVerilog** and wire it into
-CVA6 behind the `custom-0..3` opcodes, realizing the [Phase 4](phase-4-microarchitecture.md)
-microarchitecture. Target: run the vertical slice in simulation.
+Implement the parser unit in synthesizable **SystemVerilog** realizing the
+[Phase 4](phase-4-microarchitecture.md) microarchitecture, and run the vertical
+slice in Verilator against the golden model.
 
-## Inputs / prerequisites
+## Status — executed (first slice)
 
-- Phase 3 encoding table (`isa/parser-opcodes.*`) — drives decode.
-- Phase 4 microarch (datapath stages, integration signals, register file).
-- A CVA6 checkout building under Verilator.
+The parser datapath is implemented and **runs the whole slice in Verilator**,
+producing a `flow_keys` that matches the golden C model **byte-for-byte**
+(`nix run .#parser-sim` → 50 checks, 0 failures, exit code `STOP_OKAY`). The RTL
+is a hardware `pm_run`: it interprets the *same decoded program* the model runs
+(model/libparsermodel), so the model and the silicon share one program.
+
+Delivered this increment:
+- **Leaf datapath** (`rtl/`): `parser_pkg` (types/params/sub-register fn),
+  `parser_pktbuf` (packet buffer + 128-bit window + aligner), `parser_cam`
+  (behavioural CAM), `parser_execute` (the FU: a hardware `exec_one` +
+  `common_end_of_node`, one `execute_*` branch per model routine).
+- **Bring-up scaffold** `parser_top` + Verilator testbench `parser_smoke_tb`
+  (assertion-based, `` `CHECK `` macro), driven from vectors generated off the
+  model by `rtl/gen/gen_parser_rom.c` (single source of truth — no second copy).
+- **CVA6 seam** `cva6_parser_wrap` at interface fidelity: the in-pipeline FU with
+  the exact CVA6-shaped ports (issue handshake, `resolved_branch_o` redirect,
+  packet-window + CAM), holding persistent parser state and driving end-of-node.
+- **Nix targets** at four debug levels (below), all lint-clean under `-Wall`.
+
+Deferred to the next increment (honest scope):
+- **`parser_decode`** — 32-bit Phase-3 word → `micro_op_t` (the CVA6 decode path).
+  The slice currently runs a model-generated micro-op ROM because CAM/next
+  *targets* are resolved at run time and are not in the instruction word (see
+  `model/.../encoding.h`); decoding drives the CVA6 decoder patch, not the ROM.
+- **The in-core CVA6 patch** (decode/issue/EX wiring, `fu_t::PARSER`) —
+  specified file-by-file in [`analysis/cva6-integration.md`](analysis/cva6-integration.md) §8.
+- **The rest of the slice on RTL is already covered**: because the executor is
+  program-driven, VLAN / IPv6-ext paths run with no new RTL once their packets are
+  fed — exercised systematically in [Phase 6](phase-6-verification.md).
 
 ## Design detail
 
@@ -20,97 +46,102 @@ microarchitecture. Target: run the vertical slice in simulation.
 
 ```
 rtl/
-  parser_pkg.sv        types, opcodes (custom-0 0x0b + funct), enums, parser codes
-  parser_decode.sv     custom-0 0x0b / custom-3 0x7b → parser micro-op + operands
-  parser_execute.sv    top of the parser unit; sequences the sub-units
-  parser_align.sv      byte aligner over the packet window
-  parser_extract.sv    endian(E)/shift/mask(Blen) → Accum; bounds + load-sets-length
-  parser_length.sv     lenset{,add,min}/tlv/pad/eol; sets CurHdr/DataHdr len + DataBound
-  parser_compare.sv    cmpi eq/ne/lt/le/gt/ge + mask; on-false action
-  parser_cam.sv        CAM key union (shared/non-shared, PC-derived selector) → accum/next/jump
-  parser_eon.sv        two-stage end-of-node: Loop-first then Next; overlay + encap
-  parser_regfile.sv    32×64b p-regs w/ sub-field access (CurHdr/DataHdr/DataBndLoop/Counters…)
-  parser_meta.sv       metadata: common vs frame; frame-ptr advance on encap
-  parser_pktbuf.sv     packet window (128/256-bit read port)
-  cva6_parser_wrap.sv  glue into CVA6 EX stage
+  parser_pkg.sv        types, params, ROM word layout, extract_subreg/bswap_n
+  parser_pktbuf.sv     packet buffer + 128-bit window + byte aligner
+  parser_cam.sv        behavioural CAM (20-bit key -> 32-bit target), loadable
+  parser_execute.sv    the parser FU: hardware exec_one + common_end_of_node
+  parser_top.sv        bring-up scaffold: ROM + micro-PC + metadata RAM (sim)
+  parser_smoke_tb.sv   Verilator testbench (assertion-based)
+  cva6_parser_wrap.sv  the in-pipeline FU as it attaches to CVA6 (interface fidelity)
+  gen/gen_parser_rom.c host generator: model -> program/CAM/packet/expected vectors
+  parser_decode.sv     [next] 32-bit word -> micro_op_t (CVA6 decode path)
 ```
 
-`parser_pkg.sv` and the decode case-table are **generated** from the Phase-3
-machine-readable table so bits never drift between model, assembler, and RTL.
+`parser_pkg` mirrors the model's machine state and decoded-instruction table;
+its ROM word layout is shared with `gen_parser_rom.c` so bits never drift between
+model, generator, and RTL. Full constant generation from `isa/parser-opcodes.*`
+(so `parser_pkg` is generated, not hand-written) rides on `parser_decode`.
 
-### 5.2 Decode wiring
+### 5.2 Decode wiring (next increment)
 
-Extend CVA6 decode to recognize `custom-0..3` and emit a parser micro-op
-(class, width, field selector, qualifiers `.stp/.fail`, immediate, register
-operands). Route matching instructions to the parser functional unit at ISSUE.
-
-```systemverilog
-// sketch — real code follows CVA6 conventions
-always_comb begin
-  parser_valid = 1'b0;
-  unique case (instr[6:0])
-    OPCODE_CUSTOM_0, OPCODE_CUSTOM_1,
-    OPCODE_CUSTOM_2, OPCODE_CUSTOM_3: begin
-      parser_valid = 1'b1;
-      parser_uop   = decode_parser(instr);   // from generated table
-    end
-    default: /* normal decode */;
-  endcase
-end
-```
+Extend CVA6 decode to recognise `custom-0..3` and emit a parser micro-op, routed
+to the parser FU at ISSUE. Exact hook points and signals:
+[`analysis/cva6-integration.md`](analysis/cva6-integration.md) §3.
 
 ### 5.3 Execute & handshake
 
-`parser_execute.sv` implements the ready/valid handshake with CVA6 issue
-(latency per Phase 4). It sequences: align → extract (+bounds/implicit length) →
-optional length/compare → optional CAM → optional end-of-node. Writeback updates
-parser regs and, for `.stp`, drives the fetch-redirect / parse-exit signals.
+`cva6_parser_wrap` implements the ready/valid handshake with CVA6 issue and holds
+the persistent parser registers; `parser_execute` computes the next state
+combinationally (single-cycle for the slice). The scaffold `parser_top` instead
+owns a micro-PC so the datapath can run a whole program standalone in sim.
 
 ### 5.4 Writeback, redirect & exceptions
 
-- Normal: write `paccum`/`pcurhdr`/`pnext`/metadata; retire.
-- End-of-node with valid `pnext`: request CVA6 PC redirect to the node address.
-- End-of-node with no `pnext`, or any bounds/length/compare failure: raise
-  **parse-exit** with a status code into the parser status register; return
-  control to the caller. Reuse CVA6's exception/redirect plumbing, don't fork it.
+- Normal: update the parser registers; custom-0 writes no integer `rd`.
+- End-of-node with a node/loop target: assert `resolve_branch_o` + `redirect_pc_o`
+  (reuses CVA6's branch-resolution path — Phase-4 D4).
+- Parse exit (okay/fail or bounds/length/compare failure): `parse_exit_o` +
+  `parse_code_o` (`ParserExitCode`), via the same redirect path — no CPU trap.
 
 ### 5.5 Coding standards & lint
 
-- SystemVerilog, synthesizable subset; follow CVA6 style (naming, `_q`/`_n`
-  registers, `unique/priority case`).
-- **Lint clean** under Verilator `-Wall` and (if available) a commercial linter —
-  matters for the "manufacturer-appropriate" goal (ADR-001).
-- No latches; reset strategy matches CVA6; parameterize widths
-  (`PKT_WINDOW_W`, `CAM_DEPTH`) so Ibex-fallback and sizing sweeps are cheap.
+- Synthesizable SystemVerilog; `_q`/`_n` registers, `unique case`, no latches.
+- **Lint-clean under Verilator `-Wall`** — all width/latch/combinational-loop
+  (`UNOPTFLAT`) classes are fatal. `UNUSEDPARAM`/`UNUSEDSIGNAL` are waived: the
+  package defines the full ISA vocabulary and datapath temporaries are wider than
+  any single use (standard for a shared package). Run: `nix run .#parser-lint`.
+- Widths parameterised (`PKT_WINDOW_W`, `CAM_DEPTH`, `PKT_MAX`) for sizing sweeps.
+
+### 5.6 Simulation targets (Nix)
+
+The flake exposes the parser sim at **four debug levels**, all from one script
+body (`scripts/parser-sim.sh`, selected by `PARSER_MODE`) so they can't drift, and
+all lint-clean. Vectors are regenerated from the model on every run.
+
+| Target | Verilator flags | Use |
+|--|--|--|
+| `nix run .#parser-sim` | `--binary -O3 --assert` | fast smoke test (default) |
+| `nix run .#parser-sim-trace` | `+ --trace --trace-structs +define+DUMP` | VCD waveform (packed `pstate_t`/`micro_op_t` by name) → `build/parser/parser.vcd` |
+| `nix run .#parser-sim-debug` | `-O0 -CFLAGS "-O0 -ggdb" + trace` | step the verilated model in gdb, with waves |
+| `nix run .#parser-lint` | `--lint-only -Wall` | fast strict lint, no build |
+
+VCD (not FST) is used so no `lz4` is needed in the shell. Waveforms open in
+GTKWave; `--trace-structs` renders the parser state struct field-by-field.
+Assertions (`--assert`) are on for every run — the `` `CHECK `` macro in the
+testbench tallies every mismatch instead of stopping at the first. See
+[nix.md](nix.md).
 
 ## Step-by-step tasks
 
-1. Generate `parser_pkg.sv` + decode table from `isa/parser-opcodes.*`.
-2. Implement leaf units: `parser_align`, `parser_extract`, `parser_length`,
-   `parser_compare`, `parser_cam`, `parser_eon`, `parser_regfile`, `parser_pktbuf`.
-3. Implement `parser_decode` and `parser_execute` (sequencing + handshake).
-4. Write `cva6_parser_wrap.sv`; patch CVA6 decode/issue/EX to route custom opcodes.
-5. Bring up in Verilator; run a single hand-assembled Ethernet/IPv4 packet.
-6. Extend to the full slice (VLAN, IPv6+ext, TCP/UDP); lint clean.
+1. ✅ `parser_pkg` + the model-generated micro-op ROM (`gen_parser_rom.c`).
+2. ✅ Leaf units: `parser_pktbuf` (window/aligner), `parser_cam`, `parser_execute`.
+3. ✅ `parser_top` scaffold + `parser_smoke_tb`; bring up in Verilator.
+4. ✅ `cva6_parser_wrap` (interface-fidelity FU); Nix targets + lint.
+5. ⏭ `parser_decode` (word → micro-op) + generate `parser_pkg` from `isa/`.
+6. ⏭ Patch CVA6 decode/issue/EX to route custom opcodes (cva6-integration §8).
 
 ## Deliverables / artifacts
 
-- `rtl/parser_*.sv` + `cva6_parser_wrap.sv` and the CVA6 integration patch.
-- A minimal Verilator smoke test producing a `flow_keys` for one packet.
+- ✅ `rtl/parser_*.sv` + `cva6_parser_wrap.sv`; a Verilator smoke test producing a
+  `flow_keys` for a packet, checked against the model.
+- ✅ Four Nix sim/lint targets (run/trace/debug/lint).
+- ⏭ The CVA6 integration patch (next increment).
 
 ## Exit criteria
 
-- Design elaborates and lints clean (no latches, no width warnings).
-- The full vertical slice runs in Verilator and produces a `flow_keys`.
-- Ready for systematic co-simulation ([Phase 6](phase-6-verification.md)).
+- ✅ Design elaborates and lints clean (no width/latch/loop warnings).
+- ✅ The vertical slice runs in Verilator and produces a `flow_keys` matching the
+  model. (Full multi-packet slice coverage is [Phase 6](phase-6-verification.md).)
+- ⏭ In-core CVA6 execution (the decode + pipeline patch) — next increment.
 
 ## Open questions
 
-- **TBD:** exact CVA6 hook points (scoreboard/issue signals) — pin during bring-up.
-- **Decision:** CAM as behavioral (sim) first, synthesizable structure later, or
-  synthesizable from the start? (Recommend behavioral → synthesizable.)
-- **TBD:** how the packet buffer is filled in sim (preload vs DMA model).
+- **Decision:** CAM behavioural (now) → synthesizable structure (later) — behind
+  the same `parser_cam` interface. ✅ behavioural first.
+- **TBD:** exact CVA6 scoreboard/issue hook signals — pin during the in-core patch.
+- **TBD:** packet-buffer fill in sim (preload now) vs a DMA model (Phase 8).
 
 ## References
 
-CVA6 source & coding style; Phase 3 table; Verilator. See [references.md](references.md).
+CVA6 source & style; [`analysis/cva6-integration.md`](analysis/cva6-integration.md);
+Phase 3 table; Verilator. See [references.md](references.md).

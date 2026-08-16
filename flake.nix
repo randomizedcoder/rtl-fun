@@ -46,6 +46,9 @@
         # Golden-model apps: `model-test` (unit + corpus tests) and `pm-trace`.
         model = import ./nix/model.nix { inherit pkgs xdp2-src; };
 
+        # Parser-unit RTL apps (Phase 5): parser-sim{,-trace,-debug} + parser-lint.
+        rtl = import ./nix/rtl.nix { inherit pkgs; };
+
         # The default development shell (exports CVA6_SRC -> the pinned source,
         # and puts the cva6-baseline app on PATH).
         devshell = import ./nix/devshell.nix {
@@ -65,6 +68,11 @@
           # Golden-model runners as packages too.
           model-test = model.model-test;
           pm-trace = model.pm-trace;
+          # Parser-unit RTL sim/lint runners as packages too.
+          parser-sim = rtl.parser-sim;
+          parser-sim-trace = rtl.parser-sim-trace;
+          parser-sim-debug = rtl.parser-sim-debug;
+          parser-lint = rtl.parser-lint;
         };
 
         # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
@@ -83,6 +91,28 @@
         apps.pm-trace = {
           type = "app";
           program = "${model.pm-trace}/bin/pm-trace";
+        };
+
+        # Parser-unit RTL smoke test (Phase 5), at four debug levels:
+        #   nix run .#parser-sim         optimized, run the smoke test
+        #   nix run .#parser-sim-trace   + FST waveform (--trace-structs)
+        #   nix run .#parser-sim-debug   -O0 -ggdb + waveform (gdb)
+        #   nix run .#parser-lint        --lint-only -Wall, no build
+        apps.parser-sim = {
+          type = "app";
+          program = "${rtl.parser-sim}/bin/parser-sim";
+        };
+        apps.parser-sim-trace = {
+          type = "app";
+          program = "${rtl.parser-sim-trace}/bin/parser-sim-trace";
+        };
+        apps.parser-sim-debug = {
+          type = "app";
+          program = "${rtl.parser-sim-debug}/bin/parser-sim-debug";
+        };
+        apps.parser-lint = {
+          type = "app";
+          program = "${rtl.parser-lint}/bin/parser-lint";
         };
 
         # `nix fmt` formats the .nix files.

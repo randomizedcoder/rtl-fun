@@ -34,6 +34,12 @@
       nix run .#model-test        run the reference-model unit + corpus tests
       nix run .#pm-trace [-- pcap] single-step a parse (tools/pm-trace)
 
+    Parser RTL (Phase 5)          — Verilator, at four debug levels
+      nix run .#parser-sim        optimized (-O3), run the smoke test
+      nix run .#parser-sim-trace  + FST waveform (--trace-structs; gtkwave)
+      nix run .#parser-sim-debug  -O0 -ggdb + waveform, for stepping in gdb
+      nix run .#parser-lint       --lint-only -Wall, no build (fast lint)
+
     Meta
       rtl-help             show this message
 

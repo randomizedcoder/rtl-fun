@@ -16,7 +16,7 @@ golden model and prototyped on FPGA.
 | 2 | [Reference model](phase-2-reference-model.md) | Golden C model + packet corpus | ✅ Done |
 | 3 | [Encoding](phase-3-encoding.md) | Allocate `custom-0..3` opcodes & formats | ✅ Done |
 | 4 | [Microarchitecture](phase-4-microarchitecture.md) | Parser datapath + core integration | ✅ Done |
-| 5 | [RTL](phase-5-rtl.md) | SystemVerilog implementation | 🟡 Draft |
+| 5 | [RTL](phase-5-rtl.md) | SystemVerilog implementation | 🔵 In progress |
 | 6 | [Verification](phase-6-verification.md) | Co-sim RTL vs golden model | 🟡 Draft |
 | 7 | [Toolchain](phase-7-toolchain.md) | Assembler → LLVM/GCC → Spike/QEMU | 🟡 Draft |
 | 8 | [FPGA](phase-8-fpga.md) | Prototype & bring-up on hardware | 🟡 Draft |
@@ -50,7 +50,15 @@ register file with a single-in-flight hazard interlock, and a CVA6 integration
 plan mapped to the **pinned v5.3.0 source** — custom-0 as a new in-pipeline
 `fu_t::PARSER` reusing `resolved_branch_o` for end-of-node redirect, custom-3 via
 CV-X-IF ([`analysis/cva6-integration.md`](analysis/cva6-integration.md)).
-**Next:** Phase 5 (SystemVerilog RTL for the parser unit + the CVA6 patch).
+Phase 5 in progress — the parser datapath is implemented in synthesizable
+SystemVerilog ([`rtl/`](../rtl/README.md)) as a hardware `pm_run`, and **runs the
+vertical slice in Verilator producing a `flow_keys` that matches the golden model
+byte-for-byte** (`nix run .#parser-sim`). Lint-clean under `-Wall`, with four
+Verilator targets at different debug levels (run / trace / debug / lint). The FU
+also exists at CVA6-interface fidelity (`cva6_parser_wrap.sv`). Remaining for
+Phase 5: the 32-bit-word decoder (`parser_decode`) and the in-core CVA6
+decode/issue/EX patch ([`analysis/cva6-integration.md`](analysis/cva6-integration.md) §8).
+**Next:** finish the in-core patch, then Phase 6 (co-simulation over the corpus).
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 
