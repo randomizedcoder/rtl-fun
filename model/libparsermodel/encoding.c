@@ -137,8 +137,11 @@ int pm_encode(const instr *in, uint32_t *out)
     case OP_SETCODE:  /* PSETCODE: Pos=10, V=0 */
         *out = prs_enc_next(in->s, 0, 2, 0, (unsigned)in->payload & 0xFF);
         return 0;
-    case OP_STP:      /* PSTP: encoded as PSETCODE of STOP_OKAY (Pos=10) */
-        *out = prs_enc_next(in->s, 0, 2, 0, (unsigned)(P_STOP_OKAY & 0xFF));
+    case OP_STP:      /* PSTP: Pos=10, V=1 (the V bit distinguishes it from
+                       * PSETCODE, V=0 — yaml discriminator next.by=[Pos,A]).
+                       * end-of-node computes the exit from Next/Loop, so no
+                       * payload is carried. */
+        *out = prs_enc_next(in->s, 1, 2, 0, 0);
         return 0;
     default:
         return -1;    /* OP_INITPARSER etc.: no 32-bit custom-0 form here */
@@ -154,7 +157,9 @@ enum opcode pm_decode_opcode(uint32_t w)
     case FNC4_STORE:    return OP_STORE;
     case FNC4_STOREIMM: return OP_STOREIMM;
     case FNC4_CAM:      return prs_get(w, 30, 30) ? OP_CAMNEXT : OP_CAM;   /* D bit */
-    case FNC4_NEXT:     return (prs_get(w, 29, 28) == 2) ? OP_SETCODE : OP_NEXTNODE;
+    case FNC4_NEXT:     /* Pos=[29:28]: 0=PNEXTNODE, 2=PSETCODE/PSTP (V bit splits) */
+        if (prs_get(w, 29, 28) == 2) return prs_get(w, 30, 30) ? OP_STP : OP_SETCODE;
+        return OP_NEXTNODE;
     case FNC4_CMPORD:   return OP_CMPORD;
     case FNC4_CMPIB:    return OP_CMPIB;
     case FNC4_CMPNEIB:  return OP_CMPINEB;

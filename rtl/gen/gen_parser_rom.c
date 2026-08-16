@@ -27,6 +27,7 @@
  *   [78:77] sz | [82:79] op
  */
 #include "parser.h"
+#include "encoding.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -249,6 +250,25 @@ int main(int argc, char **argv)
     FILE *fp = fopen(path(dir, "program.hex", buf, sizeof buf), "w");
     if (!fp) { perror("program.hex"); return 1; }
     for (size_t i = 0; i < n; i++) emit_word(fp, &prog[i]);
+    fclose(fp);
+
+    /* ---- 32-bit encoded words (the Phase-3 encoding) for the CVA6 decode path.
+     * parser_decode.sv turns these back into micro-ops; parser_top's decode mode
+     * runs the program from THESE words, so RTL-decoded == model-decoded. Every
+     * slice instr must have a 32-bit form (pm_encode) — error out if one doesn't,
+     * since decode mode needs full coverage. ---- */
+    fp = fopen(path(dir, "enc.hex", buf, sizeof buf), "w");
+    if (!fp) { perror("enc.hex"); return 1; }
+    for (size_t i = 0; i < n; i++) {
+        uint32_t w;
+        if (pm_encode(&prog[i], &w) != 0) {
+            fprintf(stderr, "gen: instr %zu (op=%d) has no 32-bit form — decode "
+                            "mode cannot cover it\n", i, (int)prog[i].op);
+            fclose(fp);
+            return 1;
+        }
+        fprintf(fp, "%08x\n", (unsigned)w);
+    }
     fclose(fp);
 
     /* ---- CAM entries referenced by the program ---- */

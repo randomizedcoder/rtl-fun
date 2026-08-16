@@ -39,6 +39,7 @@
     Parser RTL (Phase 5/6)        — Verilator + directed suite + formal
       nix run .#parser-sim        optimized (-O3), run the smoke test
       nix run .#parser-sim-suite  directed suite (pos/neg/boundary/corner packets)
+      nix run .#parser-sim-decode directed suite via parser_decode (32-bit words)
       nix run .#parser-sim-trace  + VCD waveform (--trace-structs; gtkwave)
       nix run .#parser-sim-debug  -O0 -ggdb + waveform, for stepping in gdb
       nix run .#parser-lint       --lint-only -Wall, no build (fast lint)

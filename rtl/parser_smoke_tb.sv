@@ -40,10 +40,21 @@ module parser_smoke_tb
   logic signed [31:0]   code;
   logic                 busy;
 
+  // Decode mode (nix run .#parser-sim-decode): source micro-ops from the 32-bit
+  // Phase-3 words via parser_decode instead of the model-generated ROM, proving
+  // the decoder produces byte-identical flow_keys + exit codes over the suite.
+`ifdef PARSER_DECODE
+  localparam bit USE_DECODE = 1'b1;
+`else
+  localparam bit USE_DECODE = 1'b0;
+`endif
+
   parser_top #(
       .PROG_FILE("program.hex"),
       .CAM_FILE ("cam.hex"),
-      .PKT_FILE ("packet.hex")
+      .PKT_FILE ("packet.hex"),
+      .ENC_FILE ("enc.hex"),
+      .USE_DECODE(USE_DECODE)
   ) dut (
       .clk_i(clk), .rst_ni(rst_n),
       .parse_len_i(parse_len),

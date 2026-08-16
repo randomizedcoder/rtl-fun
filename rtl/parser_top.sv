@@ -18,7 +18,9 @@ module parser_top
 #(
     parameter string PROG_FILE = "",
     parameter string CAM_FILE  = "",
-    parameter string PKT_FILE  = ""
+    parameter string PKT_FILE  = "",
+    parameter string ENC_FILE  = "",     // 32-bit encoded words (decode mode)
+    parameter bit    USE_DECODE = 1'b0   // 1: source micro-ops via parser_decode
 ) (
     input  logic                clk_i,
     input  logic                rst_ni,
@@ -31,11 +33,17 @@ module parser_top
 );
 
   // ---- program ROM + metadata RAM (ROM filled from PROG_FILE in sim) ----
+  // Two program images of the SAME slice, so decode mode is a true equivalence
+  // check: prog_rom holds the model-generated 96-bit micro-ops; enc_rom holds
+  // the 32-bit Phase-3 words that parser_decode turns back into micro-ops.
   logic [ROM_W-1:0] prog_rom [0:PROG_MAX-1];
+  logic [31:0]      enc_rom  [0:PROG_MAX-1];
   logic [7:0]       meta_mem [0:META_MAX-1];
   initial begin
     for (int i = 0; i < PROG_MAX; i++) prog_rom[i] = '0;
+    for (int i = 0; i < PROG_MAX; i++) enc_rom[i]  = '0;
     if (PROG_FILE != "") $readmemh(PROG_FILE, prog_rom);
+    if (ENC_FILE  != "") $readmemh(ENC_FILE,  enc_rom);
   end
 
   // ---- machine state ----
@@ -50,9 +58,16 @@ module parser_top
   localparam int unsigned META_IDX_W = $clog2(META_MAX);
   assign meta_rdata_o = meta_mem[meta_raddr_i[META_IDX_W-1:0]];
 
-  // ---- current micro-op ----
-  micro_op_t op;
-  assign op = mop_from_word(prog_rom[pc_cur[$clog2(PROG_MAX)-1:0]]);
+  // ---- current micro-op: from the ROM, or decoded from the 32-bit word ----
+  micro_op_t op_rom, op_dec, op;
+  logic      dec_illegal;
+  assign op_rom = mop_from_word(prog_rom[pc_cur[$clog2(PROG_MAX)-1:0]]);
+  parser_decode u_decode (
+      .word_i   (enc_rom[pc_cur[$clog2(PROG_MAX)-1:0]]),
+      .op_o     (op_dec),
+      .illegal_o(dec_illegal)
+  );
+  assign op = USE_DECODE ? op_dec : op_rom;
 
   // ---- leaf units ----
   logic [PKT_OFF_W-1:0] mem_off;
@@ -136,5 +151,8 @@ module parser_top
   `PRS_ASSERT(a_done_sticky, clk_i, rst_ni, st_q.done |=> st_q.done)
   // encap depth never exceeds the configured max + the one that trips the fail
   `PRS_ASSERT(a_encap_bound, clk_i, rst_ni, (st_q.encap <= 8'd5))
+  // decode mode: every instruction the running parser fetches is a legal decode
+  `PRS_ASSERT(a_decode_legal, clk_i, rst_ni,
+      (!USE_DECODE) || (!busy_o) || (!dec_illegal))
 
 endmodule : parser_top

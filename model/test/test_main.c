@@ -359,9 +359,10 @@ TEST(t_enc_model_program)  /* every 32-bit instr in the slice encodes + decodes 
         encoded++;
         EXPECT_EQ(prs_opcode(w), PRS_OP_C0);
         enum opcode back = pm_decode_opcode(w);
-        /* PSTP is encoded as PSETCODE (Pos=10); everything else is exact. */
-        if (prog[i].op == OP_STP) EXPECT_EQ(back, OP_SETCODE);
-        else                      EXPECT_EQ(back, prog[i].op);
+        /* Every slice op round-trips exactly, including PSTP (Pos=10, V=1,
+         * distinct from PSETCODE V=0) — so a decoded program executes like the
+         * model's decoded-instruction table (rtl/parser_decode.sv relies on this). */
+        EXPECT_EQ(back, prog[i].op);
         /* Loads must round-trip their Sz + Offset through the bit field. */
         if (prog[i].op == OP_LOAD) {
             EXPECT_EQ(prs_get(w, 29, 28), prog[i].sz);
