@@ -10,8 +10,15 @@
 # Each .word below is a Phase-3 custom-0 encoding (opcode 0x0b). 0x1000000b is a
 # prs.load (Fnc4=LOAD, Sz=1/byte, offset 0) — it reads the (empty in-core) packet
 # window, updates parser state, and retires without redirect. We issue several
-# back-to-back to exercise the single-in-flight interlock + repeated retire, then
-# signal PASS via the fesvr HTIF tohost symbol.
+# back-to-back to exercise the single-in-flight interlock + repeated retire.
+#
+# 0x1AB0230B is a prs.storeimm (Fnc4=STOREIMM, Sz=1/byte, Value=0xAB, Offset=4,
+# S=0): it writes the immediate byte 0xAB into the parser metadata frame at offset
+# 4. In cva6_parser_wrap that write is COMMIT-GATED — byte-scattered into meta_mem
+# only when the op retires (I2, docs/analysis/cva6-verification-design.md §1). The
+# testharness I2 backdoor (tb-backdoor.patch) reads meta_mem hierarchically and, the
+# cycle 0xAB lands, prints "*** PARSER META OK ***" — the first in-core value-check
+# of the parser's metadata sink (gaps G1/G8). Then we signal PASS via fesvr tohost.
 #
 # Run: Variane_testharness parser_insn.elf   (tohost=1 => exit code 0 => PASS)
 
@@ -23,6 +30,7 @@ _start:
     .word 0x1000000b        # prs.load byte, offset 0
     .word 0x1000000b        # prs.load byte, offset 0
     .word 0x1000000b        # prs.load byte, offset 0
+    .word 0x1AB0230B        # prs.storeimm byte 0xAB -> metadata offset 4
 
     # --- signal PASS: tohost = 1 ---
     li   t0, 1

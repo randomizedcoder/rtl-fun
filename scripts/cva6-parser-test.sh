@@ -55,10 +55,23 @@ rc=$?
 set -e
 cat "$LOG"
 
-if grep -q "\*\*\* SUCCESS \*\*\*" "$LOG" && [ "$rc" -eq 0 ]; then
-  echo "== PASS: custom-0 PARSER ops executed and retired in-core =="
+# Two independent PASS conditions:
+#   1. fesvr SUCCESS + rc0        — the whole in-core chain ran (fetch→…→retire).
+#   2. "*** PARSER META OK ***"   — the I2 backdoor observed the parser's
+#      commit-gated metadata frame reach 0xAB in-core (first in-core value-check;
+#      gaps G1/G8). Emitted by tb-backdoor.patch's XMR watcher.
+ok=1
+if ! grep -q "\*\*\* SUCCESS \*\*\*" "$LOG" || [ "$rc" -ne 0 ]; then
+  echo "== FAIL: model did not report SUCCESS (rc=$rc) ==" >&2
+  ok=0
+fi
+if ! grep -q "\*\*\* PARSER META OK \*\*\*" "$LOG"; then
+  echo "== FAIL: I2 backdoor did not observe meta[4]=0xAB committed in-core ==" >&2
+  ok=0
+fi
+if [ "$ok" -eq 1 ]; then
+  echo "== PASS: custom-0 PARSER ops retired in-core + metadata sink value-checked (I2) =="
   exit 0
 else
-  echo "== FAIL: model did not report SUCCESS (rc=$rc) ==" >&2
   exit 1
 fi
