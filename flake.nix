@@ -67,12 +67,17 @@
           xdp2-src = xdp2-src;
           # Golden-model runners as packages too.
           model-test = model.model-test;
+          model-analyze = model.model-analyze;
+          model-fuzz = model.model-fuzz;
           pm-trace = model.pm-trace;
           # Parser-unit RTL sim/lint runners as packages too.
           parser-sim = rtl.parser-sim;
+          parser-sim-suite = rtl.parser-sim-suite;
           parser-sim-trace = rtl.parser-sim-trace;
           parser-sim-debug = rtl.parser-sim-debug;
           parser-lint = rtl.parser-lint;
+          parser-analyze = rtl.parser-analyze;
+          parser-formal = rtl.parser-formal;
         };
 
         # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
@@ -85,6 +90,18 @@
         apps.model-test = {
           type = "app";
           program = "${model.model-test}/bin/model-test";
+        };
+
+        # Static analysis + sanitizers for the C model: `nix run .#model-analyze`.
+        apps.model-analyze = {
+          type = "app";
+          program = "${model.model-analyze}/bin/model-analyze";
+        };
+
+        # Fuzz the C model (libFuzzer + ASan/UBSan): `nix run .#model-fuzz`.
+        apps.model-fuzz = {
+          type = "app";
+          program = "${model.model-fuzz}/bin/model-fuzz";
         };
 
         # Single-step a parse for debugging: `nix run .#pm-trace [-- x.pcap]`.
@@ -102,6 +119,10 @@
           type = "app";
           program = "${rtl.parser-sim}/bin/parser-sim";
         };
+        apps.parser-sim-suite = {
+          type = "app";
+          program = "${rtl.parser-sim-suite}/bin/parser-sim-suite";
+        };
         apps.parser-sim-trace = {
           type = "app";
           program = "${rtl.parser-sim-trace}/bin/parser-sim-trace";
@@ -113,6 +134,16 @@
         apps.parser-lint = {
           type = "app";
           program = "${rtl.parser-lint}/bin/parser-lint";
+        };
+        # Extra SV static analysis (verible + svlint): `nix run .#parser-analyze`.
+        apps.parser-analyze = {
+          type = "app";
+          program = "${rtl.parser-analyze}/bin/parser-analyze";
+        };
+        # Formal proof of parser_execute safety: `nix run .#parser-formal`.
+        apps.parser-formal = {
+          type = "app";
+          program = "${rtl.parser-formal}/bin/parser-formal";
         };
 
         # `nix fmt` formats the .nix files.

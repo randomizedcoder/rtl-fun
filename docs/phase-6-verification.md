@@ -14,6 +14,38 @@ correctness gate for the project.
 - Phase 5 RTL running in Verilator.
 - Phase 2 golden model + serialized corpus (`{bytes, flow_keys, status}`).
 
+## Status — verification foundation delivered
+
+Ahead of the full cocotb/DPI-C corpus co-sim below, the verification *foundation*
+across all four techniques is in place and green (all runnable from the flake):
+
+- **Design assertions, toggleable.** One assertion header (`rtl/parser_asserts.svh`)
+  defines `` `PRS_ASSERT `` / `` `PRS_ASSERT_I `` that expand to real SVA only under
+  `+define+PARSER_ASSERT` (sim) or `+define+FORMAL` (proof) and vanish otherwise —
+  so the same RTL is synthesizable and the no-assert build pays nothing. Safety
+  assertions live in `parser_top` (metadata in-bounds, load offset in range,
+  negative exit code, sticky done, encap bound) and `cva6_parser_wrap` (handshake:
+  ready-low-when-done, writeback-after-accept, no integer writeback). On for every
+  sim: `nix run .#parser-sim`.
+- **Formal proof.** `nix run .#parser-formal` flattens the SV with `sv2v` and has
+  SymbiYosys (z3) *prove* — over all inputs, not samples — that `parser_execute`
+  never writes metadata outside the `flow_keys` frame, only ever writes 1/2/4/8
+  bytes, and reports a negative exit code whenever it completes.
+- **Directed suite.** `nix run .#parser-sim-suite` runs 15 packets —
+  positive (v4/v6 × tcp/udp, VLAN, QinQ, IPv6 HBH ext, IPv6 fragment), negative
+  (unknown ethertype, bad IP version, unknown proto), boundary (minimal/truncated
+  IPv4) and corner (empty, L2-only) — each checked byte-for-byte and exit-code
+  against the model. Vectors are generated from the model (`rtl/gen/gen_parser_rom.c`),
+  which self-checks each case's expected pass/fail, so RTL and model share one truth.
+- **Static analysis + fuzzing.** `nix run .#parser-analyze` (verible + svlint, on
+  top of Verilator `-Wall`) and `nix run .#model-analyze` (cppcheck, gcc
+  `-fanalyzer`, clang-tidy, then an ASan/UBSan run of the model tests).
+  `nix run .#model-fuzz` fuzzes the model with libFuzzer + ASan/UBSan on random
+  packets (memory-safety on malformed input, Risk R4).
+
+The remaining Phase-6 work is the **RTL↔model corpus co-simulation** (cocotb +
+DPI-C over the full Phase-2 corpus) and coverage sign-off, specified below.
+
 ## Design detail
 
 ### 6.1 Co-simulation harness

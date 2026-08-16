@@ -1,12 +1,14 @@
-// parser_smoke_tb.sv — Verilator smoke test for the parser unit (Phase 5).
+// parser_smoke_tb.sv — Verilator smoke / directed-suite test for the parser unit.
 //
-// Runs the generated slice program (rtl/gen/gen_parser_rom.c) on a canned packet
-// through parser_top and asserts the resulting metadata bytes equal the golden
-// model's flow_keys, byte-for-byte. Build/run: scripts/parser-sim.sh
-// (nix run .#parser-sim). Requires Verilator `--assert` for the checks below.
+// Runs the generated slice program (rtl/gen/gen_parser_rom.c) on a packet through
+// parser_top and asserts the resulting metadata bytes equal the golden model's
+// flow_keys, byte-for-byte, and that the exit code matches. Build/run:
+// scripts/parser-sim.sh (nix run .#parser-sim, or .#parser-sim-suite for the
+// whole directed suite). Requires Verilator `--assert` for the checks below.
 //
-// smoke_params.svh is generated alongside the hex files and defines:
-//   PKT_LEN, META_LEN, and the expected exit CODE.
+// The per-packet parameters (PKT_LEN, META_LEN, EXP_CODE) are read at RUNTIME
+// from params.hex, not compiled in — so a SINGLE build runs every suite case,
+// each in its own directory with its own packet/expected/params.hex.
 
 // A tiny test macro: assert + tally, so one run reports every mismatch.
 `define CHECK(cond, msg) \
@@ -19,8 +21,12 @@ module parser_smoke_tb
   import parser_pkg::*;
 ;
 
-  // generated: localparam PKT_LEN, META_LEN, EXP_CODE
-  `include "smoke_params.svh"
+  // per-packet params, read at runtime from params.hex:
+  //   [0] = PKT_LEN, [1] = META_LEN, [2] = EXP_CODE (32-bit two's complement)
+  logic [31:0] params [0:2];
+  int                 PKT_LEN;
+  int                 META_LEN;
+  logic signed [31:0] EXP_CODE;
 
   logic clk;
   logic rst_n;
@@ -61,6 +67,12 @@ module parser_smoke_tb
 `endif
 
   initial begin
+    // per-packet params (runtime): PKT_LEN, META_LEN, EXP_CODE
+    $readmemh("params.hex", params);
+    PKT_LEN  = int'(params[0]);
+    META_LEN = int'(params[1]);
+    EXP_CODE = $signed(params[2]);
+
     for (int i = 0; i < META_MAX; i++) exp_mem[i] = 8'h0;
     $readmemh("expected.hex", exp_mem);
     parse_len  = PKT_LEN[15:0];

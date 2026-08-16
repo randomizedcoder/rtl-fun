@@ -1,4 +1,4 @@
-# rtl/ — SystemVerilog parser unit (Phase 5)
+# rtl/ — SystemVerilog parser unit (Phase 5/6)
 
 The parser execution unit and its integration into CVA6. The datapath is
 implemented and runs the vertical slice in Verilator, producing a `flow_keys`
@@ -12,9 +12,16 @@ parser_execute.sv    the parser functional unit — a hardware exec_one +
                      common_end_of_node (one branch per model execute_*)
 parser_top.sv        bring-up scaffold: program ROM + micro-PC + metadata RAM
                      (stands in for CVA6 fetch+redirect so the datapath runs solo)
-parser_smoke_tb.sv   Verilator testbench (assertion-based, `CHECK` macro)
+parser_smoke_tb.sv   Verilator testbench (assertion-based, `CHECK` macro; reads
+                     per-packet params at runtime so one build runs every case)
+parser_asserts.svh   toggleable assertion macros (PRS_ASSERT / PRS_ASSERT_I):
+                     real SVA under +define+PARSER_ASSERT / +FORMAL, else nothing
 cva6_parser_wrap.sv  the in-pipeline FU as it attaches to CVA6 (interface fidelity)
 gen/gen_parser_rom.c host generator: model -> program/CAM/packet/expected vectors
+                     (baseline + the directed suite under build/parser/cases/)
+formal/              SymbiYosys harness + .sby proving parser_execute safety
+.rules.verible_lint  verible project rules (ALL_CAPS params, explicit ranges)
+.svlint.toml         svlint correctness-rule config
 ```
 
 The RTL is a **hardware `pm_run`**: it interprets the SAME decoded program the C
@@ -26,13 +33,19 @@ co-simulation compares like with like.
 
 ```sh
 nix run .#parser-sim         # optimized, run the smoke test (fast default)
+nix run .#parser-sim-suite   # directed suite: pos/neg/boundary/corner packets
 nix run .#parser-sim-trace   # + VCD waveform (build/parser/parser.vcd)
 nix run .#parser-sim-debug   # -O0 -ggdb + waveform, for gdb
 nix run .#parser-lint        # --lint-only -Wall, no build
+nix run .#parser-analyze     # extra SV lint: verible + svlint
+nix run .#parser-formal      # SymbiYosys proof of parser_execute safety
 ```
 
-Lint-clean under Verilator `-Wall` (width/latch/`UNOPTFLAT` fatal;
-`UNUSEDPARAM`/`UNUSEDSIGNAL` waived for the shared ISA package). See
+Assertions are compiled into every sim (`+define+PARSER_ASSERT`). Lint-clean under
+Verilator `-Wall` (width/latch/`UNOPTFLAT` fatal; `UNUSEDPARAM`/`UNUSEDSIGNAL`
+waived for the shared ISA package), and clean under verible + svlint. See
+[`docs/phase-6-verification.md`](../docs/phase-6-verification.md) for the
+verification foundation, and
 [`docs/phase-5-rtl.md`](../docs/phase-5-rtl.md) §5.6 for the target/debug-level
 design, and [`docs/analysis/cva6-integration.md`](../docs/analysis/cva6-integration.md)
 for the file/signal map of the CVA6 patch.

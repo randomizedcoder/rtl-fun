@@ -130,4 +130,13 @@ module cva6_parser_wrap
   // patch (target_address/is_taken/is_mispredict/cf_type); left at default here.
   assign resolved_branch_o = '0;
 
+  // ---- handshake assertions (compiled out unless +define+PARSER_ASSERT/FORMAL) ----
+`include "parser_asserts.svh"
+  // once the parser has exited, it stops accepting work
+  `PRS_ASSERT(a_ready_low_when_done, clk_i, rst_ni, st_q.done |-> !parser_ready_o)
+  // a writeback only follows an accepted issue the previous cycle
+  `PRS_ASSERT(a_valid_after_accept, clk_i, rst_ni, parser_valid_o |-> $past(accept))
+  // custom-0 parser ops never write the integer register file
+  `PRS_ASSERT(a_no_int_writeback, clk_i, rst_ni, !parser_we_o)
+
 endmodule : cva6_parser_wrap

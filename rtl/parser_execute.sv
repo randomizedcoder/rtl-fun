@@ -164,10 +164,17 @@ module parser_execute
         logic ok;
         ok = 1'b1;
         if (op_i.x) begin                                   // data-header relative (TLV)
-          if ((off32 + nbytes) > st_i.databound)                                  begin s = f_fail(st_i, P_STOP_TLV_LENGTH); ok = 0; end
-          else if (({23'h0, st_i.dat_off} + off32 + nbytes) > {16'h0, parse_len_i}) begin s = f_fail(st_i, P_STOP_TLV_LENGTH); ok = 0; end
+          if ((off32 + nbytes) > st_i.databound) begin
+            s = f_fail(st_i, P_STOP_TLV_LENGTH); ok = 0;
+          end else if (({23'h0, st_i.dat_off} + off32 + nbytes)
+                       > {16'h0, parse_len_i}) begin
+            s = f_fail(st_i, P_STOP_TLV_LENGTH); ok = 0;
+          end
         end else begin                                      // current-header relative
-          if (({23'h0, st_i.cur_off} + off32 + nbytes) > {16'h0, parse_len_i})     begin s = f_fail(st_i, P_STOP_LENGTH);     ok = 0; end
+          if (({23'h0, st_i.cur_off} + off32 + nbytes)
+              > {16'h0, parse_len_i}) begin
+            s = f_fail(st_i, P_STOP_LENGTH); ok = 0;
+          end
         end
 
         if (ok) begin
@@ -220,11 +227,15 @@ module parser_execute
       // ---- compare family (execute_cmpib / cmpineb / cmpord) ----
       OP_CMPIB: begin
         tval = extract_subreg(st_i.accum, 2'd1, op_i.pos);          // byte
-        if ((tval[7:0] & op_i.mask) != op_i.value[7:0]) begin s = f_2bit(st_i, op_i.er); did_ret = 1'b1; end
+        if ((tval[7:0] & op_i.mask) != op_i.value[7:0]) begin
+          s = f_2bit(st_i, op_i.er); did_ret = 1'b1;
+        end
       end
       OP_CMPINEB: begin
         tval = extract_subreg(st_i.accum, 2'd1, op_i.pos);
-        if ((tval[7:0] & op_i.mask) == op_i.value[7:0]) begin s = f_2bit(st_i, op_i.er); did_ret = 1'b1; end
+        if ((tval[7:0] & op_i.mask) == op_i.value[7:0]) begin
+          s = f_2bit(st_i, op_i.er); did_ret = 1'b1;
+        end
       end
       OP_CMPORD: begin
         val = extract_subreg(st_i.accum, op_i.sz, op_i.pos);
@@ -260,8 +271,11 @@ module parser_execute
       // ---- store family (execute_store / execute_storeimm) ----
       OP_STORE: begin
         src = op_i.j ? st_i.flags : st_i.accum;
-        if (op_i.sz == 2'd0) begin tval = src;                                     nbytes = 32'd8; end
-        else                 begin tval = extract_subreg(src, op_i.sz, op_i.pos);  nbytes = (32'd1 << (op_i.sz - 1)); end
+        if (op_i.sz == 2'd0) begin
+          tval = src;                                    nbytes = 32'd8;
+        end else begin
+          tval = extract_subreg(src, op_i.sz, op_i.pos); nbytes = (32'd1 << (op_i.sz - 1));
+        end
         if (op_i.e) tval = bswap_n(tval, nbytes);
         if ((off32 + nbytes) <= META_MAX) begin
           meta_we_o     = 1'b1;

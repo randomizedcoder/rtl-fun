@@ -32,13 +32,18 @@
 
     Golden model (Phase 2)
       nix run .#model-test        run the reference-model unit + corpus tests
+      nix run .#model-analyze     cppcheck + gcc -fanalyzer + clang-tidy + ASan/UBSan
+      nix run .#model-fuzz        libFuzzer + ASan/UBSan on random packets
       nix run .#pm-trace [-- pcap] single-step a parse (tools/pm-trace)
 
-    Parser RTL (Phase 5)          — Verilator, at four debug levels
+    Parser RTL (Phase 5/6)        — Verilator + directed suite + formal
       nix run .#parser-sim        optimized (-O3), run the smoke test
-      nix run .#parser-sim-trace  + FST waveform (--trace-structs; gtkwave)
+      nix run .#parser-sim-suite  directed suite (pos/neg/boundary/corner packets)
+      nix run .#parser-sim-trace  + VCD waveform (--trace-structs; gtkwave)
       nix run .#parser-sim-debug  -O0 -ggdb + waveform, for stepping in gdb
       nix run .#parser-lint       --lint-only -Wall, no build (fast lint)
+      nix run .#parser-analyze    extra SV lint (verible + svlint)
+      nix run .#parser-formal     SymbiYosys proof of parser_execute safety
 
     Meta
       rtl-help             show this message
