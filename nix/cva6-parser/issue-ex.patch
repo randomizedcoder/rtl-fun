@@ -20,7 +20,7 @@ index e82365d..891b014 100644
  ${CVA6_REPO_DIR}/core/instr_realign.sv
  ${CVA6_REPO_DIR}/core/id_stage.sv
 diff --git a/core/cva6.sv b/core/cva6.sv
-index e42e6c3..5be4c41 100644
+index e42e6c3..df939ad 100644
 --- a/core/cva6.sv
 +++ b/core/cva6.sv
 @@ -491,6 +491,15 @@ module cva6
@@ -65,7 +65,7 @@ index e42e6c3..5be4c41 100644
        .hart_id_i               (hart_id_i),
        .x_issue_ready_i         (x_issue_ready),
        .x_issue_resp_i          (x_issue_resp),
-@@ -1003,6 +1024,14 @@ module cva6
+@@ -1003,6 +1024,17 @@ module cva6
        .x_result_valid_i        (x_result_valid),
        .x_result_i              (x_result),
        .x_result_ready_o        (x_result_ready),
@@ -77,14 +77,17 @@ index e42e6c3..5be4c41 100644
 +      .parser_result_o         (parser_result_ex_id),
 +      .parser_valid_o          (parser_valid_ex_id),
 +      .parser_exception_o      (parser_exception_ex_id),
++      // commit notification for parser state (I1): commit_ack[0] + its trans_id
++      .parser_commit_i         (commit_ack[0]),
++      .parser_commit_trans_id_i(commit_instr_id_commit[0].trans_id),
        // Accelerator
        .acc_valid_i             (acc_valid_acc_ex),
        // Performance counters
 diff --git a/core/ex_stage.sv b/core/ex_stage.sv
-index 4bd3a82..1aaeb69 100644
+index 4bd3a82..0452150 100644
 --- a/core/ex_stage.sv
 +++ b/core/ex_stage.sv
-@@ -159,6 +159,20 @@ module ex_stage
+@@ -159,6 +159,24 @@ module ex_stage
      output logic x_result_ready_o,
      // CVXIF Issue transaction rejected -> illegal instruction - ISSUE_STAGE
      input logic x_transaction_rejected_i,
@@ -102,10 +105,14 @@ index 4bd3a82..1aaeb69 100644
 +    output logic parser_valid_o,
 +    // PARSER exception (unused for the slice; parser exits redirect, not trap) - ISSUE_STAGE
 +    output exception_t parser_exception_o,
++    // PARSER commit notification: an op retired on commit port 0 - COMMIT_STAGE
++    input logic parser_commit_i,
++    // PARSER committing trans_id (commit port 0) - COMMIT_STAGE
++    input logic [CVA6Cfg.TRANS_ID_BITS-1:0] parser_commit_trans_id_i,
      // accelerate port result is valid - ACC_DISPATCHER
      input logic acc_valid_i,
      // Enable virtual memory translation - CSR_REGFILE
-@@ -272,6 +286,14 @@ module ex_stage
+@@ -272,6 +290,14 @@ module ex_stage
    logic [CVA6Cfg.TRANS_ID_BITS-1:0] mult_trans_id;
    logic mult_valid;
  
@@ -120,7 +127,7 @@ index 4bd3a82..1aaeb69 100644
    logic [CVA6Cfg.NrIssuePorts-1:0] one_cycle_select;
    assign one_cycle_select = alu_valid_i | branch_valid_i | csr_valid_i;
  
-@@ -328,8 +350,8 @@ module ex_stage
+@@ -328,8 +354,8 @@ module ex_stage
        .branch_comp_res_i (alu_branch_res),
        .branch_result_o   (branch_result),
        .branch_predict_i,
@@ -131,7 +138,7 @@ index 4bd3a82..1aaeb69 100644
        .branch_exception_o(flu_exception_o)
    );
  
-@@ -635,6 +657,100 @@ module ex_stage
+@@ -635,6 +661,103 @@ module ex_stage
      assign x_valid_o        = '0;
    end
  
@@ -186,6 +193,9 @@ index 4bd3a82..1aaeb69 100644
 +        .rst_ni,
 +        .flush_i,
 +        .parser_valid_i   (|parser_valid_i),
++        // commit-visibility of parser state (I1): apply on commit, roll back on flush
++        .commit_i         (parser_commit_i),
++        .commit_trans_id_i(parser_commit_trans_id_i),
 +        .uop_i            (parser_uop),
 +        // parser is single-in-flight and issues on port 0 only (fus_busy[1].parser)
 +        .trans_id_i       (fu_data_i[0].trans_id),

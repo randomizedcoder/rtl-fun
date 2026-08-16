@@ -45,6 +45,14 @@ let
     text = builtins.readFile ../scripts/parser-formal.sh;
   };
 
+  # Directed testbench for cva6_parser_wrap's commit-visible parser state (I1/G2):
+  # rollback-on-flush + commit-advance + backpressure, with assertions on.
+  parser-wrap-test = pkgs.writeShellApplication {
+    name = "parser-wrap-test";
+    inherit runtimeInputs;   # verilator + gcc + make + coreutils
+    text = builtins.readFile ../scripts/parser-wrap-test.sh;
+  };
+
   # Static analysis: two more SV linters beyond Verilator -Wall (parser-lint).
   parser-analyze = pkgs.writeShellApplication {
     name = "parser-analyze";
@@ -59,5 +67,5 @@ in
   parser-sim-trace  = mkSim "trace";
   parser-sim-debug  = mkSim "debug";
   parser-lint       = mkSim "lint";
-  inherit parser-formal parser-analyze;
+  inherit parser-formal parser-analyze parser-wrap-test;
 }

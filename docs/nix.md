@@ -54,6 +54,7 @@ scripts/
   parser-sim.sh               # body of the parser-sim* apps; PARSER_MODE picks the level
   parser-analyze.sh           # verible + svlint SV static analysis (Phase 6)
   parser-formal.sh            # sv2v + SymbiYosys formal proof runner (Phase 6)
+  parser-wrap-test.sh         # cva6_parser_wrap commit/flush state testbench (I1/G2)
 ```
 
 ## Runnable apps (`nix run .#<name>`)
@@ -77,6 +78,7 @@ One `writeShellApplication` per runner; each puts its tools on `PATH` via
 | `parser-lint` | `--lint-only -Wall`, no build (fast strict lint) | 5 |
 | `parser-analyze` | extra SV lint: verible + svlint | 6 |
 | `parser-formal` | sv2v + SymbiYosys proof of `parser_execute` safety | 6 |
+| `parser-wrap-test` | `cva6_parser_wrap` commit/flush state testbench (I1/G2) | 5 |
 
 ### CVA6: unpatched vs patched, layered for caching
 

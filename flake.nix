@@ -105,6 +105,7 @@
           parser-lint = rtl.parser-lint;
           parser-analyze = rtl.parser-analyze;
           parser-formal = rtl.parser-formal;
+          parser-wrap-test = rtl.parser-wrap-test;
         };
 
         # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
@@ -190,6 +191,11 @@
         apps.parser-formal = {
           type = "app";
           program = "${rtl.parser-formal}/bin/parser-formal";
+        };
+        # I1 commit-visible parser-state testbench: `nix run .#parser-wrap-test`.
+        apps.parser-wrap-test = {
+          type = "app";
+          program = "${rtl.parser-wrap-test}/bin/parser-wrap-test";
         };
 
         # `nix fmt` formats the .nix files.
