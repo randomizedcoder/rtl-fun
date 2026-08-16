@@ -18,7 +18,12 @@
 # only when the op retires (I2, docs/analysis/cva6-verification-design.md §1). The
 # testharness I2 backdoor (tb-backdoor.patch) reads meta_mem hierarchically and, the
 # cycle 0xAB lands, prints "*** PARSER META OK ***" — the first in-core value-check
-# of the parser's metadata sink (gaps G1/G8). Then we signal PASS via fesvr tohost.
+# of the parser's metadata sink (gaps G1/G8).
+#
+# Then (I3, gap G4) a custom-3 readback moves parser register p11 (Next) into an
+# integer reg and the PROGRAM self-checks it against the expected reset value — a
+# program-driven oracle needing no backdoor: a wrong readback writes a nonzero
+# tohost (FAIL). This also exercises the parser integer-RF writeback + RAW forwarding.
 #
 # Run: Variane_testharness parser_insn.elf   (tohost=1 => exit code 0 => PASS)
 
@@ -32,8 +37,19 @@ _start:
     .word 0x1000000b        # prs.load byte, offset 0
     .word 0x1AB0230B        # prs.storeimm byte 0xAB -> metadata offset 4
 
-    # --- signal PASS: tohost = 1 ---
-    li   t0, 1
+    # --- custom-3 register readback (I3, gap G4): read p11 (Next) into t2 ---
+    # 0x0B0003FB = prs.mv.x.p t2, p11 (CPPRSRD: CoP=000, Cpreg=11, S=I=R=0,
+    # Func3=000, Rd=x7/t2). After reset Next=P_STOP_OKAY (-4), sign-extended to
+    # 0xFFFFFFFFFFFFFFFC; none of the ops above change Next. This is a program-driven
+    # self-check: the dependent instructions below consume t2 (exercising the integer
+    # RF writeback + RAW forwarding, V3), and only a correct readback yields PASS.
+    .word 0x0B0003FB        # prs.mv.x.p t2, p11  (t2 <- Next)
+    li   t3, -4             # expected P_STOP_OKAY, sign-extended
+    li   t0, 1             # assume PASS (tohost=1 => exit 0)
+    beq  t2, t3, 2f
+    li   t0, 3             # readback mismatch => tohost=3 => exit code 1 => FAIL
+2:
+    # --- signal result: tohost = t0 ---
     la   t1, tohost
     sd   t0, 0(t1)
 1:  j    1b

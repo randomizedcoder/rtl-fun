@@ -97,7 +97,8 @@ counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
   burn-down G1–G14, verification-target snapshot). Updated per PR. I1
   (speculation-safety, commit-visible parser state) is done; I2 adds a commit-gated
   metadata sink value-checked in-core via a deliberate sim-only backdoor (real MMIO
-  peripheral is a tracked, deferred escalation).
+  peripheral is a tracked, deferred escalation); I3 adds custom-3 register readback
+  (`prs.mv.x.p`), value-checked in-core by a program-driven self-check.
 - **[analysis/patent-conformance.md](analysis/patent-conformance.md)** — how the
   design compares to US Patent 12,461,885, and the prioritized corrections applied to
   follow Herbert's model closely.

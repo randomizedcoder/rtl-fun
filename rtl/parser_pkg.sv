@@ -93,6 +93,11 @@ package parser_pkg;
     logic [3:0]     share;   // CAM table id (shared 1..15); 0 = PC-selector (deferred)
     logic [2:0]     miss;
     logic signed [15:0] payload;  // PNEXTNODE target index / PSETCODE code
+    // custom-3 coprocessor register read (CPPRSRD, `prs.mv.x.p`): read parser
+    // register `cpreg` (p0..p31, patent FIG 42) into an integer rd. Not a parse
+    // micro-op — the FU services it as a register move (I3).
+    logic [4:0]     cpreg;
+    logic           rd_preg;
   } micro_op_t;
 
   // ---- ROM word bit-layout (LSB0). gen_parser_rom.c packs identically. ----
@@ -123,6 +128,8 @@ package parser_pkg;
     m.pos     = w[76:73];
     m.sz      = w[78:77];
     m.op      = opcode_e'(w[82:79]);
+    m.cpreg   = 5'h0;     // ROM/custom-0 path never carries a custom-3 read
+    m.rd_preg = 1'b0;
     return m;
   endfunction
 

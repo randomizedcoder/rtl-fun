@@ -166,6 +166,15 @@ value-checks it **on the real core**: a `prs.storeimm` in `parser_insn.S` writes
 deferred escalation (see the implementation-status tracker), and the full
 packet→flow_keys equivalence vs the golden model comes with I5's table-driven cosim.
 
+Increment **I3** (custom-3 register readback — gap G4) adds `prs.mv.x.p rd, p<n>`
+(`CPPRSRD`): `parser_decode` decodes custom-3 and `cva6_parser_wrap` services it as a
+register move, selecting a `pstate_t` field into the integer `rd` without advancing
+parser state. It is value-checked **in-core by the program itself** — `parser_insn.S`
+reads p11 (Next) and writes `tohost` only if it equals the expected reset value, so a
+wrong readback fails the test with no backdoor needed. This also exercises the parser
+integer-RF writeback and RAW forwarding (a dependent instruction consumes `rd`). No
+`cva6.sv`/patch change was required (the decoder already sets `rd` for custom-3).
+
 ## References
 
 cocotb, Verilator; Phase 2 model/corpus;

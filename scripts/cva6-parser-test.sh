@@ -56,7 +56,11 @@ set -e
 cat "$LOG"
 
 # Two independent PASS conditions:
-#   1. fesvr SUCCESS + rc0        — the whole in-core chain ran (fetch→…→retire).
+#   1. fesvr SUCCESS + rc0        — the whole in-core chain ran (fetch→…→retire) AND
+#      the I3 custom-3 readback self-check matched: the program reads parser reg p11
+#      and writes tohost=1 only if it equals the expected value (a wrong readback
+#      writes a nonzero tohost => FAIL), exercising the integer-RF writeback +
+#      forwarding (gap G4).
 #   2. "*** PARSER META OK ***"   — the I2 backdoor observed the parser's
 #      commit-gated metadata frame reach 0xAB in-core (first in-core value-check;
 #      gaps G1/G8). Emitted by tb-backdoor.patch's XMR watcher.
@@ -70,7 +74,7 @@ if ! grep -q "\*\*\* PARSER META OK \*\*\*" "$LOG"; then
   ok=0
 fi
 if [ "$ok" -eq 1 ]; then
-  echo "== PASS: custom-0 PARSER ops retired in-core + metadata sink value-checked (I2) =="
+  echo "== PASS: PARSER ops retired in-core + metadata sink (I2) + custom-3 readback self-check (I3) =="
   exit 0
 else
   exit 1

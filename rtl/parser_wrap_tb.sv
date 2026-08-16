@@ -18,6 +18,10 @@
 // when the op commits, and a flush discards an uncommitted store's write — the frame
 // is an architectural side effect gated exactly like the register state.
 //
+// Scenario 5 proves the I3 custom-3 register READBACK (gap G4): a `prs.mv.x.p` op
+// retires with we=1 and rd = the selected parser register, and does NOT advance
+// parser state or enter the pending queue (it is a register move, not a parse op).
+//
 // The concurrent SVA in cva6_parser_wrap (a_arch_committed / a_flush_rollback) run
 // alongside as a second oracle (+define+PARSER_ASSERT). Run: nix run .#parser-wrap-test.
 
@@ -112,6 +116,15 @@ module parser_wrap_tb
     return m;
   endfunction
 
+  // a custom-3 register-read micro-op (CPPRSRD): read parser register `cp` into rd.
+  function automatic micro_op_t rdpreg_op(input logic [4:0] cp);
+    micro_op_t m;
+    m         = '0;
+    m.rd_preg = 1'b1;
+    m.cpreg   = cp;
+    return m;
+  endfunction
+
   int errors = 0;
   task automatic check(input bit cond, input string msg);
     if (!cond) begin
@@ -131,6 +144,9 @@ module parser_wrap_tb
   endtask
 
   pstate_t sA;
+  pstate_t st_before;
+  logic [63:0] exp_next;
+  int cnt_before;
 
   initial begin
     // ---- reset ----
@@ -235,9 +251,30 @@ module parser_wrap_tb
     check(dut.meta_mem[4] == 8'hAB, "committed metadata must survive the flush");
     @(posedge clk); #1;
 
+    // ================================================================
+    // Scenario 5 — custom-3 register READBACK (I3, gap G4).
+    // ================================================================
+    // Read p11 (Next) == the reset value P_STOP_OKAY (sign-extended). A read must
+    // retire with we=1 and the selected register value, and must NOT advance parser
+    // state or enter the pending queue.
+    exp_next   = {{32{P_STOP_OKAY[31]}}, P_STOP_OKAY};
+    st_before  = dut.st_q;
+    cnt_before = int'(dut.pend_cnt_q);
+    uop = rdpreg_op(5'd11); tid = 3'd4; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    check(wb_valid,                     "readback should retire (parser_valid_o)");
+    check(we,                           "readback should assert we (writes integer rd)");
+    check(result === exp_next,          "readback of p11 (Next) != P_STOP_OKAY");
+    check(wb_tid == 3'd4,               "readback trans_id mismatch");
+    check(dut.st_q === st_before,       "readback must NOT advance parser state");
+    check(int'(dut.pend_cnt_q) == cnt_before, "readback must NOT enter the pending queue");
+    // we is a per-op strobe: it drops the cycle after (no accept)
+    @(posedge clk); #1;
+    check(!we, "we should deassert after the readback retires");
+
     // ---- verdict ----
     if (errors == 0)
-      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 commit-gated metadata)");
+      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 custom-3 readback)");
     else
       $fatal(1, "parser_wrap_tb: FAIL (%0d checks failed)", errors);
     $finish;

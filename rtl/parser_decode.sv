@@ -25,6 +25,7 @@ module parser_decode
 
   // ---- framing (isa/parser-opcodes.yaml: framing) ----
   localparam logic [6:0] OPCODE_C0 = 7'h0B;   // custom-0: 32-bit parser instrs
+  localparam logic [6:0] OPCODE_C3 = 7'h7B;   // custom-3: parser coprocessor moves
 
   // ---- Fnc4 group map (encoding.h enum prs_fnc4 / yaml fnc4_map) ----
   localparam logic [3:0] FNC4_LOAD    = 4'h0;
@@ -176,6 +177,19 @@ module parser_decode
 
         default: ;   // FLAGSLOOP / EXTRACT / ARR / CMPIH / LIFECYCLE — deferred
       endcase
+    end else if (opcode == OPCODE_C3) begin
+      // ---- custom-3 parser coprocessor R-form (patent-encodings §2.2, FIG 43/44)
+      // CoP[31:29]=000 Cpreg[28:24] C[23] S[22] I[21] R[20] Rs[19:15] Func3[14:12] Rd[11:7]
+      // CPPRSRD (`prs.mv.x.p ireg,preg`, read p->int): CoP=000, S=I=R=0, Func3=000.
+      // Cpreg selects the parser register; Rd (captured by the CVA6 decoder) is the
+      // integer destination. Other custom-3 forms (write/imm/CAM/array) are deferred.
+      if ((word_i[31:29] == 3'b000) &&        // CoP = parser coprocessor
+          (word_i[22:20] == 3'b000) &&        // S=0, I=0, R=0  (register-move read)
+          (word_i[14:12] == 3'b000)) begin    // Func3 = 000    (read, not write)
+        m.rd_preg = 1'b1;
+        m.cpreg   = word_i[28:24];
+        illegal_o = 1'b0;
+      end
     end
 
     op_o = m;
