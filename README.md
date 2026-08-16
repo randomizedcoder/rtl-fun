@@ -53,12 +53,22 @@ complete; phases are now being built in order.
   custom-0 becomes a new in-pipeline `fu_t::PARSER` that reuses CVA6's
   `resolved_branch_o` path for end-of-node fetch redirect, and the custom-3
   coprocessor moves attach via CV-X-IF.
-- ⏭ **Phase 5 (next) — RTL** (synthesizable SystemVerilog parser unit + CVA6 patch).
+- 🔵 **Phase 5 (in progress) — RTL:** the parser datapath is implemented in
+  synthesizable SystemVerilog ([`rtl/`](rtl/README.md)) as a hardware `pm_run` and
+  **runs the vertical slice in Verilator, producing a `flow_keys` that matches the
+  golden model byte-for-byte** (`nix run .#parser-sim`). Lint-clean under `-Wall`,
+  with four Verilator targets at different debug levels
+  (`parser-sim{,-trace,-debug}`, `parser-lint`). The FU also exists at
+  CVA6-interface fidelity (`cva6_parser_wrap.sv`). Remaining: the 32-bit word
+  decoder and the in-core CVA6 decode/issue/EX patch
+  ([`docs/analysis/cva6-integration.md`](docs/analysis/cva6-integration.md) §8).
+- ⏭ **Phase 6 (next) — Verification** (co-simulate RTL vs the golden model over the corpus).
 
-No RTL yet — the `rtl/`, etc. source directories are skeletons until their phase
-lands (per-phase status: [docs/README.md](docs/README.md)). Deferred: 64-bit
-instruction form, the array/counter/TLV-loop encoder+execution, and tunnel
-protocols (GRE/GTP/VXLAN).
+The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)); the
+remaining source dirs (`tb/`, `fpga/`) are skeletons until their phase lands
+(per-phase status: [docs/README.md](docs/README.md)). Deferred: 64-bit instruction
+form, the array/counter/TLV-loop encoder+execution, and tunnel protocols
+(GRE/GTP/VXLAN).
 
 ## Repo map
 
