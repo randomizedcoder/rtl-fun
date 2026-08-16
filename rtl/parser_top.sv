@@ -109,16 +109,32 @@ module parser_top
         st_q.done <= 1'b1; st_q.code <= P_STOP_FAIL;
       end else begin
         st_q <= st_n;
+        // scatter the metadata write byte-by-byte; the write is bounds-checked
+        // upstream (a_meta_inbounds), so meta_off+i never wraps META_MAX.
         if (meta_we) begin
           for (int i = 0; i < 8; i++)
-            if (i < int'(meta_nbytes)) begin
-              logic [META_OFF_W-1:0] wa;
-              wa = meta_off + i[META_OFF_W-1:0];
-              meta_mem[wa[META_IDX_W-1:0]] <= meta_wdata[8*i +: 8];
-            end
+            if (i < int'(meta_nbytes))
+              meta_mem[META_IDX_W'(meta_off + i[META_OFF_W-1:0])]
+                  <= meta_wdata[8*i +: 8];
         end
       end
     end
   end
+
+  // ---- design assertions (compiled out unless +define+PARSER_ASSERT/FORMAL) ----
+`include "parser_asserts.svh"
+  // safety: metadata writes never escape the frame
+  `PRS_ASSERT(a_meta_inbounds, clk_i, rst_ni,
+      (!meta_we) || (({23'h0, meta_off} + {28'h0, meta_nbytes}) <= META_MAX))
+  `PRS_ASSERT(a_meta_nbytes, clk_i, rst_ni, (meta_nbytes <= 4'd8))
+  // safety: a load never addresses outside the packet buffer
+  `PRS_ASSERT(a_load_off_range, clk_i, rst_ni,
+      (op.op != OP_LOAD) || ({2'b0, mem_off} < 11'(PKT_MAX)))
+  // liveness/consistency: exit code is always a negative parser code
+  `PRS_ASSERT(a_exit_code_neg, clk_i, rst_ni, (!st_n.done) || (st_n.code < 0))
+  // done is sticky — the parser never "un-exits"
+  `PRS_ASSERT(a_done_sticky, clk_i, rst_ni, st_q.done |=> st_q.done)
+  // encap depth never exceeds the configured max + the one that trips the fail
+  `PRS_ASSERT(a_encap_bound, clk_i, rst_ni, (st_q.encap <= 8'd5))
 
 endmodule : parser_top

@@ -34,10 +34,29 @@ let
       export PARSER_MODE="${mode}"
     '' + builtins.readFile ../scripts/parser-sim.sh;
   };
+
+  # Formal proof of parser_execute (SymbiYosys + yosys + z3). Combinational DUT,
+  # so a 1-step BMC is an exhaustive proof over all inputs.
+  parser-formal = pkgs.writeShellApplication {
+    name = "parser-formal";
+    # sv2v flattens our SystemVerilog to Verilog-2005 (yosys' builtin frontend
+    # can't parse packed structs / typedef enums / automatic functions).
+    runtimeInputs = [ pkgs.haskellPackages.sv2v pkgs.sby pkgs.yosys pkgs.z3 pkgs.coreutils ];
+    text = builtins.readFile ../scripts/parser-formal.sh;
+  };
+
+  # Static analysis: two more SV linters beyond Verilator -Wall (parser-lint).
+  parser-analyze = pkgs.writeShellApplication {
+    name = "parser-analyze";
+    runtimeInputs = [ pkgs.verible pkgs.svlint pkgs.coreutils ];
+    text = builtins.readFile ../scripts/parser-analyze.sh;
+  };
 in
 {
   parser-sim       = mkSim "run";
+  parser-sim-suite = mkSim "suite";
   parser-sim-trace = mkSim "trace";
   parser-sim-debug = mkSim "debug";
   parser-lint      = mkSim "lint";
+  inherit parser-formal parser-analyze;
 }

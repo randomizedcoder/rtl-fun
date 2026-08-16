@@ -17,7 +17,7 @@ golden model and prototyped on FPGA.
 | 3 | [Encoding](phase-3-encoding.md) | Allocate `custom-0..3` opcodes & formats | ✅ Done |
 | 4 | [Microarchitecture](phase-4-microarchitecture.md) | Parser datapath + core integration | ✅ Done |
 | 5 | [RTL](phase-5-rtl.md) | SystemVerilog implementation | 🔵 In progress |
-| 6 | [Verification](phase-6-verification.md) | Co-sim RTL vs golden model | 🟡 Draft |
+| 6 | [Verification](phase-6-verification.md) | Co-sim RTL vs golden model | 🔵 In progress |
 | 7 | [Toolchain](phase-7-toolchain.md) | Assembler → LLVM/GCC → Spike/QEMU | 🟡 Draft |
 | 8 | [FPGA](phase-8-fpga.md) | Prototype & bring-up on hardware | 🟡 Draft |
 | 9 | [Benchmark](phase-9-benchmark.md) | flow_dissector comparison | 🟡 Draft |
@@ -58,7 +58,20 @@ Verilator targets at different debug levels (run / trace / debug / lint). The FU
 also exists at CVA6-interface fidelity (`cva6_parser_wrap.sv`). Remaining for
 Phase 5: the 32-bit-word decoder (`parser_decode`) and the in-core CVA6
 decode/issue/EX patch ([`analysis/cva6-integration.md`](analysis/cva6-integration.md) §8).
-**Next:** finish the in-core patch, then Phase 6 (co-simulation over the corpus).
+Phase 6 in progress — the verification *foundation* is in place across all four
+techniques, every target green from the flake: (1) **toggleable design assertions**
+(`rtl/parser_asserts.svh`) compiled into every sim and vanishing from synthesis;
+(2) a **SymbiYosys formal proof** that `parser_execute` never writes metadata
+out of bounds and always exits with a valid code, for *all* inputs
+(`nix run .#parser-formal`); (3) a **directed suite** of 15 positive / negative /
+boundary / corner packets — IPv4/IPv6, VLAN, QinQ, IPv6 ext + fragment, malformed
+and truncated frames — each matched byte-for-byte and by exit code against the
+model (`nix run .#parser-sim-suite`); and (4) **static analysis + fuzzing** —
+verible + svlint on the RTL (`nix run .#parser-analyze`), cppcheck + gcc
+`-fanalyzer` + clang-tidy + ASan/UBSan on the model (`nix run .#model-analyze`),
+and libFuzzer + ASan/UBSan on random packets (`nix run .#model-fuzz`).
+**Next:** finish the in-core CVA6 patch, then the full RTL↔model corpus
+co-simulation (cocotb + DPI-C) and coverage sign-off.
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 

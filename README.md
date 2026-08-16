@@ -62,7 +62,19 @@ complete; phases are now being built in order.
   CVA6-interface fidelity (`cva6_parser_wrap.sv`). Remaining: the 32-bit word
   decoder and the in-core CVA6 decode/issue/EX patch
   ([`docs/analysis/cva6-integration.md`](docs/analysis/cva6-integration.md) §8).
-- ⏭ **Phase 6 (next) — Verification** (co-simulate RTL vs the golden model over the corpus).
+- 🔵 **Phase 6 (in progress) — Verification:** the verification foundation is in
+  place across all four techniques, every target green from the flake:
+  **toggleable design assertions** (`rtl/parser_asserts.svh`, on in every sim,
+  gone from synthesis); a **SymbiYosys formal proof** that `parser_execute` never
+  writes metadata out of bounds and always exits with a valid code, for all inputs
+  (`nix run .#parser-formal`); a **directed suite** of 15 positive / negative /
+  boundary / corner packets — IPv4/IPv6, VLAN, QinQ, IPv6 ext + fragment, malformed
+  and truncated — each matched byte-for-byte and by exit code against the model
+  (`nix run .#parser-sim-suite`); and **static analysis + fuzzing** — verible +
+  svlint on the RTL (`nix run .#parser-analyze`), cppcheck + gcc `-fanalyzer` +
+  clang-tidy + ASan/UBSan on the model (`nix run .#model-analyze`), and libFuzzer
+  + ASan/UBSan on random packets (`nix run .#model-fuzz`). Remaining: the full
+  RTL↔model corpus co-simulation (cocotb + DPI-C) and coverage sign-off.
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)); the
 remaining source dirs (`tb/`, `fpga/`) are skeletons until their phase lands

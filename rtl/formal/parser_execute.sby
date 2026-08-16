@@ -1,0 +1,20 @@
+# parser_execute.sby — SymbiYosys formal proof of parser_execute safety.
+#
+# parser_execute is combinational, so a 1-step BMC IS an exhaustive proof: the
+# solver explores every input assignment at once. Driven by scripts/parser-formal.sh
+# (nix run .#parser-formal), which first flattens the SystemVerilog to Verilog-2005
+# with sv2v (parser_flat.v) because yosys' built-in frontend can't parse our SV.
+
+[options]
+mode bmc
+depth 1
+
+[engines]
+smtbmc z3
+
+[script]
+read_verilog -formal parser_flat.v
+prep -top parser_execute_fp
+
+[files]
+parser_flat.v

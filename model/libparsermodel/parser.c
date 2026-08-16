@@ -93,7 +93,7 @@ static void execute_load(pstate *ps, const instr *in)
         unsigned mb = (n == 8) ? in->blen * 2u : in->blen;     /* Sz==0 doubles Blen (§2.3) */
         val &= (mb >= 64) ? 0 : (ALL_ONES >> mb);
     }
-    ps->accum = val << (64u - 8u * n);                         /* place field at MSB */
+    ps->accum = val << ((64u - 8u * n) & 63u);                 /* place field at MSB (n in {1,2,4,8}; mask matches RTL shl[6:0]) */
 
     /* load-sets-length (§2.4): grow header length to cover the last byte */
     if (in->x) { if (in->offset + n > ps->dat.len) ps->dat.len = in->offset + n; }

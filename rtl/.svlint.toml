@@ -1,0 +1,29 @@
+# svlint configuration for the parser RTL (Phase 5/6).
+#
+# svlint runs as a third independent SystemVerilog linter (nix run .#parser-analyze),
+# alongside Verilator -Wall and verible. With a config present, only the rules set
+# true below are checked — we enable a conservative set of *correctness* rules and
+# leave svlint's many naming/style opinions off (those are project conventions, not
+# bugs). Each rule here catches a real class of hardware mistake:
+
+[option]
+exclude_paths = []
+
+[rules]
+# assignment discipline: sequential logic must be non-blocking, combinational
+# logic must be blocking — mixing them is a classic simulation/synthesis mismatch.
+blocking_assignment_in_always_ff       = true
+blocking_assignment_in_always_at_edge  = true
+non_blocking_assignment_in_always_comb = true
+
+# every case statement must handle the unlisted values (no accidental latch / X).
+case_default = true
+
+# enums must carry an explicit base type (deterministic width, no inferred int).
+enum_with_type = true
+
+# functions must be automatic (no shared static state across calls).
+function_with_automatic = true
+
+# forbid case-equality operators (===/!==): they compare X/Z and don't synthesize.
+operator_case_equality = true

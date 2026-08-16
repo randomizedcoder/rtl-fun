@@ -1,0 +1,14 @@
+# Verible lint rules for the parser RTL (Phase 5/6).
+#
+# We run verible-verilog-lint as a second, independent SystemVerilog linter
+# alongside Verilator -Wall (nix run .#parser-analyze). The two deviations below
+# adopt traditional hardware-RTL conventions over verible's Google-style
+# defaults; every other rule stays enabled and must pass.
+#
+#   parameter-name-style : accept ALL_CAPS constants (the long-standing Verilog
+#                          convention for parameters/localparams — e.g. PKT_MAX,
+#                          CAM_DEPTH — as well as CamelCase).
+#   unpacked-dimensions-range-ordering : allow explicit [0:N-1] memory ranges,
+#                          which state the address range outright.
+parameter-name-style=localparam_style:CamelCase|ALL_CAPS;parameter_style:CamelCase|ALL_CAPS
+-unpacked-dimensions-range-ordering

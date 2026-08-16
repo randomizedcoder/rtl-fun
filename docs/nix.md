@@ -36,15 +36,19 @@ nix/
   cva6.nix                    # pinned CVA6 base-core source (fetchFromGitHub)
   cva6-baseline.nix           # `cva6-baseline` app (writeShellApplication)
   xdp2.nix                    # pinned xdp2 source (packet corpus, Phase 2)
-  model.nix                   # golden-model apps: model-test, pm-trace (Phase 2)
-  rtl.nix                     # parser-unit sim/lint apps at 4 debug levels (Phase 5)
+  model.nix                   # golden-model apps: model-test, model-analyze, model-fuzz, pm-trace
+  rtl.nix                     # parser-unit sim/lint/analyze/formal apps (Phase 5/6)
   devshell.nix                # mkShell: tools + CVA6_SRC/CV_SW_PREFIX + banner + rtl-help
   shell-functions/
     help.nix                  # the rtl-help function
 scripts/
   cva6-baseline.sh            # body of the cva6-baseline app (Phase 0 sim baseline)
   model-test.sh, pm-trace.sh  # bodies of the golden-model apps (Phase 2)
+  model-analyze.sh            # cppcheck + gcc -fanalyzer + clang-tidy + ASan/UBSan (Phase 6)
+  model-fuzz.sh               # libFuzzer + ASan/UBSan harness runner (Phase 6)
   parser-sim.sh               # body of the parser-sim* apps; PARSER_MODE picks the level
+  parser-analyze.sh           # verible + svlint SV static analysis (Phase 6)
+  parser-formal.sh            # sv2v + SymbiYosys formal proof runner (Phase 6)
 ```
 
 ## Runnable apps (`nix run .#<name>`)
@@ -56,16 +60,23 @@ One `writeShellApplication` per runner; each puts its tools on `PATH` via
 |-----|--------------|------:|
 | `cva6-baseline` | build the stock CVA6 Verilator model | 0 |
 | `model-test` | golden-model unit + corpus tests | 2 |
+| `model-analyze` | cppcheck + gcc `-fanalyzer` + clang-tidy + ASan/UBSan run | 6 |
+| `model-fuzz` | libFuzzer + ASan/UBSan on random packets (`FUZZ_SECONDS=`) | 6 |
 | `pm-trace` | single-step a parse (optionally `-- x.pcap`) | 2 |
 | `parser-sim` | parser-unit smoke test, optimized (`-O3`) | 5 |
+| `parser-sim-suite` | directed suite: pos/neg/boundary/corner packets | 6 |
 | `parser-sim-trace` | + VCD waveform (`--trace-structs`) → `build/parser/parser.vcd` | 5 |
 | `parser-sim-debug` | `-O0 -ggdb` + waveform, for gdb | 5 |
 | `parser-lint` | `--lint-only -Wall`, no build (fast strict lint) | 5 |
+| `parser-analyze` | extra SV lint: verible + svlint | 6 |
+| `parser-formal` | sv2v + SymbiYosys proof of `parser_execute` safety | 6 |
 
-The four `parser-*` targets share **one** script body (`scripts/parser-sim.sh`,
+The `parser-sim*` targets share **one** script body (`scripts/parser-sim.sh`,
 selected by `PARSER_MODE`) so build flags can't drift between debug levels — the
 pattern to copy when a phase needs several build variants. See
-[phase-5-rtl.md](phase-5-rtl.md) §5.6.
+[phase-5-rtl.md](phase-5-rtl.md) §5.6. The verification targets (`*-analyze`,
+`*-fuzz`, `parser-formal`, `parser-sim-suite`) are detailed in
+[phase-6-verification.md](phase-6-verification.md).
 
 `flake.nix` stays thin: it imports `nix/packages.nix` and `nix/devshell.nix` and
 exposes `devShells.default` and a `formatter` (`nix fmt`). New modules (build

@@ -29,11 +29,16 @@ if [ ! -d "$RTL" ]; then
 fi
 mkdir -p "$BUILD"
 
-# 1. generate the test vectors from the golden model
+# 1. generate the test vectors from the golden model (--suite emits the whole
+#    directed suite under $BUILD/cases/ plus the baseline case in $BUILD).
 cc -std=c11 -O2 -Wall -Wextra -I "$MODEL" \
   "$RTL/gen/gen_parser_rom.c" "$MODEL/parser.c" "$MODEL/program.c" \
   -o "$BUILD/gen_parser_rom"
-"$BUILD/gen_parser_rom" "$BUILD"
+if [ "$MODE" = "suite" ]; then
+  "$BUILD/gen_parser_rom" "$BUILD" --suite
+else
+  "$BUILD/gen_parser_rom" "$BUILD"
+fi
 
 # 2. source list + common Verilator flags (bug-indicating lints stay fatal;
 #    UNUSEDPARAM/UNUSEDSIGNAL are waived: the package defines the full ISA
@@ -47,14 +52,20 @@ srcs=(
   "$RTL/parser_smoke_tb.sv"
 )
 common=(
-  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM
-  --assert
+  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-SYNCASYNCNET
+  --assert +define+PARSER_ASSERT
   "-I$RTL" "-I$BUILD"
   --top-module parser_smoke_tb
 )
 
 if [ "$MODE" = "lint" ]; then
   verilator --lint-only "${common[@]}" "${srcs[@]}"
+  # also lint the CVA6 seam FU (not instantiated in the smoke test): the
+  # in-pipeline unit + its handshake assertions must stay elaboration-clean.
+  verilator --lint-only \
+    -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-SYNCASYNCNET --assert +define+PARSER_ASSERT \
+    "-I$RTL" "-I$BUILD" --top-module cva6_parser_wrap \
+    "$RTL/parser_pkg.sv" "$RTL/parser_execute.sv" "$RTL/cva6_parser_wrap.sv"
   echo "parser-sim: lint clean (-Wall, bug-class lints fatal)"
   exit 0
 fi
@@ -67,12 +78,43 @@ case "$MODE" in
     vflags+=(-O3 --trace --trace-structs +define+DUMP) ;;
   debug)
     vflags+=(-O0 -CFLAGS -O0 -CFLAGS -ggdb --trace --trace-structs +define+DUMP) ;;
-  run|*)
+  run|suite|*)
     vflags+=(-O3) ;;
 esac
 
-# 3. verilate + run
+# 3. verilate (once — the tb reads its per-packet params at runtime)
 ( cd "$BUILD" && rm -rf obj_dir && verilator "${vflags[@]}" "${common[@]}" "${srcs[@]}" )
+
+# 4. run. suite = every directed case in its own dir; otherwise the baseline.
+if [ "$MODE" = "suite" ]; then
+  echo "=================================================="
+  echo "parser directed suite"
+  echo "=================================================="
+  fails=0
+  ncase=0
+  # manifest fields: name category expect_ok exp_code len
+  # (expect_ok/len only used by gen's self-check; the runner needs name/cat/code)
+  while read -r name category _expect_ok exp_code _len; do
+    ncase=$((ncase + 1))
+    cdir="$BUILD/cases/$name"
+    # the program + CAM are shared across cases; link them beside the vectors.
+    ln -sf ../../program.hex ../../cam.hex "$cdir"/
+    if ( cd "$cdir" && "$BUILD/obj_dir/parser-sim" ) > "$cdir/run.log" 2>&1; then
+      result="PASS"
+    else
+      result="FAIL"
+      fails=$((fails + 1))
+    fi
+    printf '  %-22s %-9s exp_code=%-4s  %s\n' "$name" "$category" "$exp_code" "$result"
+    [ "$result" = "FAIL" ] && sed 's/^/      /' "$cdir/run.log"
+  done < "$BUILD/cases.txt"
+  echo "--------------------------------------------------"
+  echo "parser suite: $ncase cases, $fails failures"
+  echo "=================================================="
+  [ "$fails" -eq 0 ] || exit 1
+  exit 0
+fi
+
 ( cd "$BUILD" && ./obj_dir/parser-sim )
 
 if [ "$MODE" = "trace" ] || [ "$MODE" = "debug" ]; then

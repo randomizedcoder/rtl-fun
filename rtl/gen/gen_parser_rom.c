@@ -1,17 +1,24 @@
 /*
- * gen_parser_rom.c — generate the RTL smoke-test vectors from the golden model.
+ * gen_parser_rom.c — generate the RTL test vectors from the golden model.
  *
  * The RTL parser unit runs the SAME decoded program the C model runs. Rather
  * than hand-keep a second copy, this tool reuses libparsermodel's slice program
- * (pm_slice_program) and emits, for the Verilator smoke test (parser_smoke_tb.sv):
+ * (pm_slice_program) and, for the Verilator testbench (parser_smoke_tb.sv),
+ * emits the program + CAM once and then, per test packet, the packet bytes, the
+ * model's resulting flow_keys, and the expected exit code:
  *
  *   program.hex     one 96-bit micro-op word per instruction (parser_pkg layout)
- *   cam.hex         CAM entries {valid, share, match, target} referenced by the program
- *   packet.hex      a canned Ethernet/IPv4/TCP frame, one byte per line
+ *   cam.hex         CAM entries {valid, share, match, target} referenced above
+ *   packet.hex      the packet under test, one byte per line
  *   expected.hex    the model's resulting flow_keys, one byte per line
- *   smoke_params.svh  localparam PKT_LEN / META_LEN / EXP_CODE
+ *   params.hex      three 32-bit words: PKT_LEN, META_LEN, EXP_CODE (read at
+ *                   RUNTIME by the testbench, so one build runs every case)
  *
- * Usage: gen_parser_rom [out_dir]   (default ".")
+ * Usage:
+ *   gen_parser_rom <out_dir>            emit the baseline case (eth/ipv4/tcp)
+ *   gen_parser_rom <out_dir> --suite    also emit cases/NN-name/{packet,expected,
+ *                                        params}.hex for the whole directed suite,
+ *                                        plus cases.txt (manifest for the runner)
  *
  * Bit layout of the micro-op word MUST match parser_pkg::mop_from_word (LSB0):
  *   [15:0] payload | [18:16] miss | [22:19] share | [24:23] er | [26:25] func3 |
@@ -24,6 +31,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <sys/stat.h>
+
+/* EtherTypes (mirrors the anonymous enum in program.c, which isn't exported). */
+#define ETH_P_IP     0x0800
+#define ETH_P_IPV6   0x86DD
+#define ETH_P_8021Q  0x8100
+#define ETH_P_8021AD 0x88A8
 
 /* place `val` (width bits) at bit `lopos` of the 96-bit word {hi[31:0], lo[63:0]}.
  * No slice-program field straddles bit 63/64 (checked by construction). */
@@ -84,12 +98,151 @@ static char *path(const char *dir, const char *name, char *buf, size_t bufsz)
     return buf;
 }
 
+/* ---------------------------------------------------------------------------
+ * packet builder — a growable byte buffer with protocol-field helpers
+ * ------------------------------------------------------------------------- */
+typedef struct { uint8_t b[512]; unsigned n; } pkt;
+
+static void p8(pkt *p, unsigned v)  { p->b[p->n++] = (uint8_t)v; }
+static void p16(pkt *p, unsigned v) { p8(p, v >> 8); p8(p, v & 0xFF); }
+static void pn(pkt *p, unsigned v, unsigned n) { while (n--) p8(p, 0); (void)v; }
+static void eth(pkt *p, unsigned ethertype)
+{
+    for (int i = 0; i < 6; i++) p8(p, 0x00 + i);   /* dst */
+    for (int i = 0; i < 6; i++) p8(p, 0x10 + i);   /* src */
+    p16(p, ethertype);
+}
+static void vlan(pkt *p, unsigned inner_ethertype) { p16(p, 0x0000); p16(p, inner_ethertype); }
+/* IPv4 header; verhl lets a case inject a bad version/IHL. proto/total_len set. */
+static void ipv4(pkt *p, unsigned verhl, unsigned proto, unsigned total_len)
+{
+    p8(p, verhl); p8(p, 0x00); p16(p, total_len); p16(p, 0x0000);   /* ver/ihl,tos,len,id */
+    p16(p, 0x4000); p8(p, 0x40); p8(p, proto); p16(p, 0x0000);      /* flags,ttl,proto,csum */
+    p8(p,10); p8(p,0); p8(p,0); p8(p,1);                            /* src 10.0.0.1 */
+    p8(p,10); p8(p,0); p8(p,0); p8(p,2);                            /* dst 10.0.0.2 */
+}
+static void ipv6(pkt *p, unsigned next_hdr)
+{
+    p8(p, 0x60); p8(p, 0); p16(p, 0);   /* ver/tc/flow */
+    p16(p, 0);                          /* payload len (unused by slice) */
+    p8(p, next_hdr); p8(p, 64);         /* next header, hop limit */
+    for (int i = 0; i < 16; i++) p8(p, 0x20 + i);   /* src */
+    for (int i = 0; i < 16; i++) p8(p, 0x40 + i);   /* dst */
+}
+static void ip6ext(pkt *p, unsigned next_hdr, unsigned ext_len_units)
+{
+    /* option header: NH, Hdr-Ext-Len (in 8-byte units, first 8 not counted),
+     * then (ext_len_units+1)*8 - 2 padding bytes. */
+    unsigned total = (ext_len_units + 1) * 8;
+    p8(p, next_hdr); p8(p, ext_len_units);
+    for (unsigned i = 2; i < total; i++) p8(p, 0x00);
+}
+static void ip6frag(pkt *p, unsigned next_hdr)
+{
+    p8(p, next_hdr); p8(p, 0);   /* NH, reserved */
+    p16(p, 0);                   /* frag offset/flags */
+    p8(p,0); p8(p,0); p8(p,0); p8(p,0);  /* identification */
+}
+static void l4ports(pkt *p) { p16(p, 0x1234); p16(p, 0x5678); }
+static void tcp(pkt *p)
+{
+    l4ports(p);
+    pn(p, 0, 8);                 /* seq, ack */
+    p8(p, 0x50); p8(p, 0x02); p16(p, 0x2000); p16(p, 0); p16(p, 0);  /* off/flags,win,csum,urg */
+}
+static void udp(pkt *p) { l4ports(p); p16(p, 8); p16(p, 0); }   /* len, csum */
+
+/* ---------------------------------------------------------------------------
+ * the directed test suite
+ * ------------------------------------------------------------------------- */
+enum cat { POS, NEG, BND, COR };
+static const char *cat_name[] = { "positive", "negative", "boundary", "corner" };
+
+struct testcase {
+    const char *name;
+    enum cat    cat;
+    int         expect_ok;   /* 1 => model must exit P_STOP_OKAY; 0 => must fail */
+    void      (*build)(pkt *);
+};
+
+static void c_ipv4_tcp(pkt *p)  { eth(p, ETH_P_IP);   ipv4(p, 0x45, 6,  40); tcp(p); }
+static void c_ipv4_udp(pkt *p)  { eth(p, ETH_P_IP);   ipv4(p, 0x45, 17, 28); udp(p); }
+static void c_ipv6_tcp(pkt *p)  { eth(p, ETH_P_IPV6); ipv6(p, 6);  tcp(p); }
+static void c_ipv6_udp(pkt *p)  { eth(p, ETH_P_IPV6); ipv6(p, 17); udp(p); }
+static void c_vlan(pkt *p)      { eth(p, ETH_P_8021Q); vlan(p, ETH_P_IP); ipv4(p, 0x45, 6, 40); tcp(p); }
+static void c_qinq(pkt *p)      { eth(p, ETH_P_8021AD); vlan(p, ETH_P_8021Q); vlan(p, ETH_P_IP); ipv4(p, 0x45, 6, 40); tcp(p); }
+static void c_ipv6_hbh(pkt *p)  { eth(p, ETH_P_IPV6); ipv6(p, 0 /*HBH*/); ip6ext(p, 6 /*TCP*/, 0); tcp(p); }
+static void c_ipv6_frag(pkt *p) { eth(p, ETH_P_IPV6); ipv6(p, 44 /*frag*/); ip6frag(p, 17 /*UDP*/); udp(p); }
+static void c_min_ipv4(pkt *p)  { eth(p, ETH_P_IP);   ipv4(p, 0x45, 6, 40); tcp(p); }   /* ihl=5 exactly */
+
+static void c_unknown_ethertype(pkt *p) { eth(p, 0x9999); p16(p, 0); }
+static void c_bad_version(pkt *p)       { eth(p, ETH_P_IP); ipv4(p, 0x65 /*ver 6*/, 6, 40); tcp(p); }
+static void c_unknown_ipproto(pkt *p)   { eth(p, ETH_P_IP); ipv4(p, 0x45, 200 /*unknown*/, 40); pn(p, 0, 8); }
+static void c_trunc_ipv4(pkt *p)        { eth(p, ETH_P_IP); p8(p, 0x45); p8(p, 0); p16(p, 40); } /* IPv4 hdr cut short */
+static void c_empty(pkt *p)             { (void)p; }
+static void c_eth_only(pkt *p)          { eth(p, ETH_P_IP); }   /* ethertype IPv4 but no L3 */
+
+static const struct testcase suite[] = {
+    { "01-eth-ipv4-tcp",       POS, 1, c_ipv4_tcp        },
+    { "02-eth-ipv4-udp",       POS, 1, c_ipv4_udp        },
+    { "03-eth-ipv6-tcp",       POS, 1, c_ipv6_tcp        },
+    { "04-eth-ipv6-udp",       POS, 1, c_ipv6_udp        },
+    { "05-eth-vlan-ipv4-tcp",  POS, 1, c_vlan            },
+    { "06-eth-qinq-ipv4-tcp",  POS, 1, c_qinq            },
+    { "07-eth-ipv6-hbh-tcp",   POS, 1, c_ipv6_hbh        },
+    { "08-eth-ipv6-frag-udp",  POS, 1, c_ipv6_frag       },
+    { "09-unknown-ethertype",  NEG, 0, c_unknown_ethertype },
+    { "10-ipv4-bad-version",   NEG, 0, c_bad_version     },
+    { "11-ipv4-unknown-proto", NEG, 0, c_unknown_ipproto },
+    { "12-ipv4-tcp-minimal",   BND, 1, c_min_ipv4        },
+    { "13-ipv4-truncated",     BND, 0, c_trunc_ipv4      },
+    { "14-empty-packet",       COR, 0, c_empty           },
+    { "15-eth-only-no-l3",     COR, 0, c_eth_only        },
+};
+#define NSUITE ((int)(sizeof(suite)/sizeof(suite[0])))
+
+/* write packet.hex, expected.hex, params.hex for one packet into `dir`; returns
+ * the model's exit code via *out_code. */
+static int emit_case(const char *dir, const instr *prog, size_t nprog,
+                     const pkt *p, int32_t *out_code)
+{
+    char buf[512];
+    FILE *fp;
+
+    fp = fopen(path(dir, "packet.hex", buf, sizeof buf), "w");
+    if (!fp) { perror(buf); return -1; }
+    for (unsigned i = 0; i < p->n; i++) fprintf(fp, "%02x\n", p->b[i]);
+    fclose(fp);
+
+    pstate ps;
+    struct flow_keys fk;
+    pm_init(&ps, p->b, p->n, &fk);
+    int32_t code = pm_run(&ps, prog, nprog);
+    *out_code = code;
+
+    fp = fopen(path(dir, "expected.hex", buf, sizeof buf), "w");
+    if (!fp) { perror(buf); return -1; }
+    const uint8_t *mb = (const uint8_t *)&fk;
+    for (unsigned i = 0; i < sizeof(fk); i++) fprintf(fp, "%02x\n", mb[i]);
+    fclose(fp);
+
+    /* runtime params: PKT_LEN, META_LEN, EXP_CODE (32-bit two's complement) */
+    fp = fopen(path(dir, "params.hex", buf, sizeof buf), "w");
+    if (!fp) { perror(buf); return -1; }
+    fprintf(fp, "%08x\n", (unsigned)p->n);
+    fprintf(fp, "%08x\n", (unsigned)sizeof(fk));
+    fprintf(fp, "%08x\n", (unsigned)(uint32_t)code);
+    fclose(fp);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *dir = (argc > 1) ? argv[1] : ".";
+    int do_suite = (argc > 2) && strcmp(argv[2], "--suite") == 0;
     char buf[512];
 
-    /* ---- the program ---- */
+    /* ---- the program (shared by every case) ---- */
     size_t n;
     const instr *prog = pm_slice_program(&n);
 
@@ -127,49 +280,52 @@ int main(int argc, char **argv)
     }
     fclose(fp);
 
-    /* ---- canned Ethernet / IPv4 / TCP frame ---- */
-    static const uint8_t pkt[] = {
-        0x00,0x11,0x22,0x33,0x44,0x55,           /* eth dst */
-        0x66,0x77,0x88,0x99,0xaa,0xbb,           /* eth src */
-        0x08,0x00,                               /* ethertype IPv4 */
-        0x45,0x00, 0x00,0x28, 0x00,0x00,         /* ver/ihl, tos, total_len=40, id */
-        0x40,0x00, 0x40,0x06, 0x00,0x00,         /* flags/frag, ttl, proto=TCP, csum */
-        0x0a,0x00,0x00,0x01,                     /* src 10.0.0.1 */
-        0x0a,0x00,0x00,0x02,                     /* dst 10.0.0.2 */
-        0x12,0x34, 0x56,0x78,                    /* tcp sport=0x1234 dport=0x5678 */
-        0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,/* seq, ack */
-        0x50,0x02, 0x20,0x00, 0x00,0x00, 0x00,0x00 /* off/flags, win, csum, urg */
-    };
-    unsigned pkt_len = (unsigned)sizeof(pkt);
+    /* ---- baseline case (eth/ipv4/tcp) into out_dir for the default smoke run ---- */
+    pkt base = {0};
+    c_ipv4_tcp(&base);
+    int32_t base_code;
+    if (emit_case(dir, prog, n, &base, &base_code) != 0) return 1;
+    fprintf(stderr, "gen: %zu instrs, %d CAM entries, baseline pkt=%u bytes, model code=%d\n",
+            n, nrows, base.n, base_code);
 
-    fp = fopen(path(dir, "packet.hex", buf, sizeof buf), "w");
-    if (!fp) { perror("packet.hex"); return 1; }
-    for (unsigned i = 0; i < pkt_len; i++) fprintf(fp, "%02x\n", pkt[i]);
-    fclose(fp);
+    if (!do_suite) return 0;
 
-    /* ---- run the model to get the expected flow_keys + exit code ---- */
-    pstate ps;
-    struct flow_keys fk;
-    pm_init(&ps, pkt, pkt_len, &fk);
-    int32_t code = pm_run(&ps, prog, n);
+    /* ---- the directed suite: one dir per case + a manifest for the runner ---- */
+    char cases_dir[512];
+    snprintf(cases_dir, sizeof cases_dir, "%s/cases", dir);
+    mkdir(cases_dir, 0777);
 
-    fp = fopen(path(dir, "expected.hex", buf, sizeof buf), "w");
-    if (!fp) { perror("expected.hex"); return 1; }
-    const uint8_t *mb = (const uint8_t *)&fk;
-    for (unsigned i = 0; i < sizeof(fk); i++) fprintf(fp, "%02x\n", mb[i]);
-    fclose(fp);
+    char manifest[512];
+    FILE *mf = fopen(path(dir, "cases.txt", manifest, sizeof manifest), "w");
+    if (!mf) { perror("cases.txt"); return 1; }
 
-    /* ---- params for the testbench ---- */
-    fp = fopen(path(dir, "smoke_params.svh", buf, sizeof buf), "w");
-    if (!fp) { perror("smoke_params.svh"); return 1; }
-    fprintf(fp, "// generated by gen_parser_rom.c — do not edit\n");
-    fprintf(fp, "localparam int PKT_LEN  = %u;\n", pkt_len);
-    fprintf(fp, "localparam int META_LEN = %u;\n", (unsigned)sizeof(fk));
-    fprintf(fp, "localparam logic signed [31:0] EXP_CODE = %d;\n", code);
-    fclose(fp);
+    int mism = 0;
+    for (int i = 0; i < NSUITE; i++) {
+        char cdir[600];
+        snprintf(cdir, sizeof cdir, "%s/%s", cases_dir, suite[i].name);
+        mkdir(cdir, 0777);
 
-    fprintf(stderr,
-        "gen: %zu instrs, %d CAM entries, pkt=%u bytes, meta=%u bytes, model code=%d\n",
-        n, nrows, pkt_len, (unsigned)sizeof(fk), code);
+        pkt p = {0};
+        suite[i].build(&p);
+        int32_t code;
+        if (emit_case(cdir, prog, n, &p, &code) != 0) { fclose(mf); return 1; }
+
+        int got_ok = (code == P_STOP_OKAY);
+        const char *verdict = (got_ok == suite[i].expect_ok) ? "ok" : "MISMATCH";
+        if (got_ok != suite[i].expect_ok) mism++;
+
+        /* manifest line: name category expect_ok exp_code len */
+        fprintf(mf, "%s %s %d %d %u\n", suite[i].name, cat_name[suite[i].cat],
+                suite[i].expect_ok, code, p.n);
+        fprintf(stderr, "  %-22s %-9s len=%-3u code=%-4d %s\n",
+                suite[i].name, cat_name[suite[i].cat], p.n, code, verdict);
+    }
+    fclose(mf);
+
+    if (mism) {
+        fprintf(stderr, "gen: %d case(s) disagree with expected OK/FAIL — fix the vectors\n", mism);
+        return 3;
+    }
+    fprintf(stderr, "gen: suite = %d cases, all match expected OK/FAIL\n", NSUITE);
     return 0;
 }

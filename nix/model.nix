@@ -34,7 +34,24 @@ let
     inherit runtimeInputs;
     text = builtins.readFile ../scripts/pm-trace.sh;
   };
+
+  # Static analysis + sanitizers for the golden C model (cppcheck, gcc -fanalyzer,
+  # clang-tidy, then an ASan/UBSan run of the test suite over the pinned corpus).
+  model-analyze = pkgs.writeShellApplication {
+    name = "model-analyze";
+    runtimeInputs = [ pkgs.cppcheck pkgs.gcc pkgs.clang-tools pkgs.coreutils ];
+    text = ''
+      export CORPUS_DIR="''${CORPUS_DIR:-${corpus}}"
+    '' + builtins.readFile ../scripts/model-analyze.sh;
+  };
+
+  # libFuzzer + ASan/UBSan fuzzing of the model on random packets.
+  model-fuzz = pkgs.writeShellApplication {
+    name = "model-fuzz";
+    runtimeInputs = [ pkgs.clang pkgs.coreutils ];
+    text = builtins.readFile ../scripts/model-fuzz.sh;
+  };
 in
 {
-  inherit model-test pm-trace;
+  inherit model-test pm-trace model-analyze model-fuzz;
 }

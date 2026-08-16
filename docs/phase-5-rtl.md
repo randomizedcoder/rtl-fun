@@ -100,16 +100,22 @@ all lint-clean. Vectors are regenerated from the model on every run.
 
 | Target | Verilator flags | Use |
 |--|--|--|
-| `nix run .#parser-sim` | `--binary -O3 --assert` | fast smoke test (default) |
+| `nix run .#parser-sim` | `--binary -O3 --assert +define+PARSER_ASSERT` | fast smoke test (default) |
+| `nix run .#parser-sim-suite` | `+ per-case packet/params.hex` | directed suite (pos/neg/boundary/corner) — see [Phase 6](phase-6-verification.md) |
 | `nix run .#parser-sim-trace` | `+ --trace --trace-structs +define+DUMP` | VCD waveform (packed `pstate_t`/`micro_op_t` by name) → `build/parser/parser.vcd` |
 | `nix run .#parser-sim-debug` | `-O0 -CFLAGS "-O0 -ggdb" + trace` | step the verilated model in gdb, with waves |
 | `nix run .#parser-lint` | `--lint-only -Wall` | fast strict lint, no build |
 
 VCD (not FST) is used so no `lz4` is needed in the shell. Waveforms open in
 GTKWave; `--trace-structs` renders the parser state struct field-by-field.
-Assertions (`--assert`) are on for every run — the `` `CHECK `` macro in the
-testbench tallies every mismatch instead of stopping at the first. See
-[nix.md](nix.md).
+Assertions (`--assert +define+PARSER_ASSERT`) are on for every run — both the
+`` `CHECK `` macro in the testbench (which tallies every mismatch instead of
+stopping at the first) and the toggleable design assertions in the RTL
+(`rtl/parser_asserts.svh`, [Phase 6](phase-6-verification.md)). One Verilator
+build serves the whole directed suite because the testbench reads each packet's
+`PKT_LEN`/`EXP_CODE` from `params.hex` at runtime. The additional verification
+targets (`parser-analyze`, `parser-formal`, `model-analyze`, `model-fuzz`) are in
+[Phase 6](phase-6-verification.md). See [nix.md](nix.md).
 
 ## Step-by-step tasks
 
