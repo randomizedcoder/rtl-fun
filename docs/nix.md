@@ -34,7 +34,9 @@ flake.lock                    # pinned inputs — commit this for reproducibilit
 nix/
   packages.nix                # tool groups (docs / rtl / sim / toolchain / riscv / common)
   cva6.nix                    # pinned CVA6 base-core source (fetchFromGitHub)
-  cva6-baseline.nix           # `cva6-baseline` app (writeShellApplication)
+  cva6-patched.nix            # cva6-parser-src: patched CVA6 source (cacheable derivation)
+  cva6-parser/decode.patch    # the in-core decode patch (fu_t::PARSER + custom-0/3 routing)
+  cva6-baseline.nix           # cva6-baseline / cva6-parser builders (writeShellApplication)
   xdp2.nix                    # pinned xdp2 source (packet corpus, Phase 2)
   model.nix                   # golden-model apps: model-test, model-analyze, model-fuzz, pm-trace
   rtl.nix                     # parser-unit sim/lint/analyze/formal apps (Phase 5/6)
@@ -58,7 +60,8 @@ One `writeShellApplication` per runner; each puts its tools on `PATH` via
 
 | App | What it does | Phase |
 |-----|--------------|------:|
-| `cva6-baseline` | build the stock CVA6 Verilator model | 0 |
+| `cva6-baseline` | build the **stock** CVA6 Verilator model | 0 |
+| `cva6-parser` | build the **parser-patched** CVA6 Verilator model (compare vs baseline) | 5 |
 | `model-test` | golden-model unit + corpus tests | 2 |
 | `model-analyze` | cppcheck + gcc `-fanalyzer` + clang-tidy + ASan/UBSan run | 6 |
 | `model-fuzz` | libFuzzer + ASan/UBSan on random packets (`FUZZ_SECONDS=`) | 6 |
@@ -70,6 +73,27 @@ One `writeShellApplication` per runner; each puts its tools on `PATH` via
 | `parser-lint` | `--lint-only -Wall`, no build (fast strict lint) | 5 |
 | `parser-analyze` | extra SV lint: verible + svlint | 6 |
 | `parser-formal` | sv2v + SymbiYosys proof of `parser_execute` safety | 6 |
+
+### CVA6: unpatched vs patched, layered for caching
+
+The in-core parser integration is split into small derivations so `/nix/store`
+caches each step and only the changed layer rebuilds:
+
+```
+cva6-src  (fetched)  ->  cva6-parser-src  (patched source; cheap, cached)
+                              |                      |
+                              v                      v
+                        cva6-baseline           cva6-parser
+                        (stock build)           (patched build)
+```
+
+`cva6-parser-src` (`nix build .#cva6-parser-src`) applies `nix/cva6-parser/*.patch`
+to the pinned source in a cached derivation — editing the patch does **not** force
+a Verilator rebuild until you actually build a model. `cva6-baseline` and
+`cva6-parser` are the **same** builder (`nix/cva6-baseline.nix`) over the two
+sources, into separate work dirs, so you can build both and compare/validate the
+patch elaborates with no regression. The `.patch` is a plain unified diff, so it
+reviews independently of the fetched tree.
 
 The `parser-sim*` targets share **one** script body (`scripts/parser-sim.sh`,
 selected by `PARSER_MODE`) so build flags can't drift between debug levels — the

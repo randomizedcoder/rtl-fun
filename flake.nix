@@ -37,8 +37,20 @@
         # Pinned CVA6 base-core source (fetched via Nix; built imperatively).
         cva6-src = import ./nix/cva6.nix { inherit pkgs; };
 
-        # The `cva6-baseline` app (writeShellApplication: PATH + shellcheck).
+        # Parser-patched CVA6 source, as its own cacheable derivation (only
+        # rebuilds when the source or the patch changes).
+        cva6-parser-src = import ./nix/cva6-patched.nix { inherit pkgs cva6-src; };
+
+        # Two Verilator builds from ONE builder, for easy unpatched-vs-patched
+        # compare: cva6-baseline (stock) and cva6-parser (patched). Distinct work
+        # dirs so they don't collide under build/.
         cva6-baseline = import ./nix/cva6-baseline.nix { inherit pkgs cva6-src; };
+        cva6-parser = import ./nix/cva6-baseline.nix {
+          inherit pkgs;
+          cva6-src = cva6-parser-src;
+          name = "cva6-parser";
+          cva6Work = "$PWD/build/parser-core";
+        };
 
         # Pinned xdp2 source (for the proto_audit packet corpus, Phase 2).
         xdp2-src = import ./nix/xdp2.nix { inherit pkgs; };
@@ -61,8 +73,11 @@
         packages = {
           # The pinned CVA6 source: `nix build .#cva6-src`.
           cva6-src = cva6-src;
-          # The baseline builder as a package too: `nix build .#cva6-baseline`.
+          # The parser-patched CVA6 source: `nix build .#cva6-parser-src`.
+          cva6-parser-src = cva6-parser-src;
+          # The two Verilator builders as packages too.
           cva6-baseline = cva6-baseline;
+          cva6-parser = cva6-parser;
           # The pinned xdp2 source (packet corpus): `nix build .#xdp2-src`.
           xdp2-src = xdp2-src;
           # Golden-model runners as packages too.
@@ -85,6 +100,13 @@
         apps.cva6-baseline = {
           type = "app";
           program = "${cva6-baseline}/bin/cva6-baseline";
+        };
+
+        # Build the parser-patched CVA6 Verilator model: `nix run .#cva6-parser`.
+        # Same builder as the baseline, different source — run both to compare.
+        apps.cva6-parser = {
+          type = "app";
+          program = "${cva6-parser}/bin/cva6-parser";
         };
 
         # Run the golden-model tests: `nix run .#model-test`.
