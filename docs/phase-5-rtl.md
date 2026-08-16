@@ -87,9 +87,16 @@ CAM table, resolved at run time), so the decoder produces every micro-op field t
 executor needs and the target arrives on `cam_target_i`. It is proven by the
 decode co-sim (§5.6, `parser-sim-decode`).
 
-The **in-core** CVA6 decode still needs the core patch: extend CVA6 decode to set
-`fu = PARSER` for `custom-0..3` and route to the parser FU at ISSUE. Exact hook
-points and signals: [`analysis/cva6-integration.md`](analysis/cva6-integration.md) §3.
+The **in-core** decode patch is landed: `nix/cva6-parser/decode.patch` adds
+`PARSER` to `fu_t` (+ `PARSER_C0`/`PARSER_C3` `fu_op`s) and routes `custom-0`/
+`custom-3` to `fu = PARSER` in `decoder.sv`. It applies to the pinned source in a
+cached derivation (`cva6-parser-src`), and `nix run .#cva6-parser` builds the
+patched CVA6 Verilator model — it elaborates through the full core with no
+baseline regression (compare `nix run .#cva6-baseline`). The parser micro-op is
+decoded **inside** the FU by `parser_decode.sv` from the raw instruction word, so
+the core decoder only routes. Still pending: ISSUE routing/handshake and the EX
+FU instantiation + `resolved_branch_o` redirect —
+[`analysis/cva6-integration.md`](analysis/cva6-integration.md) §3/§8.
 
 ### 5.3 Execute & handshake
 

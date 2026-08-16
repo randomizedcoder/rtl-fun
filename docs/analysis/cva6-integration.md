@@ -163,14 +163,23 @@ and `cva6_parser_wrap.sv`.
 Patch (in the pinned CVA6 tree, as a tracked diff — mirrors the one-patch approach
 already used by `scripts/cva6-baseline.sh`):
 
-| File | Change |
-|--|--|
-| `core/include/ariane_pkg.sv` | add `PARSER` to `fu_t`; parser `fu_op`s |
-| `core/decoder.sv` | `OpcodeCustom0`/`Custom3` → `fu = PARSER` + `fu_op` (generated table) |
-| `core/issue_read_operands.sv`, `issue_stage.sv` | route/handshake `parser_valid`/`parser_ready` |
-| `core/ex_stage.sv` | instantiate `parser_execute`; new WB group; mux `resolved_branch_o` |
-| `core/scoreboard.sv`, `commit_stage.sv` | retire parser WB by `trans_id` (no `rd` for custom-0) |
-| `core/cva6.sv` | thread parser ports + packet-buffer interface |
+| File | Change | Status |
+|--|--|--|
+| `core/include/ariane_pkg.sv` | add `PARSER` to `fu_t`; parser `fu_op`s (`PARSER_C0`/`PARSER_C3`) | ✅ |
+| `core/decoder.sv` | `OpcodeCustom0`/`Custom3` → `fu = PARSER` + `fu_op` | ✅ |
+| `core/issue_read_operands.sv`, `issue_stage.sv` | route/handshake `parser_valid`/`parser_ready` | ⏭ |
+| `core/ex_stage.sv` | instantiate `parser_execute`; new WB group; mux `resolved_branch_o` | ⏭ |
+| `core/scoreboard.sv`, `commit_stage.sv` | retire parser WB by `trans_id` (no `rd` for custom-0) | ⏭ |
+| `core/cva6.sv` | thread parser ports + packet-buffer interface | ⏭ |
+
+The ✅ rows land as `nix/cva6-parser/decode.patch`, applied to the pinned source
+by the cached `cva6-parser-src` derivation; `nix run .#cva6-parser` builds the
+patched Verilator model (vs `nix run .#cva6-baseline` for the stock core), so the
+decode integration is verified to elaborate with no baseline regression. The
+patch stays a plain unified diff so it reviews on its own. The parser micro-op is
+decoded **inside** the FU by `rtl/parser_decode.sv` (proven by
+`nix run .#parser-sim-decode`), so the ⏭ issue/EX rows thread the raw instruction
+word to the FU rather than pre-decoding a wide `fu_op` in the core decoder.
 
 CVXIF path (alternative for custom-3, or fallback): implement a coprocessor behind
 `cvxif_fu.sv` using the `X_ISSUE`/`X_REGISTER`/`X_COMMIT`/`X_RESULT` channels in

@@ -28,7 +28,9 @@
 
     Base core (CVA6)
       $CVA6_SRC            pinned CVA6 source (read-only; copy out to build)
-      cva6-baseline        build the stock CVA6 Verilator model (Phase 0 baseline)
+      nix run .#cva6-baseline     build the stock CVA6 Verilator model (unpatched)
+      nix run .#cva6-parser       build the parser-patched CVA6 model (compare vs baseline)
+      nix build .#cva6-parser-src patched CVA6 source only (cached derivation)
 
     Golden model (Phase 2)
       nix run .#model-test        run the reference-model unit + corpus tests

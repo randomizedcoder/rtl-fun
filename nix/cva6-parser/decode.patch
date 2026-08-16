@@ -1,0 +1,54 @@
+--- a/core/include/ariane_pkg.sv	1969-12-31 16:00:01.000000000 -0800
++++ b/core/include/ariane_pkg.sv	2026-08-15 23:16:38.262421804 -0700
+@@ -196,7 +196,8 @@
+     FPU,        // 7
+     FPU_VEC,    // 8
+     CVXIF,      // 9
+-    ACCEL       // 10
++    ACCEL,      // 10
++    PARSER      // 11 - packet-parser FU (custom-0 in-pipeline / custom-3 coproc)
+   } fu_t;
+ 
+   // Index of writeback ports
+@@ -496,7 +497,10 @@
+     BREV8,
+     // Zip instructions
+     UNZIP,
+-    ZIP
++    ZIP,
++    // Parser instructions (custom-0 in-pipeline / custom-3 coprocessor)
++    PARSER_C0,
++    PARSER_C3
+   } fu_op;
+ 
+   function automatic logic op_is_branch(input fu_op op);
+--- a/core/decoder.sv	1969-12-31 16:00:01.000000000 -0800
++++ b/core/decoder.sv	2026-08-15 23:16:38.263766563 -0700
+@@ -1453,6 +1453,27 @@
+           instruction_o.rd = instr.utype.rd;
+         end
+ 
++        // --------------------------------
++        // Parser instructions (custom-0 / custom-3) -> the PARSER FU.
++        // custom-0 are in-pipeline parser ops (end-of-node redirects fetch via
++        // resolved_branch_o); custom-3 are coprocessor moves (read rs1 / write rd).
++        // The parser micro-op is decoded inside the FU (rtl/parser_decode.sv) from
++        // the raw instruction word; here we only route to the FU and mark the
++        // integer operands. See docs/analysis/cva6-integration.md sec 3.
++        // --------------------------------
++        riscv::OpcodeCustom0: begin
++          instruction_o.fu = PARSER;
++          instruction_o.op = ariane_pkg::PARSER_C0;
++          // custom-0 writes only the parser register file (no integer rd).
++          instruction_o.rd = '0;
++        end
++        riscv::OpcodeCustom3: begin
++          instruction_o.fu  = PARSER;
++          instruction_o.op  = ariane_pkg::PARSER_C3;
++          instruction_o.rs1 = instr.itype.rs1;
++          instruction_o.rd  = instr.itype.rd;
++        end
++
+         default: illegal_instr = 1'b1;
+       endcase
+     end
