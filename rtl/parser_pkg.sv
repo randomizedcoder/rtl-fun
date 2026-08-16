@@ -24,6 +24,7 @@ package parser_pkg;
   localparam int unsigned META_MAX     = 64;                  // metadata (flow_keys) bytes
   localparam int unsigned META_OFF_W   = 9;
   localparam int unsigned CAM_DEPTH    = 32;                  // provisioned CAM entries
+  localparam int unsigned CAM_IDX_W    = $clog2(CAM_DEPTH);   // CAM entry index width
   localparam int unsigned PROG_MAX     = 128;                 // program ROM depth
   localparam int unsigned PC_W         = 10;
 
@@ -93,11 +94,18 @@ package parser_pkg;
     logic [3:0]     share;   // CAM table id (shared 1..15); 0 = PC-selector (deferred)
     logic [2:0]     miss;
     logic signed [15:0] payload;  // PNEXTNODE target index / PSETCODE code
-    // custom-3 coprocessor register read (CPPRSRD, `prs.mv.x.p`): read parser
-    // register `cpreg` (p0..p31, patent FIG 42) into an integer rd. Not a parse
-    // micro-op — the FU services it as a register move (I3).
+    // custom-3 coprocessor moves. None are parse micro-ops — the FU services them
+    // directly (I3/I4b). `cpreg` selects a parser register (p0..p31, patent FIG 42).
+    //   rd_preg : CPPRSRD    read  p[cpreg]                       -> integer rd
+    //   wr_preg : CPPRSWR    write p[cpreg] = regs[rs1]           (I4b)
+    //   wr_cam  : CPPRSWRCAM CAM[regs[rs1]] = {key,target} from p[cpreg]; cam_del=D (I4b)
+    //   rd_cam  : CPPRSRDCAM lookup key=regs[rs1] -> integer rd   (I4b)
     logic [4:0]     cpreg;
     logic           rd_preg;
+    logic           wr_preg;
+    logic           wr_cam;
+    logic           rd_cam;
+    logic           cam_del;   // CPPRSWRCAM D bit: 1 = remove entry, 0 = write
   } micro_op_t;
 
   // ---- ROM word bit-layout (LSB0). gen_parser_rom.c packs identically. ----
@@ -128,8 +136,12 @@ package parser_pkg;
     m.pos     = w[76:73];
     m.sz      = w[78:77];
     m.op      = opcode_e'(w[82:79]);
-    m.cpreg   = 5'h0;     // ROM/custom-0 path never carries a custom-3 read
+    m.cpreg   = 5'h0;     // ROM/custom-0 path never carries a custom-3 move
     m.rd_preg = 1'b0;
+    m.wr_preg = 1'b0;
+    m.wr_cam  = 1'b0;
+    m.rd_cam  = 1'b0;
+    m.cam_del = 1'b0;
     return m;
   endfunction
 

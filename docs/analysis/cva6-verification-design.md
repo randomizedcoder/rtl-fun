@@ -253,6 +253,40 @@ mutual-exclusion assumption); a `custom-3` readback confirms state after redirec
 > programming needs a `parser_cam` write port + an rs1 operand threaded from ex_stage,
 > so it edits the patch anyway; the mux SVA lands there with it). Custom-3 CAM/array
 > and register-write forms are part of I4b. Tracked in the status doc.
+>
+> **As implemented (I4b — CAM programming + CAM-hit redirect).** Three custom-3 moves
+> join `CPPRSRD`, all threading the integer `rs1` operand from `ex_stage`
+> (`fu_data_i[0].operand_a`, which the CVA6 decoder already fills for custom-3 — no
+> `issue_read_operands` change): **`CPPRSWR`** writes a p-register from `rs1` (enqueued +
+> commit-gated exactly like a parse op — it reuses the I1 pending queue); **`CPPRSWRCAM`**
+> programs a CAM entry, index = `rs1`, `{key,target}` sourced from `p[cpreg]` (patent
+> pseudo-code: key = `p>>32`, target = `p[31:0]`) — so a directed program first
+> `CPPRSWR`s the entry word into Accum (p15), then `CPPRSWRCAM`s it in; **`CPPRSRDCAM`**
+> does a key lookup and returns the target into `rd`. `parser_cam` gains a **clocked
+> write/delete port**; its combinational lookup is now muxed (parse ops key it from
+> `parser_execute`, `CPPRSRDCAM` from `rs1`). This **unblocks `OP_CAMNEXT`**: a
+> `CAMNEXT.s` that hits a programmed entry sets `Next = target`, and the same-cycle
+> `f_eon` drives the I4a node-index→byte-PC redirect — proven in-core by a program that
+> programs a CAM entry whose target is a node index, `CAMNEXT`s over a poison store
+> (`meta[8]` stays 0) onto a landing store (`meta[9]=0xDD`), watched by the backdoor
+> (`*** PARSER CAM REDIRECT OK ***`); the `CPPRSRDCAM` readback is self-checked via
+> `tohost`. The deferred **branch/parser mux-exclusivity SVA** (`parser_branch_mux_excl`)
+> landed here (the `gen_resolved_branch_mux` drops a branch resolve if the parser also
+> resolves, so it asserts they never co-assert). Also proven by wrap-TB Scenarios 7
+> (program → readback) and 8 (`CAMNEXT` hit → redirect).
+>
+> **⚠ Deferred escalation — CAM-write speculation-safety.** Unlike parser register state
+> (commit-gated via the pending queue, I1) and the metadata frame (commit-gated, I2), the
+> CAM write is applied at **execute** — deliberately, so a following lookup in the same
+> straight-line program sees the entry immediately (there is no CAM speculative-forward
+> path). A squashed `CPPRSWRCAM` would therefore leave a stale entry. This is acceptable
+> for setup-time programming (the patent treats CAM programming as setup, not a
+> parse-hot-path op) and for the directed test, but commit-gated / flush-rolled-back CAM
+> programming is a **tracked escalation** (same honest-deferral posture as the I2 sim-only
+> backdoor) — loop back when deeper analysis (speculative CAM writes on a mispredict path)
+> requires it. Full packet→flow_keys equivalence still needs I5's model cosim (the golden
+> model's CAM is static `const` tables and does not execute runtime `CPPRSWRCAM`, so the
+> CAM-write path is in-core self-checked here, not model-compared).
 
 ### I5 — Full op coverage + model-generated encodings (fixes G5/G9)
 

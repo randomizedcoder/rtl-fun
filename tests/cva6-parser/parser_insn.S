@@ -30,6 +30,16 @@
 # program-driven oracle needing no backdoor: a wrong readback writes a nonzero
 # tohost (FAIL). This also exercises the parser integer-RF writeback + RAW forwarding.
 #
+# Then (I4b, gap G3 CAM path) the CAM is PROGRAMMED from the integer side and used:
+#   - CPPRSWR stages a {key,target} word in p15 (Accum); CPPRSWRCAM writes it to a CAM
+#     index (index = integer rs1); CPPRSRDCAM does a key lookup back into an integer rd,
+#     and the PROGRAM self-checks rd == the programmed target (no backdoor).
+#   - a second entry is programmed whose target is a node index; a CAMNEXT.s then HITS it
+#     and the end-of-node redirect steers fetch over a poison store (meta[8]) onto a
+#     landing store (meta[9]=0xDD) — the backdoor prints "*** PARSER CAM REDIRECT OK ***".
+# This exercises the rs1 operand threaded from ex_stage + the CAM program port, and
+# unblocks OP_CAMNEXT (a programmed CAM entry driving a real fetch redirect).
+#
 # Run: Variane_testharness parser_insn.elf   (tohost=1 => exit code 0 => PASS)
 
 .section .text.init
@@ -65,8 +75,39 @@ _start:
     li   t3, -4             # expected P_STOP_OKAY, sign-extended
     li   t0, 1             # assume PASS (tohost=1 => exit 0)
     beq  t2, t3, 2f
-    li   t0, 3             # readback mismatch => tohost=3 => exit code 1 => FAIL
+    li   t0, 3             # I3 readback mismatch => tohost=3 => exit code 1 => FAIL
 2:
+    # --- CAM program + readback (I4b, gap G3 CAM path) : program CAM[0], read it back ---
+    # Custom-3 words (opcode 0x7b): rs1/rd are real integer registers so the CVA6 decoder
+    # feeds regs[rs1] to the FU. CPPRSWR stages {key,target} in Accum (p15); CPPRSWRCAM
+    # writes it at index=rs1; CPPRSRDCAM does a key lookup back into rd. Program self-check.
+    li   a0, 0x00010800000000CD   # {key32=(share1<<16)|0x0800, target=0xCD}
+    .word 0x0F05107B        # CPPRSWR  p15, a0    (Accum <- {key,target})
+    li   a1, 0              # CAM index 0
+    .word 0x0F15907B        # CPPRSWRCAM a1, p15  (CAM[0] = {v,share1,0x0800,0xCD})
+    li   a3, 0x00010800     # lookup key {share=1, match=0x0800}
+    .word 0x0016867B        # CPPRSRDCAM a2, a3   (a2 <- CAM lookup target)
+    li   a4, 0xCD           # expected programmed target
+    beq  a2, a4, 3f
+    li   t0, 5              # I4b CAM readback mismatch => tohost=5 => FAIL
+3:
+    # --- CAM-hit redirect (I4b): program a node-target entry, then a CAMNEXT.s HITS it ---
+    # CAM[1] target is node index 10; at the CAMNEXT the internal node counter is 8
+    # (custom-3 ops above don't advance it), so the FU redirects fetch to node 8+2
+    # (byte +8), skipping the poison store — confirmed in-core: redirect_pc=0x80000076.
+    # (If the preceding parser-op sequence changes, re-confirm the counter with a
+    # temporary backdoor print of u_parser_fu.st_q.next_pc at the redirect.)
+    li   a0, 0x000200060000000A   # {key32=(share2<<16)|0x0006, target=node 10}
+    .word 0x0F05107B        # CPPRSWR  p15, a0    (Accum <- {key, node10})
+    li   a1, 1              # CAM index 1
+    .word 0x0F15907B        # CPPRSWRCAM a1, p15  (CAM[1] = {v,share2,0x0006,10})
+    li   a0, 0x0006         # match value; Accum[15:0] is the CAMNEXT key source
+    .word 0x0F05107B        # CPPRSWR  p15, a0    (Accum <- 0x0006)
+    # contiguous custom-0 block (nodes 8,9,10 by byte layout):
+    .word 0xE302040B        # prs.camnext.s share=2 sz=half pos=3  (CAM-hit redirect)
+    .word 0x1EE0430B        # POISON: prs.storeimm 0xEE -> meta[8] (node 9, skipped)
+    .word 0x1DD04B0B        # landing: prs.storeimm 0xDD -> meta[9] (node 10)
+
     # --- signal result: tohost = t0 ---
     la   t1, tohost
     sd   t0, 0(t1)

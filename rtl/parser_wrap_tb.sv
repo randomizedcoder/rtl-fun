@@ -57,8 +57,18 @@ module parser_wrap_tb
   logic            parse_exit;
   logic signed [31:0] parse_code;
   logic [PKT_OFF_W-1:0] pkt_off;
+  logic [63:0]     rs1;               // integer rs1 operand (custom-3)
+  // CAM lookup + program wiring (I4b): a real parser_cam closes the program->lookup loop
   logic [3:0]      cam_share;
   logic [15:0]     cam_match;
+  logic            cam_hit;
+  logic [31:0]     cam_target;
+  logic            cam_prog_en;
+  logic [CAM_IDX_W-1:0] cam_prog_index;
+  logic            cam_prog_valid;
+  logic [3:0]      cam_prog_share;
+  logic [15:0]     cam_prog_match;
+  logic [31:0]     cam_prog_target;
 
   cva6_parser_wrap #(
       .VLEN         (64),
@@ -71,6 +81,7 @@ module parser_wrap_tb
       .uop_i            (uop),
       .trans_id_i       (tid),
       .pc_i             (64'h8000_0000),
+      .rs1_i            (rs1),
       .parse_len_i      (16'(PKT_MAX)),
       .parser_ready_o   (ready),
       .commit_i         (commit),
@@ -88,8 +99,29 @@ module parser_wrap_tb
       .pkt_win_be_i     (64'hA5A5_A5A5_A5A5_A5A5),  // nonzero: loads change accum
       .cam_share_o      (cam_share),
       .cam_match_o      (cam_match),
-      .cam_hit_i        (1'b0),
-      .cam_target_i     (32'd0)
+      .cam_hit_i        (cam_hit),
+      .cam_target_i     (cam_target),
+      .cam_prog_en_o    (cam_prog_en),
+      .cam_prog_index_o (cam_prog_index),
+      .cam_prog_valid_o (cam_prog_valid),
+      .cam_prog_share_o (cam_prog_share),
+      .cam_prog_match_o (cam_prog_match),
+      .cam_prog_target_o(cam_prog_target)
+  );
+
+  // real CAM, so a CPPRSWRCAM program is observable by a later CPPRSRDCAM lookup (I4b)
+  parser_cam u_cam (
+      .clk_i       (clk),
+      .prog_en_i   (cam_prog_en),
+      .prog_index_i(cam_prog_index),
+      .prog_valid_i(cam_prog_valid),
+      .prog_share_i(cam_prog_share),
+      .prog_match_i(cam_prog_match),
+      .prog_target_i(cam_prog_target),
+      .share_i     (cam_share),
+      .match_i     (cam_match),
+      .hit_o       (cam_hit),
+      .target_o    (cam_target)
   );
 
   initial clk = 1'b0;
@@ -139,6 +171,19 @@ module parser_wrap_tb
     return m;
   endfunction
 
+  // custom-3 write-p-register (CPPRSWR): p[cp] = rs1.
+  function automatic micro_op_t wrpreg_op(input logic [4:0] cp);
+    micro_op_t m; m = '0; m.wr_preg = 1'b1; m.cpreg = cp; return m;
+  endfunction
+  // custom-3 CAM program/delete (CPPRSWRCAM): CAM[rs1] from p[cp]; del=1 => remove.
+  function automatic micro_op_t wrcam_op(input logic [4:0] cp, input logic del);
+    micro_op_t m; m = '0; m.wr_cam = 1'b1; m.cpreg = cp; m.cam_del = del; return m;
+  endfunction
+  // custom-3 CAM read (CPPRSRDCAM): lookup key=rs1 -> rd.
+  function automatic micro_op_t rdcam_op();
+    micro_op_t m; m = '0; m.rd_cam = 1'b1; return m;
+  endfunction
+
   int errors = 0;
   task automatic check(input bit cond, input string msg);
     if (!cond) begin
@@ -165,7 +210,7 @@ module parser_wrap_tb
   initial begin
     // ---- reset ----
     rst_ni = 1'b0; flush = 1'b0; valid = 1'b0; commit = 1'b0;
-    uop = '0; tid = '0; commit_tid = '0;
+    uop = '0; tid = '0; commit_tid = '0; rs1 = '0;
     repeat (3) @(posedge clk);
     #1 rst_ni = 1'b1;
     @(posedge clk); #1;
@@ -304,9 +349,87 @@ module parser_wrap_tb
     @(posedge clk); #1; valid = 1'b0;
     @(posedge clk); #1;
 
+    // ================================================================
+    // Scenario 7 — CAM PROGRAM + READBACK (I4b, gap G3 CAM path).
+    // ================================================================
+    // Clear scenario 6's speculative residue, then program a CAM entry from the
+    // integer side (CPPRSWR stages {key,target} into Accum; CPPRSWRCAM writes it),
+    // and read it back with a CPPRSRDCAM key lookup — a full program->lookup loop.
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    @(posedge clk); #1;
+
+    // (a) CPPRSWR p15 <- {key,target}: key32=(share<<16)|match=(1<<16)|0x0800; target=0xCD.
+    rs1 = 64'h0001_0800_0000_00CD;
+    uop = wrpreg_op(5'd15); tid = 3'd0; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    commit = 1'b1; commit_tid = 3'd0; @(posedge clk); #1; commit = 1'b0;
+    check(dut.st_q.accum == 64'h0001_0800_0000_00CD, "CPPRSWR: Accum should hold {key,target}");
+
+    // (b) CPPRSWRCAM index=rs1(0), cpreg=p15: program CAM[0].
+    rs1 = 64'd0;
+    uop = wrcam_op(5'd15, 1'b0); tid = 3'd1; valid = 1'b1;
+    #1;
+    check(cam_prog_en,                       "CPPRSWRCAM: program strobe should assert");
+    check(cam_prog_index == '0,              "CPPRSWRCAM: index should be rs1 (0)");
+    check(cam_prog_valid,                    "CPPRSWRCAM: write, not delete");
+    check(cam_prog_share  == 4'd1,           "CPPRSWRCAM: share = key[19:16]");
+    check(cam_prog_match  == 16'h0800,       "CPPRSWRCAM: match = key[15:0]");
+    check(cam_prog_target == 32'h0000_00CD,  "CPPRSWRCAM: target = p[cpreg][31:0]");
+    @(posedge clk); #1; valid = 1'b0;        // CAM entry latches on this edge
+    @(posedge clk); #1;
+
+    // (c) CPPRSRDCAM: lookup key {share=1,match=0x0800}=0x00010800 -> target 0xCD.
+    rs1 = 64'h0000_0000_0001_0800;
+    uop = rdcam_op(); tid = 3'd2; valid = 1'b1;
+    #1;
+    check(cam_hit,                    "CPPRSRDCAM: programmed entry should hit");
+    check(cam_target == 32'h0000_00CD, "CPPRSRDCAM: lookup returns programmed target");
+    @(posedge clk); #1; valid = 1'b0;        // accept edge: rd result registered
+    check(we,                         "CPPRSRDCAM: writes integer rd");
+    check(result == 64'h0000_0000_0000_00CD, "CPPRSRDCAM: rd = target");
+    @(posedge clk); #1;
+
+    // ================================================================
+    // Scenario 8 — CAMNEXT-hit REDIRECT via a programmed entry (I4b, unblocks OP_CAMNEXT).
+    // ================================================================
+    // Program CAM[1] {share=2,match=0x0006,target=cur+5}; then a CAMNEXT.s whose key
+    // (share=2 from the op, match from Accum) hits, so end-of-node redirects fetch to
+    // the programmed node — byte PC = pc_i + (target-cur)*4.
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    @(posedge clk); #1;
+    cnt_before = int'(dut.st_q.next_pc);     // current node index (cur)
+    // (a) stage {key,target}: key32=(2<<16)|0x0006; target = cur+5.
+    rs1 = {32'h0002_0006, 32'(cnt_before + 5)};
+    uop = wrpreg_op(5'd15); tid = 3'd3; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    commit = 1'b1; commit_tid = 3'd3; @(posedge clk); #1; commit = 1'b0;
+    // (b) program CAM[1].
+    rs1 = 64'd1;
+    uop = wrcam_op(5'd15, 1'b0); tid = 3'd4; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    @(posedge clk); #1;
+    // (c) reload Accum low16 = match 0x0006 (Accum is the CAMNEXT key source).
+    rs1 = 64'h0000_0000_0000_0006;
+    uop = wrpreg_op(5'd15); tid = 3'd5; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    commit = 1'b1; commit_tid = 3'd5; @(posedge clk); #1; commit = 1'b0;
+    check(int'(dut.st_q.next_pc) == cnt_before, "CAMNEXT: node index must be unchanged by custom-3 ops");
+    // (d) CAMNEXT.s: share=2 (op), match from Accum (sz=half,pos=3 => Accum[15:0]).
+    uop = '0; uop.op = OP_CAMNEXT; uop.d = 1'b1; uop.share = 4'd2;
+    uop.sz = 2'd2; uop.pos = 4'd3; uop.miss = 3'd0; uop.s = 1'b1;
+    tid = 3'd6; valid = 1'b1;
+    #1;
+    check(cam_hit,     "CAMNEXT: programmed entry should hit");
+    check(resolve_br,  "CAMNEXT: a CAM hit should redirect at end-of-node");
+    check(!parse_exit, "CAMNEXT: a redirect is not a parse exit");
+    check(redir_pc == (64'h8000_0000 + 64'd5 * 4),
+          "CAMNEXT: byte PC = pc_i + (target-cur)*4 from the programmed node index");
+    @(posedge clk); #1; valid = 1'b0;
+    @(posedge clk); #1;
+
     // ---- verdict ----
     if (errors == 0)
-      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4 redirect)");
+      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext)");
     else
       $fatal(1, "parser_wrap_tb: FAIL (%0d checks failed)", errors);
     $finish;

@@ -190,6 +190,22 @@ otherwise held the last branch's PC). CAM-driven redirect + the branch/parser
 mux-exclusivity SVA are deferred to I4b. See the
 [status tracker](analysis/cva6-implementation-status.md) for the increment/gap state.
 
+Increment **I4b** (CAM programming + CAM-hit redirect — gap G3, CAM path) programs the
+CAM from the integer side and uses it. Three custom-3 moves join `CPPRSRD`, all threading
+the integer `rs1` operand from `ex_stage` (`fu_data_i[0].operand_a`): `CPPRSWR` writes a
+p-register (commit-gated via the I1 pending queue), `CPPRSWRCAM` programs a CAM entry
+(index = `rs1`, `{key,target}` from `p[cpreg]`), and `CPPRSRDCAM` does a key lookup back
+into `rd`. `parser_cam` gains a clocked write/delete port; its lookup is muxed between
+parse ops and `CPPRSRDCAM`. This **unblocks `OP_CAMNEXT`**: a `CAMNEXT.s` hit on a
+programmed entry drives a real end-of-node redirect (the I4a path). `parser_insn.S`
+self-checks the `CPPRSRDCAM` readback via `tohost` and takes a CAM-driven redirect over a
+poison store onto a landing store (`meta[9]=0xDD`) → `*** PARSER CAM REDIRECT OK ***`; the
+deferred branch/parser mux-exclusivity SVA (`parser_branch_mux_excl`) landed here too.
+The CAM write is execute-time (speculative); commit-gated CAM programming is a tracked
+deferred escalation (the golden model's CAM is static, so the write path is in-core
+self-checked, not model-compared — full equivalence comes with I5). See the
+[status tracker](analysis/cva6-implementation-status.md).
+
 ## References
 
 cocotb, Verilator; Phase 2 model/corpus;

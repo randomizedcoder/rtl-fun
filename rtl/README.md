@@ -7,7 +7,8 @@ that matches the golden C model byte-for-byte.
 ```
 parser_pkg.sv        types, params, ROM word layout, extract_subreg / bswap_n
 parser_pktbuf.sv     packet buffer + 128-bit read window + byte aligner
-parser_cam.sv        behavioural CAM (20-bit key -> 32-bit target), loadable
+parser_cam.sv        behavioural CAM (20-bit key -> 32-bit target); $readmemh-loadable
+                     + a clocked program/delete port (custom-3 CPPRSWRCAM, I4b)
 parser_execute.sv    the parser functional unit — a hardware exec_one +
                      common_end_of_node (one branch per model execute_*)
 parser_top.sv        bring-up scaffold: program ROM + micro-PC + metadata RAM

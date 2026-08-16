@@ -2,7 +2,7 @@ diff --git a/corev_apu/tb/ariane_testharness.sv b/corev_apu/tb/ariane_testharnes
 index 1df11e7..62bbdfe 100644
 --- a/corev_apu/tb/ariane_testharness.sv
 +++ b/corev_apu/tb/ariane_testharness.sv
-@@ -823,4 +823,32 @@ module ariane_testharness #(
+@@ -823,4 +823,41 @@ module ariane_testharness #(
      .CSYSACK('0)
    );
  `endif
@@ -15,8 +15,8 @@ index 1df11e7..62bbdfe 100644
 +  //   I2: prs.storeimm writes 0xAB -> meta[4].
 +  //   I4: an end-of-node next-node jump SKIPS a poison store (meta[5] stays 0) and
 +  //       lands on the target store (meta[6]=0xCC) — proving the fetch redirect.
-+  logic parser_meta_seen_q, parser_redir_seen_q;
-+  initial begin parser_meta_seen_q = 1'b0; parser_redir_seen_q = 1'b0; end
++  logic parser_meta_seen_q, parser_redir_seen_q, parser_camredir_seen_q;
++  initial begin parser_meta_seen_q = 1'b0; parser_redir_seen_q = 1'b0; parser_camredir_seen_q = 1'b0; end
 +  always @(posedge clk_i) begin
 +    if (rst_ni && !parser_meta_seen_q &&
 +        (i_ariane.i_cva6.ex_stage_i.gen_parser.u_parser_fu.meta_mem[4] == 8'hAB)) begin
@@ -32,6 +32,15 @@ index 1df11e7..62bbdfe 100644
 +      else
 +        $display("*** PARSER REDIRECT FAIL *** poison ran: meta[5]=%02x",
 +                 i_ariane.i_cva6.ex_stage_i.gen_parser.u_parser_fu.meta_mem[5]);
++    end
++    if (rst_ni && !parser_camredir_seen_q &&
++        (i_ariane.i_cva6.ex_stage_i.gen_parser.u_parser_fu.meta_mem[9] == 8'hDD)) begin
++      parser_camredir_seen_q <= 1'b1;
++      if (i_ariane.i_cva6.ex_stage_i.gen_parser.u_parser_fu.meta_mem[8] == 8'h00)
++        $display("*** PARSER CAM REDIRECT OK *** CAMNEXT hit landed on target, poison (meta[8]) skipped");
++      else
++        $display("*** PARSER CAM REDIRECT FAIL *** poison ran: meta[8]=%02x",
++                 i_ariane.i_cva6.ex_stage_i.gen_parser.u_parser_fu.meta_mem[8]);
 +    end
 +  end
  endmodule
