@@ -16,7 +16,7 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 |--|--|--|--|--|--|--|
 | **I1** | Commit-visible parser state (Design B: speculative `st_q` + committed `st_arch_q`, roll back on flush) | ✅ | #21 | G2 | `rtl/cva6_parser_wrap.sv`, `nix/cva6-parser/issue-ex.patch` (commit wiring), `rtl/parser_wrap_tb.sv` | SVA `a_arch_committed` + `a_flush_rollback` hold under directed commit/flush stimulus (`parser-wrap-test`); `cva6-parser` builds; `cva6-parser-test` green |
 | **I2** | Metadata sink (commit-gated `meta_mem`) + in-core value-check via **sim-only backdoor** | 🔵 | #22 | G1, G8 | `rtl/cva6_parser_wrap.sv`, `rtl/parser_wrap_tb.sv`, `nix/cva6-parser/tb-backdoor.patch`, `tests/cva6-parser/parser_insn.S` | wrap-TB metadata scenario green (`parser-wrap-test`); in-core `prs.storeimm`→`meta_mem[4]=0xAB` observed via harness XMR watcher (`*** PARSER META OK ***`) in `cva6-parser-test` |
-| **I3** | custom-3 register readback | ⬜ | — | G4 | `rtl/cva6_parser_wrap.sv`, `nix/cva6-parser/issue-ex.patch` (`parser_we_o` → WB) | custom-3 read == expected; dependent instr sees forwarded `rd` (V3); enables V1 in software |
+| **I3** | custom-3 register readback (`prs.mv.x.p`) | 🔵 | #23 | G4 | `rtl/parser_decode.sv` (CPPRSRD), `rtl/parser_pkg.sv` (`cpreg`/`rd_preg`), `rtl/cva6_parser_wrap.sv` (`read_preg`), `tests/cva6-parser/parser_insn.S` | in-core `prs.mv.x.p t2,p11` == `P_STOP_OKAY`, program-self-checked via `tohost` (exercises integer-RF WB + RAW forwarding, V3); wrap-TB Scenario 5. **No `cva6.sv`/patch change** — decoder already sets `rd`, `wt_valid[PARSER_WB]` already latches result |
 | **I4** | End-of-node redirect + CAM programming | ⬜ | — | G3 | `rtl/parser_cam.sv` (program port), `rtl/cva6_parser_wrap.sv`, patch | redirect PC == expected; mux-exclusivity SVA holds |
 | **I5** | All op classes + model-generated encodings + table-driven cosim | ⬜ | — | G5, G9 | `nix/cva6-parser-cosim.nix`, `scripts/cva6-parser-cosim.sh`, `rtl/gen/gen_parser_rom.c` | every op self-checked vs model; Tables A+B green in-core |
 | V-tables | Directed V1–V11 (branch-shadow, hazards, interrupts, reset/X…) | ⬜ | — | G6, G7, G13 | test programs + `parser_wrap_tb.sv` | each V-row green |
@@ -30,9 +30,9 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 | G1 no in-core value checking | I2 | 🔵 (metadata sink value-checked in-core via sim-only backdoor; full packet→flow_keys cosim at I5) |
 | **G2 speculation/flush state corruption** | **I1** | ✅ (fix merged + verified by `parser-wrap-test`; PR #21) |
 | G3 redirect untested in-core | I4 | ⬜ |
-| G4 custom-3 untested | I3 | ⬜ |
+| G4 custom-3 untested | I3 | 🔵 (CPPRSRD read decoded + serviced; `read_preg` p-reg selector; in-core self-check + wrap-TB Scenario 5; PR #23) |
 | G5 one op only | I5 | ⬜ |
-| G6 pipeline hazards | I3/I1 + V-tables | ⬜ |
+| G6 pipeline hazards | I3/I1 + V-tables | 🔵 (RAW forwarding on parser `rd` exercised by the I3 self-check; full hazard V-table later) |
 | G7 interrupts/exceptions/ctx-switch | V-tables (+ ctx-switch design) | ⬜ |
 | G8 metadata sink undefined | I2 | 🔵 (commit-gated `meta_mem` frame in `cva6_parser_wrap`; proven by `parser-wrap-test` + in-core; PR #22) |
 | G9 hand-encoded | I5 | ⬜ |
@@ -44,10 +44,10 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 
 ## Verification-target snapshot
 
-| Target | Purpose | State (I2 branch) |
+| Target | Purpose | State (I3 branch) |
 |--|--|--|
-| `nix run .#cva6-parser-test` | in-core smoke/liveness + **I2 metadata value-check** (`*** PARSER META OK ***`) | ✅ SUCCESS (tohost=0, 4325 cyc) + META OK (meta[4]=ab) |
-| `nix run .#parser-wrap-test` | I1 rollback/commit/backpressure + **I2 commit-gated metadata** (Scenario 4), assertion-based | ✅ PASS |
+| `nix run .#cva6-parser-test` | in-core smoke/liveness + **I2 metadata value-check** + **I3 custom-3 readback self-check** | ✅ SUCCESS (tohost=0, 4327 cyc) + META OK (meta[4]=ab); readback self-check green |
+| `nix run .#parser-wrap-test` | I1 rollback/commit/backpressure + I2 metadata (Sc.4) + **I3 custom-3 readback** (Sc.5), assertion-based | ✅ PASS |
 | `nix run .#parser-lint` | lints the parser unit incl. `cva6_parser_wrap` | ✅ clean |
 | `nix run .#parser-sim-suite` | standalone unit vs model (unaffected by in-core work) | ✅ 15/15 |
 | `nix run .#parser-formal` | standalone `parser_execute` safety (combinational) | ✅ (pre-existing; `parser_execute` untouched) |
@@ -77,6 +77,18 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
   explicit deferred item, **not** "done". The full packet→`flow_keys` value
   equivalence (vs the golden model) is likewise deferred to **I5**'s table-driven
   cosim, where I3's custom-3 readback makes an in-core self-check clean.
+- **I3 readback map + vestigial `parser_we_o`.** `read_preg` exposes the p-registers
+  resident in the execution subset (`pstate_t`): p11 Next, p13 DataBndLoop, p14
+  ParserExitCode, p15 Accum, p16 Flags, and p1/p2 as the flattened current/data-header
+  `{len,off}` (an implementation-defined packing); other Cpreg values read 0. The
+  read reflects the working state `st_q` (program-order correct; squashed with the op
+  on flush). Note: CVA6 writes the integer RF via the statically-decoded `rd`
+  (custom-3 `rd=itype.rd`, custom-0 `rd=x0`) + `wt_valid[PARSER_WB]`; `parser_we_o` is
+  therefore **vestigial** in this integration (kept as a documented internal strobe,
+  asserted `a_we_iff_rdpreg`). To make the FU authoritatively gate `rd` (CVXIF-style),
+  surface `parser_we_o` and gate `sbe.rd` in `scoreboard.sv` — deferred, not needed.
+  Deferred custom-3 forms: register write (`prs.mv.p.x`, needs rs1 → FU), immediate
+  load, CAM/array program (I4).
 - **V10 context-switch contract** — design decision precedes the test.
 - **Coverage closure target** — set with the corpus.
 - **I1 formal (follow-up):** the I1 SVA (`a_arch_committed`, `a_flush_rollback`) are

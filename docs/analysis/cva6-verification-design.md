@@ -189,6 +189,22 @@ writeback mux, a directed test consuming `rd` the next cycle (forwarding).
 **Exit check (table rows in §2.3):** `custom-3` read of a known post-parse
 register == expected; a dependent `add` on `rd` sees the forwarded value.
 
+> **As implemented (PR #23).** Only the **read** direction (`CPPRSRD` /
+> `prs.mv.x.p rd, p<cpreg>`) landed. `parser_decode` now decodes `custom-3` (0x7b) in
+> the read form and carries `cpreg`/`rd_preg` in `micro_op_t`; `cva6_parser_wrap`
+> services it as a register move — `read_preg(st_q, cpreg)` selects a `pstate_t` field
+> (p11 Next, p13 DataBndLoop, p14 ParserExitCode, p15 Accum, p16 Flags, p1/p2 the
+> flattened header `{len,off}`; others read 0), drives `rd`, and does **not** advance
+> parser state or enter the pending queue (squashed with the op on flush). **No
+> `cva6.sv`/patch change was needed:** the decoder already sets `rd = itype.rd` for
+> custom-3 and `wt_valid[PARSER_WB]` already latches the result into the scoreboard →
+> committed to `rd`, so `parser_we_o` is vestigial here (kept as a documented strobe).
+> Verified in-core by a **program-driven self-check** (`parser_insn.S` reads p11 and
+> writes `tohost` only on a correct value — no backdoor), which also exercises the
+> integer-RF writeback + RAW forwarding, plus wrap-TB Scenario 5. Deferred custom-3
+> forms: register **write** (`prs.mv.p.x`, needs rs1 routed to the FU), immediate
+> load, and CAM/array programming (folds into I4). Tracked in the status doc.
+
 ### I4 — End-of-node redirect (fixes G3)
 
 The `resolved_branch_o` mux (`ex_stage.sv`, the reason custom-0 is in-pipeline

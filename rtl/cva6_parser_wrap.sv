@@ -31,6 +31,14 @@
 // discards the queue, so a squashed op's metadata write never lands. meta_mem is a
 // 64×8 frame (mirrors parser_top.sv), read back combinationally — hierarchically by
 // the wrap testbench / harness backdoor (I2 sim-only feed), no external port yet.
+//
+// CUSTOM-3 READBACK (I3, docs/analysis/cva6-verification-design.md §1; closes G4):
+// a custom-3 `prs.mv.x.p rd, p<cpreg>` (CPPRSRD) reads a parser register into an
+// integer rd. It is a register MOVE serviced by this FU — not a parse micro-op — so
+// it never advances parser state, never redirects/exits, and never enters the pending
+// queue; it reads the working state st_q and is squashed with the op on flush. CVA6
+// writes the integer RF via the statically-decoded rd (custom-3 rd=itype.rd) +
+// wt_valid[PARSER_WB], so parser_we_o is vestigial here (kept as a documented strobe).
 
 module cva6_parser_wrap
   import parser_pkg::*;
@@ -142,9 +150,35 @@ module cva6_parser_wrap
       .st_o(st_n)
   );
 
-  // Single-cycle FU for the slice (Phase-4 D3: variable latency; here 1 cycle).
-  // Ready whenever not exited AND the pending queue can take another op.
-  assign parser_ready_o = rst_ni & ~st_q.done & ~pend_full;
+  // ---- custom-3 register readback (CPPRSRD `prs.mv.x.p rd,p<cpreg>`) (I3) --------
+  // A custom-3 read moves a parser register into an integer rd. It is NOT a parse
+  // micro-op: it never advances parser state, never redirects/exits, and never enters
+  // the pending queue. It reads the current working state st_q — which already
+  // reflects every older accepted parse op, so the value is program-order correct; if
+  // the op is later squashed, its rd writeback is squashed with it (scoreboard/flush).
+  // Cpreg selects a pstate_t field per the patent p0..p31 map (FIG 42). Registers
+  // outside this execution subset read 0. p1/p2 return the flattened {len,off} of the
+  // current/data header (an implementation-defined packing of the exec subset).
+  function automatic logic [63:0] read_preg(input pstate_t s, input logic [4:0] sel);
+    unique case (sel)
+      5'd1:    read_preg = {{(64-2*PKT_OFF_W){1'b0}}, s.cur_len, s.cur_off}; // p1  CurHdr*
+      5'd2:    read_preg = {{(64-2*PKT_OFF_W){1'b0}}, s.dat_len, s.dat_off}; // p2  DataHdr*
+      5'd11:   read_preg = {{32{s.next[31]}}, s.next};             // p11 Next
+      5'd13:   read_preg = {s.loop, s.databound};                  // p13 DataBndLoop {Loop,DataBound}
+      5'd14:   read_preg = {{32{s.code[31]}}, s.code};             // p14 ParserExitCode
+      5'd15:   read_preg = s.accum;                                 // p15 Accum
+      5'd16:   read_preg = s.flags;                                 // p16 Flags
+      default: read_preg = 64'h0;        // p-reg outside the execution subset: reads 0
+    endcase
+  endfunction
+
+  wire rd_preg_op = parser_valid_i & uop_i.rd_preg;   // a custom-3 read is offered
+
+  // Single-cycle FU for the slice (Phase-4 D3: variable latency; here 1 cycle). A
+  // parse op is ready when not exited AND the pending queue has room; a custom-3 read
+  // is always ready (it neither advances state nor uses the queue), so parser state
+  // stays readable even after a parse has exited (e.g. read ParserExitCode).
+  assign parser_ready_o = rst_ni & (rd_preg_op | (~st_q.done & ~pend_full));
 
   // ---- metadata frame (flow_keys) : the commit-gated architectural sink (I2) -----
   // 64×8 byte frame, mirroring parser_top.sv's meta_mem. The per-op metadata write
@@ -157,6 +191,8 @@ module cva6_parser_wrap
 
   logic accept;
   assign accept = parser_valid_i & parser_ready_o & ~flush_i;
+  wire accept_state = accept & ~uop_i.rd_preg;   // a state-advancing parse op
+  wire accept_rd    = accept &  uop_i.rd_preg;   // a custom-3 register read
 
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
@@ -177,23 +213,30 @@ module cva6_parser_wrap
       redirect_pc_o     <= '0;
     end else begin
       parser_valid_o   <= 1'b0;
+      parser_we_o      <= 1'b0;
       resolve_branch_o <= 1'b0;
       parse_exit_o     <= 1'b0;
 
       // ---- EXECUTE: retire to the scoreboard + steer fetch (speculative) ----------
       if (accept) begin
-        st_q              <= st_n;                // speculative fast path (forwards)
         parser_valid_o    <= 1'b1;                // retire this micro-op
         parser_trans_id_o <= trans_id_i;
-        parser_result_o   <= st_n.accum;          // custom-3 reads select rd from accum/p-reg
-        parser_we_o       <= 1'b0;                // custom-0: no integer rd write
-        // end-of-node: redirect fetch, or signal parse exit
-        if (st_n.done) begin
-          parse_exit_o <= 1'b1;
-          parse_code_o <= st_n.code;
-        end else if (st_n.next_pc != (st_q.next_pc + 1'b1)) begin
-          resolve_branch_o <= 1'b1;              // a node/loop redirect happened
-          redirect_pc_o    <= {{(VLEN-PC_W){1'b0}}, st_n.next_pc};
+        parser_we_o       <= uop_i.rd_preg;       // custom-3 read writes rd; custom-0 does not
+        if (uop_i.rd_preg) begin
+          // custom-3 register read: drive rd from the selected p-register.
+          // No parser-state change, no redirect, no exit — it is a register move.
+          parser_result_o <= read_preg(st_q, uop_i.cpreg);
+        end else begin
+          st_q              <= st_n;              // speculative fast path (forwards)
+          parser_result_o   <= st_n.accum;
+          // end-of-node: redirect fetch, or signal parse exit
+          if (st_n.done) begin
+            parse_exit_o <= 1'b1;
+            parse_code_o <= st_n.code;
+          end else if (st_n.next_pc != (st_q.next_pc + 1'b1)) begin
+            resolve_branch_o <= 1'b1;            // a node/loop redirect happened
+            redirect_pc_o    <= {{(VLEN-PC_W){1'b0}}, st_n.next_pc};
+          end
         end
       end
 
@@ -211,7 +254,10 @@ module cva6_parser_wrap
                   <= pend_q[pend_head_q].meta_wdata[8*i +: 8];
         end
       end
-      if (accept) begin
+      // Only state-advancing parse ops enter the pending queue; a custom-3 read
+      // changes no parser state, so it is never enqueued (its rd writeback is tracked
+      // by the scoreboard/commit like any other instruction).
+      if (accept_state) begin
         pend_q[pend_tail_q].trans_id    <= trans_id_i;
         pend_q[pend_tail_q].st          <= st_n;
         pend_q[pend_tail_q].meta_we     <= meta_we;      // buffer the metadata write;
@@ -220,7 +266,7 @@ module cva6_parser_wrap
         pend_q[pend_tail_q].meta_nbytes <= meta_nbytes;
         pend_tail_q                     <= pend_tail_q + 1'b1;
       end
-      pend_cnt_q <= pend_cnt_q + (PEND_AW+1)'(accept) - (PEND_AW+1)'(pend_commit);
+      pend_cnt_q <= pend_cnt_q + (PEND_AW+1)'(accept_state) - (PEND_AW+1)'(pend_commit);
 
       // ---- FLUSH (commit-boundary): roll speculative state back to committed -------
       // Apply an in-flight head commit first (older than the flush point), then roll
@@ -243,12 +289,13 @@ module cva6_parser_wrap
   // ---- handshake + speculation-safety assertions (compiled out unless
   //      +define+PARSER_ASSERT / +define+FORMAL) --------------------------------
 `include "parser_asserts.svh"
-  // once the parser has exited, it stops accepting work
-  `PRS_ASSERT(a_ready_low_when_done, clk_i, rst_ni, st_q.done |-> !parser_ready_o)
+  // once the parser has exited, it stops accepting PARSE work — but a custom-3 read
+  // is still serviced (e.g. to read ParserExitCode after the exit)
+  `PRS_ASSERT(a_ready_low_when_done, clk_i, rst_ni, (st_q.done & ~rd_preg_op) |-> !parser_ready_o)
   // a writeback only follows an accepted issue the previous cycle
   `PRS_ASSERT(a_valid_after_accept, clk_i, rst_ni, parser_valid_o |-> $past(accept))
-  // custom-0 parser ops never write the integer register file
-  `PRS_ASSERT(a_no_int_writeback, clk_i, rst_ni, !parser_we_o)
+  // integer rd is written ONLY by a custom-3 read (custom-0 parse ops never do)
+  `PRS_ASSERT(a_we_iff_rdpreg, clk_i, rst_ni, parser_we_o |-> $past(accept & uop_i.rd_preg))
   // SPECULATION SAFETY (G2): the architectural state only ever advances on a commit
   `PRS_ASSERT(a_arch_committed, clk_i, rst_ni, !$stable(st_arch_q) |-> $past(pend_commit))
   // SPECULATION SAFETY (G2): after a flush the speculative state == committed state
