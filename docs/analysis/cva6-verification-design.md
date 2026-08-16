@@ -147,6 +147,34 @@ address map under `toolchain/`.
 **Exit check:** the baseline eth/ipv4/tcp packet parsed **in-core** yields a
 flow_keys that `memcmp`-equals the model's — the first true in-core co-simulation.
 
+> **⚠ As implemented (PR #22) — we took the shorter, sim-only path on purpose; loop
+> back for the fuller solution when deeper analysis needs it.**
+> The design above is the **test-grade MMIO** region (Option A). What I2 actually
+> shipped is a **sim-only backdoor** (Option B), because it is a strict *subset* of
+> Option A and carries far less risk:
+> - **Metadata sink (built):** a commit-gated `meta_mem` frame (64×8, mirrors
+>   `parser_top.sv`) inside `cva6_parser_wrap`. The per-op metadata write is buffered
+>   in the pending FIFO and byte-scattered into the frame **only on commit** — the
+>   same speculation-safety gate as the register state (I1), so a squashed op never
+>   dirties the frame. Proven by `parser-wrap-test` (Scenario 4) and formally
+>   consistent with the LSU store buffer.
+> - **In-core value-check (built):** rather than a real `ld`/`sd` MMIO path, an
+>   `ariane_testharness` XMR watcher (`nix/cva6-parser/tb-backdoor.patch`) reads
+>   `meta_mem` hierarchically and prints `*** PARSER META OK ***` the cycle a
+>   `prs.storeimm` (in `parser_insn.S`) commits `0xAB` to offset 4. `cva6-parser-test`
+>   gates PASS on that marker — the first in-core value-check of the metadata sink.
+> - **Deferred to the escalation (NOT built):** a real MMIO-mapped packet buffer +
+>   metadata frame on the SoC AXI xbar (`ariane_soc_pkg` `axi_slaves_t` +
+>   `NB_PERIPHERALS`, addr_map row, `axi2mem` slave, a `parser_pktbuf` write port, a
+>   meta-read port threaded FU→`ex_stage`, `toolchain/parser_mmio.h`). This is
+>   Option A above; ~6–9 files of shared *synthesizable* RTL. Build it when a genuine
+>   `sd`/`ld` path or the Phase-8 packet DMA feed is required.
+> - **Also deferred to I5:** the full packet→`flow_keys` equivalence vs the golden
+>   model (table-driven cosim), where I3's custom-3 readback makes a program-driven
+>   in-core self-check clean — more robust than fighting Verilator XMR at sim-end.
+>
+> Tracking: `cva6-implementation-status.md` (I2 row + notes).
+
 ### I3 — custom-3 readback (fixes G4) — the cheapest oracle
 
 `custom-3` reads `rs1` and writes an integer `rd` (`parser_result_o`/`parser_we_o`).

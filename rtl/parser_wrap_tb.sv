@@ -13,6 +13,11 @@
 //   3. COMMIT-ADVANCE : on commit of the head op, st_arch_q becomes that op's post-state.
 //   4. BACKPRESSURE   : with PEND_DEPTH ops outstanding, parser_ready_o drops.
 //
+// Scenario 4 additionally proves the I2 commit-gated METADATA sink (gaps G1/G8): a
+// store's metadata write is buffered on accept and byte-scattered into meta_mem ONLY
+// when the op commits, and a flush discards an uncommitted store's write — the frame
+// is an architectural side effect gated exactly like the register state.
+//
 // The concurrent SVA in cva6_parser_wrap (a_arch_committed / a_flush_rollback) run
 // alongside as a second oracle (+define+PARSER_ASSERT). Run: nix run .#parser-wrap-test.
 
@@ -90,6 +95,20 @@ module parser_wrap_tb
     m.sz     = 2'd1;   // byte
     m.offset = 9'd0;
     m.d      = 1'b1;   // write into a p-register
+    return m;
+  endfunction
+
+  // a store-immediate micro-op: writes `val`'s low byte to metadata offset `off`.
+  // sz=1 => 1 byte (parser_execute: nbytes = 1<<(sz-1)); s=0 => no end-of-node.
+  function automatic micro_op_t storeimm_op(input logic [8:0]  off,
+                                            input logic [15:0] val);
+    micro_op_t m;
+    m        = '0;
+    m.op     = OP_STOREIMM;
+    m.sz     = 2'd1;   // 1 byte
+    m.offset = off;
+    m.value  = val;
+    m.s      = 1'b0;   // no trailing end-of-node (stays live)
     return m;
   endfunction
 
@@ -182,9 +201,43 @@ module parser_wrap_tb
     check(ready, "ready should recover after a commit frees a slot");
     @(posedge clk); #1;
 
+    // ================================================================
+    // Scenario 4 — METADATA commit-gating (I2, gaps G1/G8).
+    // ================================================================
+    // clean slate: flush drains the queue left over from scenario 3
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    @(posedge clk); #1;
+    check(dut.pend_cnt_q == 0, "queue should be empty entering scenario 4");
+    check(dut.meta_mem[4] == 8'h00, "meta frame should be clear before any store commits");
+
+    // issue a store-immediate: 1 byte 0xAB at metadata offset 4
+    uop = storeimm_op(9'd4, 16'h00AB); tid = 3'd1; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    check(dut.pend_cnt_q == 1, "storeimm should enqueue one pending op");
+    check(dut.pend_q[dut.pend_head_q].meta_we, "pending head should carry the metadata write");
+    // the write is buffered, NOT yet applied (op not committed) — invariant like I1
+    check(dut.meta_mem[4] == 8'h00, "metadata must NOT land before commit (speculative)");
+
+    // commit that trans_id => the byte lands in the frame
+    commit = 1'b1; commit_tid = 3'd1;
+    @(posedge clk); #1; commit = 1'b0;
+    check(dut.meta_mem[4] == 8'hAB, "COMMIT: metadata byte should land in the frame");
+    check(dut.pend_cnt_q == 0,      "queue should pop after the store commits");
+    @(posedge clk); #1;
+
+    // a second store, then FLUSH before it commits => it must be discarded
+    uop = storeimm_op(9'd5, 16'h00CD); tid = 3'd2; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    check(dut.meta_mem[5] == 8'h00, "second store must not land before commit");
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    check(dut.meta_mem[5] == 8'h00, "FLUSH: a squashed store's metadata must be discarded");
+    check(dut.pend_cnt_q == 0,      "flush should clear the pending queue");
+    check(dut.meta_mem[4] == 8'hAB, "committed metadata must survive the flush");
+    @(posedge clk); #1;
+
     // ---- verdict ----
     if (errors == 0)
-      $display("parser_wrap_tb: PASS (I1 commit-visible state: rollback/commit/backpressure)");
+      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 commit-gated metadata)");
     else
       $fatal(1, "parser_wrap_tb: FAIL (%0d checks failed)", errors);
     $finish;

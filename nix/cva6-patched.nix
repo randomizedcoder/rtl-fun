@@ -19,7 +19,10 @@
 #                         (cva6_parser_wrap + parser_decode/pktbuf/cam), a parser
 #                         writeback port (NrWbPorts+1), and the resolved_branch_o
 #                         end-of-node redirect mux; Flist adds core/parser/*.sv.
-#      (docs/analysis/cva6-integration.md §3–§5/§8.)
+#        tb-backdoor.patch — I2 sim-only observability: an XMR watcher in the
+#                         testharness that prints a grep-able marker when the parser
+#                         FU's commit-gated metadata frame lands (no MMIO; deferred).
+#      (docs/analysis/cva6-integration.md §3–§5/§8; cva6-verification-design.md §1.)
 #
 { pkgs, cva6-src, parserRtl }:
 
@@ -27,7 +30,7 @@ pkgs.runCommand "cva6-parser-src"
 {
   nativeBuildInputs = [ pkgs.git ];
   # the patches applied, in order — bump this list as further stages land.
-  patches = [ ./cva6-parser/decode.patch ./cva6-parser/issue-ex.patch ];
+  patches = [ ./cva6-parser/decode.patch ./cva6-parser/issue-ex.patch ./cva6-parser/tb-backdoor.patch ];
 }
 ''
   cp -r --no-preserve=mode,ownership ${cva6-src} "$out"

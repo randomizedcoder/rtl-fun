@@ -95,7 +95,9 @@ counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 - **[analysis/cva6-implementation-status.md](analysis/cva6-implementation-status.md)**
   — the **live progress tracker** for executing that design (increments I1–I5, gap
   burn-down G1–G14, verification-target snapshot). Updated per PR. I1
-  (speculation-safety, commit-visible parser state) is implemented and verified.
+  (speculation-safety, commit-visible parser state) is done; I2 adds a commit-gated
+  metadata sink value-checked in-core via a deliberate sim-only backdoor (real MMIO
+  peripheral is a tracked, deferred escalation).
 - **[analysis/patent-conformance.md](analysis/patent-conformance.md)** — how the
   design compares to US Patent 12,461,885, and the prioritized corrections applied to
   follow Herbert's model closely.

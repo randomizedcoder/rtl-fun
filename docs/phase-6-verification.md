@@ -155,6 +155,17 @@ copy plus a committed architectural shadow, rolling back on flush, verified by
 `nix run .#parser-wrap-test` (assertion-based rollback / commit-advance /
 backpressure) with no in-core regression.
 
+Increment **I2** (metadata sink + first in-core value-check — gaps G1/G8) adds a
+**commit-gated** `meta_mem` flow_keys frame to `cva6_parser_wrap` (buffered in the
+pending FIFO, byte-scattered only on commit — the same speculation gate as I1), and
+value-checks it **on the real core**: a `prs.storeimm` in `parser_insn.S` writes
+`0xAB` into the frame, and a sim-only XMR watcher in the testharness
+(`tb-backdoor.patch`) prints `*** PARSER META OK ***` the cycle it commits, which
+`nix run .#cva6-parser-test` now gates PASS on. This is the deliberate shorter path
+— a real MMIO-mapped packet buffer + metadata frame on the SoC xbar is a tracked,
+deferred escalation (see the implementation-status tracker), and the full
+packet→flow_keys equivalence vs the golden model comes with I5's table-driven cosim.
+
 ## References
 
 cocotb, Verilator; Phase 2 model/corpus;
