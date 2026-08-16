@@ -141,7 +141,12 @@ that test proves, the bug classes it cannot see (in-core value checking,
 speculation/flush state safety, the redirect path, hazards/interrupts, coverage),
 and the best-practice roadmap to close them (lock-step co-sim vs an extended Spike,
 `riscv-dv`, RVFI/formal, base-ISA regression) — is in
-**[analysis/cva6-test-evaluation.md](analysis/cva6-test-evaluation.md)**.
+**[analysis/cva6-test-evaluation.md](analysis/cva6-test-evaluation.md)**. The
+follow-up **[analysis/cva6-verification-design.md](analysis/cva6-verification-design.md)**
+turns that into a build+prove design: ordered implementation increments (the
+speculation-safety fix first), a **table-driven** test framework (positive /
+negative / boundary / corner, model-generated oracles), and a **manufacturing /
+self-test (DFT)** section (scan/ATPG, MBIST/CAM-BIST, JTAG, golden-vector POST).
 
 ## References
 

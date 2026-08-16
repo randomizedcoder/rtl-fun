@@ -86,6 +86,12 @@ counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
   `cva6-parser-test` actually proves, the bug-class gaps (incl. a speculation/flush
   state-corruption risk), and the industry best practices (lock-step co-sim,
   `riscv-dv`, RVFI/formal) to close them.
+- **[analysis/cva6-verification-design.md](analysis/cva6-verification-design.md)** —
+  the follow-up *design*: ordered implementation increments that close those gaps
+  (starting with the speculation-safety fix), a **table-driven** verification
+  framework (positive/negative/boundary/corner, model-generated oracles), and a
+  **manufacturing/self-test (DFT)** section — scan/ATPG, MBIST/CAM-BIST for the
+  parser memories, JTAG, and a golden-vector power-on self-test (POST).
 - **[analysis/patent-conformance.md](analysis/patent-conformance.md)** — how the
   design compares to US Patent 12,461,885, and the prioritized corrections applied to
   follow Herbert's model closely.
