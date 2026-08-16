@@ -81,6 +81,11 @@ counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
   map for attaching the parser unit to CVA6, grounded in the pinned v5.3.0 source:
   custom opcodes, `fu_t::PARSER`, the `resolved_branch_o` end-of-node redirect,
   CV-X-IF for the custom-3 moves, and the Phase-5 patch checklist.
+- **[analysis/cva6-test-evaluation.md](analysis/cva6-test-evaluation.md)** — a
+  tapeout-oriented risk register for the **in-core** parser test: what
+  `cva6-parser-test` actually proves, the bug-class gaps (incl. a speculation/flush
+  state-corruption risk), and the industry best practices (lock-step co-sim,
+  `riscv-dv`, RVFI/formal) to close them.
 - **[analysis/patent-conformance.md](analysis/patent-conformance.md)** — how the
   design compares to US Patent 12,461,885, and the prioritized corrections applied to
   follow Herbert's model closely.
