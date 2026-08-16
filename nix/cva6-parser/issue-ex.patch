@@ -138,7 +138,7 @@ index 4bd3a82..0452150 100644
        .branch_exception_o(flu_exception_o)
    );
  
-@@ -635,6 +661,103 @@ module ex_stage
+@@ -635,6 +661,135 @@ module ex_stage
      assign x_valid_o        = '0;
    end
  
@@ -164,6 +164,13 @@ index 4bd3a82..0452150 100644
 +    logic                  parser_parse_exit;
 +    logic signed [31:0]    parser_parse_code;
 +    bp_resolve_t           parser_bp_unused;
++    // CAM program port (I4b): CPPRSWRCAM in the FU writes parser_cam at execute
++    logic                  parser_cam_prog_en;
++    logic [parser_pkg::CAM_IDX_W-1:0] parser_cam_prog_index;
++    logic                  parser_cam_prog_valid;
++    logic [3:0]            parser_cam_prog_share;
++    logic [15:0]           parser_cam_prog_match;
++    logic [31:0]           parser_cam_prog_target;
 +
 +    // decode the raw word -> micro-op
 +    parser_decode u_parser_decode (
@@ -178,6 +185,13 @@ index 4bd3a82..0452150 100644
 +        .win_be_o (parser_pkt_win_be)
 +    );
 +    parser_cam u_parser_cam (
++        .clk_i,
++        .prog_en_i    (parser_cam_prog_en),
++        .prog_index_i (parser_cam_prog_index),
++        .prog_valid_i (parser_cam_prog_valid),
++        .prog_share_i (parser_cam_prog_share),
++        .prog_match_i (parser_cam_prog_match),
++        .prog_target_i(parser_cam_prog_target),
 +        .share_i (parser_cam_share),
 +        .match_i (parser_cam_match),
 +        .hit_o   (parser_cam_hit),
@@ -200,6 +214,7 @@ index 4bd3a82..0452150 100644
 +        // parser is single-in-flight and issues on port 0 only (fus_busy[1].parser)
 +        .trans_id_i       (fu_data_i[0].trans_id),
 +        .pc_i             (pc_i),
++        .rs1_i            (fu_data_i[0].operand_a),    // integer rs1 (custom-3 moves, I4b)
 +        .parse_len_i      (16'(parser_pkg::PKT_MAX)),  // provisional; real ParseLen via pkt buffer (Phase 8)
 +        .parser_ready_o   (parser_ready_o),
 +        .parser_valid_o   (parser_valid_o),
@@ -216,7 +231,13 @@ index 4bd3a82..0452150 100644
 +        .cam_share_o      (parser_cam_share),
 +        .cam_match_o      (parser_cam_match),
 +        .cam_hit_i        (parser_cam_hit),
-+        .cam_target_i     (parser_cam_target)
++        .cam_target_i     (parser_cam_target),
++        .cam_prog_en_o    (parser_cam_prog_en),
++        .cam_prog_index_o (parser_cam_prog_index),
++        .cam_prog_valid_o (parser_cam_prog_valid),
++        .cam_prog_share_o (parser_cam_prog_share),
++        .cam_prog_match_o (parser_cam_prog_match),
++        .cam_prog_target_o(parser_cam_prog_target)
 +    );
 +    // the parser drives no CPU exception (exits redirect via resolved_branch_o)
 +    assign parser_exception_o = '0;
@@ -238,6 +259,17 @@ index 4bd3a82..0452150 100644
 +      resolved_branch_o.cf_type        = ariane_pkg::JumpR;
 +    end
 +  end
++
++  // I4b SVA: the branch unit and the parser must never resolve in the same cycle —
++  // gen_resolved_branch_mux selects the parser payload whenever parser_resolve_branch
++  // is high, silently dropping any co-incident branch resolve. In-order single-issue
++  // plus a single in-flight parser op makes them mutually exclusive by construction;
++  // this asserts that invariant actually holds (the mux's correctness assumption).
++`ifndef SYNTHESIS
++  parser_branch_mux_excl : assert property (@(posedge clk_i) disable iff (!rst_ni)
++      !(branch_resolve_branch & parser_resolve_branch))
++    else $error("ex_stage: branch and parser resolved in the same cycle (mux collision)");
++`endif
 +
    if (CVA6Cfg.RVS) begin
      if (CVA6Cfg.RVH) begin

@@ -179,16 +179,26 @@ module parser_decode
       endcase
     end else if (opcode == OPCODE_C3) begin
       // ---- custom-3 parser coprocessor R-form (patent-encodings §2.2, FIG 43/44)
-      // CoP[31:29]=000 Cpreg[28:24] C[23] S[22] I[21] R[20] Rs[19:15] Func3[14:12] Rd[11:7]
-      // CPPRSRD (`prs.mv.x.p ireg,preg`, read p->int): CoP=000, S=I=R=0, Func3=000.
-      // Cpreg selects the parser register; Rd (captured by the CVA6 decoder) is the
-      // integer destination. Other custom-3 forms (write/imm/CAM/array) are deferred.
+      // CoP[31:29]=000 Cpreg[28:24] C/D[23] S[22] I[21] R[20] Rs[19:15] Func3[14:12] Rd[11:7]
+      // The slice decodes the register/CAM moves (CoP=000, S=0, I=0). Rs=word[19:15]
+      // and Rd=word[11:7] are captured by the CVA6 integer decoder; here we just set
+      // the FU's micro-op flags + Cpreg. The {S,I,R,Func3} map (isa/parser-opcodes.yaml
+      // coprocessor.instrs):
+      //   R=0,Func3=0  CPPRSRD    read  p[cpreg]                 -> rd
+      //   R=0,Func3=1  CPPRSWR    write p[cpreg] = regs[rs1]
+      //   R=1,Func3=0  CPPRSRDCAM lookup key=regs[rs1]           -> rd
+      //   R=1,Func3=1  CPPRSWRCAM CAM[regs[rs1]] from p[cpreg]; D=word[23] (delete)
+      // Array forms (S=1) and immediate (I=1) are deferred.
       if ((word_i[31:29] == 3'b000) &&        // CoP = parser coprocessor
-          (word_i[22:20] == 3'b000) &&        // S=0, I=0, R=0  (register-move read)
-          (word_i[14:12] == 3'b000)) begin    // Func3 = 000    (read, not write)
-        m.rd_preg = 1'b1;
-        m.cpreg   = word_i[28:24];
-        illegal_o = 1'b0;
+          (word_i[22:21] == 2'b00)) begin     // S=0, I=0 (register/CAM move subset)
+        m.cpreg = word_i[28:24];
+        unique case ({word_i[20], word_i[14:12]})   // {R, Func3}
+          {1'b0, 3'b000}: begin m.rd_preg = 1'b1;                        illegal_o = 1'b0; end
+          {1'b0, 3'b001}: begin m.wr_preg = 1'b1;                        illegal_o = 1'b0; end
+          {1'b1, 3'b000}: begin m.rd_cam  = 1'b1;                        illegal_o = 1'b0; end
+          {1'b1, 3'b001}: begin m.wr_cam  = 1'b1; m.cam_del = word_i[23]; illegal_o = 1'b0; end
+          default: ;   // other Func3 (array/deferred): illegal
+        endcase
       end
     end
 

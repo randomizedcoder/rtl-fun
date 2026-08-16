@@ -9,12 +9,30 @@
 //
 // Lookup mirrors cam_lookup() in parser.c: match on (share == req_share) &&
 // (match == req_match); first hit wins; miss → hit_o = 0.
+//
+// PROGRAM PORT (I4b): in the real core, entries are written from the integer side
+// via the custom-3 CPPRSWRCAM path (prog_en_i pulses on the executing op). A write
+// (prog_valid_i=1) stores {1,share,match,target} at prog_index_i; a delete
+// (prog_valid_i=0, the CPPRSWRCAM D bit) clears that entry. The clocked write and
+// the combinational lookup share the `entry` array (write-before-read within a
+// cycle is not relied upon: a dependent lookup issues in a later cycle). NOTE:
+// CAM programming is not yet speculation-safe (no commit-gate / flush rollback) —
+// a deliberate deferred escalation, see docs/analysis/cva6-implementation-status.md.
 
 module parser_cam
   import parser_pkg::*;
 #(
     parameter string INIT_FILE = ""            // sim: CAM entries ($readmemh)
 ) (
+    input  logic        clk_i,
+    // ---- program port (custom-3 CPPRSWRCAM) ----
+    input  logic        prog_en_i,             // write/delete this cycle
+    input  logic [CAM_IDX_W-1:0] prog_index_i, // entry index (= regs[Rs])
+    input  logic        prog_valid_i,          // 1 = write entry, 0 = delete (clear)
+    input  logic [3:0]  prog_share_i,
+    input  logic [15:0] prog_match_i,
+    input  logic [31:0] prog_target_i,
+    // ---- lookup port ----
     input  logic [3:0]  share_i,
     input  logic [15:0] match_i,
     output logic        hit_o,
@@ -27,6 +45,14 @@ module parser_cam
   initial begin
     for (int i = 0; i < CAM_DEPTH; i++) entry[i] = '0;
     if (INIT_FILE != "") $readmemh(INIT_FILE, entry);
+  end
+
+  // clocked program write/delete (CPPRSWRCAM). Index is bounds-safe by width.
+  always_ff @(posedge clk_i) begin
+    if (prog_en_i)
+      entry[prog_index_i] <= prog_valid_i
+          ? {1'b1, prog_share_i, prog_match_i, prog_target_i}
+          : '0;   // delete: clear valid + payload
   end
 
   always_comb begin

@@ -79,6 +79,10 @@ module parser_top
   logic        cam_hit;
   logic [31:0] cam_target;
   parser_cam #(.INIT_FILE(CAM_FILE)) u_cam (
+      .clk_i(clk_i),
+      // no runtime CAM programming in the standalone scaffold (entries via $readmemh)
+      .prog_en_i(1'b0), .prog_index_i('0), .prog_valid_i(1'b0),
+      .prog_share_i('0), .prog_match_i('0), .prog_target_i('0),
       .share_i(cam_share), .match_i(cam_match),
       .hit_o(cam_hit),     .target_o(cam_target)
   );

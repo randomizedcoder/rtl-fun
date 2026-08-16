@@ -39,6 +39,17 @@
 // queue; it reads the working state st_q and is squashed with the op on flush. CVA6
 // writes the integer RF via the statically-decoded rd (custom-3 rd=itype.rd) +
 // wt_valid[PARSER_WB], so parser_we_o is vestigial here (kept as a documented strobe).
+//
+// CUSTOM-3 WRITE + CAM PROGRAMMING (I4b, docs/analysis/cva6-verification-design.md §1;
+// closes G3's CAM path): three more custom-3 moves join CPPRSRD, all threading the
+// integer rs1 operand from ex_stage. CPPRSWR writes a p-register from rs1 (enqueued +
+// commit-gated like a parse op). CPPRSWRCAM programs a CAM entry: index=rs1, and the
+// {key,target} come from p[cpreg] (per the patent, key=p>>32, target=p[31:0]); D deletes.
+// CPPRSRDCAM does a CAM lookup keyed by rs1 and returns the target into rd (all-ones on
+// a miss). This unblocks OP_CAMNEXT: a programmed CAM entry now drives a real end-of-node
+// redirect. NOTE: the CAM write itself is applied at EXECUTE (speculative, so a following
+// lookup sees it) and is NOT yet commit-gated / rolled back on flush — a deliberate
+// deferred escalation (like the I2 sim-only backdoor), tracked in the status doc.
 
 module cva6_parser_wrap
   import parser_pkg::*;
@@ -56,6 +67,7 @@ module cva6_parser_wrap
     input  micro_op_t                uop_i,            // decoded op (from parser_decode)
     input  logic [TRANS_ID_BITS-1:0] trans_id_i,       // scoreboard id
     input  logic [VLEN-1:0]          pc_i,             // PC of this instruction
+    input  logic [63:0]              rs1_i,            // integer rs1 operand (custom-3)
     input  logic [15:0]              parse_len_i,      // PktLen.ParseLen
     output logic                     parser_ready_o,   // unit can accept
 
@@ -80,11 +92,17 @@ module cva6_parser_wrap
     output logic [PKT_OFF_W-1:0]     pkt_off_o,
     input  logic [63:0]              pkt_win_be_i,
 
-    // ---- CAM (parser_cam) ----
+    // ---- CAM (parser_cam) : lookup (parse ops + CPPRSRDCAM) + program (CPPRSWRCAM) ----
     output logic [3:0]               cam_share_o,
     output logic [15:0]              cam_match_o,
     input  logic                     cam_hit_i,
-    input  logic [31:0]              cam_target_i
+    input  logic [31:0]              cam_target_i,
+    output logic                     cam_prog_en_o,     // CPPRSWRCAM: program this cycle
+    output logic [CAM_IDX_W-1:0]     cam_prog_index_o,  // = regs[rs1]
+    output logic                     cam_prog_valid_o,  // 1 = write, 0 = delete (D bit)
+    output logic [3:0]               cam_prog_share_o,
+    output logic [15:0]              cam_prog_match_o,
+    output logic [31:0]              cam_prog_target_o
 );
 
   // ---- persistent parser machine state (the p-registers live here, in the unit) --
@@ -139,16 +157,24 @@ module cva6_parser_wrap
   logic [META_OFF_W-1:0] meta_off;
   logic [63:0]          meta_wdata;
   logic [3:0]           meta_nbytes;
+  logic [3:0]           exec_cam_share;   // CAM lookup key from a parse op (OP_CAM*)
+  logic [15:0]          exec_cam_match;
 
   parser_execute u_exec (
       .st_i(st_q), .op_i(uop_i), .pc_i(st_q.next_pc), .parse_len_i(parse_len_i),
       .mem_off_o(pkt_off_o),  .mem_win_be_i(pkt_win_be_i),
-      .cam_share_o(cam_share_o), .cam_match_o(cam_match_o),
+      .cam_share_o(exec_cam_share), .cam_match_o(exec_cam_match),
       .cam_hit_i(cam_hit_i),  .cam_target_i(cam_target_i),
       .meta_we_o(meta_we),    .meta_off_o(meta_off),
       .meta_wdata_o(meta_wdata), .meta_nbytes_o(meta_nbytes),
       .st_o(st_n)
   );
+
+  // CAM LOOKUP mux: a parse op (OP_CAM/OP_CAMNEXT) keys the CAM from parser_execute;
+  // a custom-3 CPPRSRDCAM keys it from the integer rs1 (share=rs1[19:16], match=rs1[15:0],
+  // per isa/parser-opcodes.yaml cam_key.shared). Only one is live per issued op.
+  assign cam_share_o = uop_i.rd_cam ? rs1_i[19:16] : exec_cam_share;
+  assign cam_match_o = uop_i.rd_cam ? rs1_i[15:0]  : exec_cam_match;
 
   // ---- custom-3 register readback (CPPRSRD `prs.mv.x.p rd,p<cpreg>`) (I3) --------
   // A custom-3 read moves a parser register into an integer rd. It is NOT a parse
@@ -172,13 +198,39 @@ module cva6_parser_wrap
     endcase
   endfunction
 
-  wire rd_preg_op = parser_valid_i & uop_i.rd_preg;   // a custom-3 read is offered
+  // ---- custom-3 register write (CPPRSWR `prs.mv.p.x p<cpreg>, rs1`) (I4b) ----------
+  // The write-twin of read_preg: overwrite the selected pstate_t field from the
+  // integer rs1. It advances parser state (a p-register is architectural), so — like
+  // a parse op — it is enqueued and commit-gated (I1). Registers outside the writable
+  // subset are ignored. p15 (Accum) is the natural staging register for CPPRSWRCAM's
+  // {key,target} word (see the CAM program drive below).
+  function automatic pstate_t write_preg(input pstate_t s, input logic [4:0] sel,
+                                         input logic [63:0] v);
+    write_preg = s;
+    unique case (sel)
+      5'd11:   write_preg.next  = v[31:0];                         // p11 Next
+      5'd13:   begin write_preg.databound = v[31:0]; write_preg.loop = v[63:32]; end
+      5'd14:   write_preg.code  = v[31:0];                         // p14 ParserExitCode
+      5'd15:   write_preg.accum = v;                               // p15 Accum
+      5'd16:   write_preg.flags = v;                               // p16 Flags
+      default: ;   // p-reg outside the writable subset: ignored
+    endcase
+  endfunction
 
-  // Single-cycle FU for the slice (Phase-4 D3: variable latency; here 1 cycle). A
-  // parse op is ready when not exited AND the pending queue has room; a custom-3 read
-  // is always ready (it neither advances state nor uses the queue), so parser state
-  // stays readable even after a parse has exited (e.g. read ParserExitCode).
-  assign parser_ready_o = rst_ni & (rd_preg_op | (~st_q.done & ~pend_full));
+  // ---- issued-op classification -------------------------------------------------
+  // A genuine custom-0 PARSE op (advances the node index, can redirect/exit, keys the
+  // CAM lookup); vs the custom-3 coprocessor moves (register/CAM I/O, no node advance).
+  wire op_rd     = uop_i.rd_preg | uop_i.rd_cam;     // custom-3 read  -> integer rd
+  wire op_wr_reg = uop_i.wr_preg;                     // custom-3 write p-register
+  wire op_wr_cam = uop_i.wr_cam;                      // custom-3 program CAM
+  wire is_parse  = ~(op_rd | op_wr_reg | op_wr_cam);  // custom-0 parse micro-op
+
+  // Single-cycle FU for the slice (Phase-4 D3: variable latency; here 1 cycle). Ops
+  // that advance parser state (parse ops + CPPRSWR) need pending-queue room and stop
+  // once the parser has exited; reads and CAM programming are always ready (they never
+  // enter the queue), so state stays readable / the CAM stays writable after an exit.
+  wire needs_queue = is_parse | op_wr_reg;
+  assign parser_ready_o = rst_ni & ((op_rd | op_wr_cam) | (~st_q.done & ~pend_full));
 
   // ---- metadata frame (flow_keys) : the commit-gated architectural sink (I2) -----
   // 64×8 byte frame, mirroring parser_top.sv's meta_mem. The per-op metadata write
@@ -191,8 +243,35 @@ module cva6_parser_wrap
 
   logic accept;
   assign accept = parser_valid_i & parser_ready_o & ~flush_i;
-  wire accept_state = accept & ~uop_i.rd_preg;   // a state-advancing parse op
-  wire accept_rd    = accept &  uop_i.rd_preg;   // a custom-3 register read
+  wire accept_state   = accept & is_parse;    // a parse op (advances node, may redirect)
+  wire accept_advance = accept & needs_queue; // parse op OR CPPRSWR (enqueues, commit-gated)
+  wire accept_rd      = accept & op_rd;       // custom-3 read -> integer rd
+  wire accept_wrcam   = accept & op_wr_cam;   // custom-3 CAM program
+
+  // The architectural state THIS accepted op advances to: st_n for a parse op, or the
+  // rs1-written p-register for CPPRSWR (both enter the pending queue / commit-gate).
+  pstate_t st_adv;
+  assign st_adv = op_wr_reg ? write_preg(st_q, uop_i.cpreg, rs1_i) : st_n;
+
+  // custom-3 read result: CPPRSRD selects a p-register; CPPRSRDCAM returns the CAM
+  // lookup target (all-ones on a miss, matching cam_lookup() in parser.c).
+  wire [63:0] rd_result = uop_i.rd_cam
+      ? (cam_hit_i ? {32'h0, cam_target_i} : 64'hFFFF_FFFF_FFFF_FFFF)
+      : read_preg(st_q, uop_i.cpreg);
+
+  // ---- CAM program drive (CPPRSWRCAM) : index = regs[rs1]; {key,target} = p[cpreg] --
+  // Per the patent pseudo-code: WriteCAMEntryByIndex(regs[Rs], p[Cpreg]>>32, p[Cpreg]).
+  // The 20-bit key is the low bits of p[Cpreg]>>32 (share=key[19:16], match=key[15:0]);
+  // the target is p[Cpreg][31:0]. D (cam_del) selects delete. Programmed at EXECUTE
+  // (speculative, immediately visible to a following lookup); CAM speculation-safety is
+  // a deferred escalation (see the header + status tracker).
+  wire [63:0] cam_src = read_preg(st_q, uop_i.cpreg);   // {key[63:32], target[31:0]}
+  assign cam_prog_en_o    = accept_wrcam;
+  assign cam_prog_index_o = rs1_i[CAM_IDX_W-1:0];
+  assign cam_prog_valid_o = ~uop_i.cam_del;             // D=1 => delete (valid=0)
+  assign cam_prog_share_o = cam_src[51:48];             // key[19:16]
+  assign cam_prog_match_o = cam_src[47:32];             // key[15:0]
+  assign cam_prog_target_o= cam_src[31:0];
 
   // ---- end-of-node redirect target (I4, closes G3) ------------------------------
   // parser_execute reports the next NODE INDEX in st_n.next_pc (0..2^PC_W-1), not a
@@ -230,15 +309,19 @@ module cva6_parser_wrap
       if (accept) begin
         parser_valid_o    <= 1'b1;                // retire this micro-op
         parser_trans_id_o <= trans_id_i;
-        parser_we_o       <= uop_i.rd_preg;       // custom-3 read writes rd; custom-0 does not
-        if (uop_i.rd_preg) begin
-          // custom-3 register read: drive rd from the selected p-register.
-          // No parser-state change, no redirect, no exit — it is a register move.
-          parser_result_o <= read_preg(st_q, uop_i.cpreg);
-        end else begin
-          st_q              <= st_n;              // speculative fast path (forwards)
-          parser_result_o   <= st_n.accum;
+        parser_we_o       <= op_rd;               // custom-3 reads write rd; others don't
+        if (op_rd) begin
+          // custom-3 read (CPPRSRD / CPPRSRDCAM): drive rd. No parser-state change,
+          // no redirect, no exit, no queue entry — it is a register/CAM move.
+          parser_result_o <= rd_result;
+        end else if (accept_advance) begin
+          // parse op OR CPPRSWR: advance the speculative working state (forwards to
+          // the next in-flight op); the architectural copy waits for commit (I1).
+          st_q              <= st_adv;
+          parser_result_o   <= st_adv.accum;
         end
+        // CPPRSWRCAM (op_wr_cam): retires with no state advance / no rd; the CAM
+        // write is driven combinationally on cam_prog_* (accept_wrcam) this cycle.
       end
 
       // ---- pending-queue bookkeeping: enqueue on accept, apply head on commit -----
@@ -255,19 +338,21 @@ module cva6_parser_wrap
                   <= pend_q[pend_head_q].meta_wdata[8*i +: 8];
         end
       end
-      // Only state-advancing parse ops enter the pending queue; a custom-3 read
-      // changes no parser state, so it is never enqueued (its rd writeback is tracked
-      // by the scoreboard/commit like any other instruction).
-      if (accept_state) begin
+      // State-advancing ops enter the pending queue (parse ops + CPPRSWR), so their
+      // architectural effect is commit-gated (I1). Custom-3 reads change no parser
+      // state and CPPRSWRCAM's CAM write is not queued (its rd/CAM effects are tracked
+      // by the scoreboard / driven at execute), so neither is enqueued. CPPRSWR writes
+      // no metadata frame, so its buffered meta_we is forced 0.
+      if (accept_advance) begin
         pend_q[pend_tail_q].trans_id    <= trans_id_i;
-        pend_q[pend_tail_q].st          <= st_n;
-        pend_q[pend_tail_q].meta_we     <= meta_we;      // buffer the metadata write;
-        pend_q[pend_tail_q].meta_off    <= meta_off;     // it lands only on commit
+        pend_q[pend_tail_q].st          <= st_adv;
+        pend_q[pend_tail_q].meta_we     <= meta_we & is_parse;  // buffer the metadata write;
+        pend_q[pend_tail_q].meta_off    <= meta_off;            // it lands only on commit
         pend_q[pend_tail_q].meta_wdata  <= meta_wdata;
         pend_q[pend_tail_q].meta_nbytes <= meta_nbytes;
         pend_tail_q                     <= pend_tail_q + 1'b1;
       end
-      pend_cnt_q <= pend_cnt_q + (PEND_AW+1)'(accept_state) - (PEND_AW+1)'(pend_commit);
+      pend_cnt_q <= pend_cnt_q + (PEND_AW+1)'(accept_advance) - (PEND_AW+1)'(pend_commit);
 
       // ---- FLUSH (commit-boundary): roll speculative state back to committed -------
       // Apply an in-flight head commit first (older than the flush point), then roll
@@ -304,13 +389,16 @@ module cva6_parser_wrap
   // ---- handshake + speculation-safety assertions (compiled out unless
   //      +define+PARSER_ASSERT / +define+FORMAL) --------------------------------
 `include "parser_asserts.svh"
-  // once the parser has exited, it stops accepting PARSE work — but a custom-3 read
-  // is still serviced (e.g. to read ParserExitCode after the exit)
-  `PRS_ASSERT(a_ready_low_when_done, clk_i, rst_ni, (st_q.done & ~rd_preg_op) |-> !parser_ready_o)
+  // once the parser has exited, it stops accepting PARSE work — but custom-3 reads
+  // and CAM programming are still serviced (e.g. read ParserExitCode after the exit)
+  `PRS_ASSERT(a_ready_low_when_done, clk_i, rst_ni, (st_q.done & ~(op_rd | op_wr_cam)) |-> !parser_ready_o)
   // a writeback only follows an accepted issue the previous cycle
   `PRS_ASSERT(a_valid_after_accept, clk_i, rst_ni, parser_valid_o |-> $past(accept))
-  // integer rd is written ONLY by a custom-3 read (custom-0 parse ops never do)
-  `PRS_ASSERT(a_we_iff_rdpreg, clk_i, rst_ni, parser_we_o |-> $past(accept & uop_i.rd_preg))
+  // integer rd is written ONLY by a custom-3 read (CPPRSRD/CPPRSRDCAM); parse ops
+  // and CPPRSWR/CPPRSWRCAM never write rd
+  `PRS_ASSERT(a_we_iff_rd, clk_i, rst_ni, parser_we_o |-> $past(accept & (uop_i.rd_preg | uop_i.rd_cam)))
+  // CAM programming pulses only for an accepted CPPRSWRCAM (I4b)
+  `PRS_ASSERT(a_camprog_iff_wrcam, clk_i, rst_ni, cam_prog_en_o |-> (accept & uop_i.wr_cam))
   // SPECULATION SAFETY (G2): the architectural state only ever advances on a commit
   `PRS_ASSERT(a_arch_committed, clk_i, rst_ni, !$stable(st_arch_q) |-> $past(pend_commit))
   // SPECULATION SAFETY (G2): after a flush the speculative state == committed state

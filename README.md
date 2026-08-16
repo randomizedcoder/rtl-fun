@@ -83,9 +83,11 @@ complete; phases are now being built in order.
   + ASan/UBSan on random packets (`nix run .#model-fuzz`). The in-core FU is being
   hardened increment by increment against a [status tracker](docs/analysis/cva6-implementation-status.md):
   **I1** speculation-safe commit-visible parser state, **I2** commit-gated metadata
-  sink (first in-core value-check), **I3** custom-3 register readback, and **I4a**
-  end-of-node fetch redirect (node-index→byte-PC) — all green in-core via
-  `nix run .#cva6-parser-test`. Remaining: the full RTL↔model corpus co-simulation
+  sink (first in-core value-check), **I3** custom-3 register readback, **I4a**
+  end-of-node fetch redirect (node-index→byte-PC), and **I4b** CAM programming from the
+  integer side (custom-3 `CPPRSWR`/`CPPRSWRCAM`/`CPPRSRDCAM`, rs1 threaded from
+  `ex_stage`) with a CAM-hit `CAMNEXT` driving a real fetch redirect — all green in-core
+  via `nix run .#cva6-parser-test`. Remaining: the full RTL↔model corpus co-simulation
   (cocotb + DPI-C) and coverage sign-off.
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)); the
