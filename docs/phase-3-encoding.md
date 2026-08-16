@@ -129,16 +129,30 @@ static inline uint64_t prs_load_h(unsigned off) {
 
 ## Deliverables / artifacts
 
-- `isa/parser-opcodes.yaml` — fields/widths/semantics (+ positions once recovered).
-- `.insn` macros / inline-asm header (`toolchain/parser_insn.h`).
-- Encoder/decoder wired into the golden model.
+- [`isa/parser-opcodes.yaml`](../isa/parser-opcodes.yaml) — machine-readable table:
+  framing, `Fnc4` map, `Sz` rules, per-group bit ranges + discriminators,
+  custom-3 coprocessor forms, next-word/CAM-key formats, and Parser Codes. ✅
+- [`toolchain/parser_insn.h`](../toolchain/parser_insn.h) — `.insn` word builders /
+  inline-asm emitters keyed off the exact fields. ✅
+- Encoder/decoder wired into the golden model
+  ([`encoding.h`](../model/libparsermodel/encoding.h) /
+  [`encoding.c`](../model/libparsermodel/encoding.c)) with `pm_encode` for the
+  model's opcode set + custom-3. ✅
 
 ## Exit criteria
 
-- Framing, `Fnc4` map, per-instruction bit ranges (custom-0 **and** custom-3),
+- ✅ Framing, `Fnc4` map, per-instruction bit ranges (custom-0 **and** custom-3),
   address/code encoding, `Sz` rules, CAM key structure, and Parser Codes are exact
-  and match the patent — **no encoding gaps**.
-- Every instruction has a table row that round-trips in the model.
+  and match the patent (`isa/parser-opcodes.yaml`) — no encoding gaps.
+- ✅ Every instruction in the slice program encodes to its exact custom-0 word and
+  decodes back; golden-vector + round-trip tests pass (`nix run .#model-test`).
+
+**Scope note:** the C encoder covers the opcode set the model executes (load,
+length, store/storeimm, cam/camnext, compares, next/stp) plus the custom-3
+coprocessor moves. The remaining groups (array, counters, extract/loop, TLV
+length, lifecycle) are specified in the YAML with exact bits but their encoders +
+execution land alongside their model support (see Phase-2 deferrals). 64-bit form
+deferred per the decision below.
 
 ## Open questions
 

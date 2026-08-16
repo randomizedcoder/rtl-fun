@@ -16,6 +16,8 @@ model/
     program.c   the parse program as a decoded-instruction table + CAM tables
                 (Ethernet -> VLAN -> IPv4/IPv6 -> IPv6 ext hdrs -> TCP/UDP)
     pcap.{h,c}  minimal classic-pcap reader (first packet of a capture)
+    encoding.{h,c}  bit-accurate instruction encode/decode (Phase 3); pm_encode
+                mirrors isa/parser-opcodes.yaml and the patent bit ranges
   test/
     test.h        dependency-free assert harness (EXPECT/EXPECT_EQ + tally)
     test_main.c   directed unit tests + corpus smoke tests

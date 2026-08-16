@@ -5,6 +5,8 @@
  */
 #include "../libparsermodel/parser.h"
 #include "../libparsermodel/pcap.h"
+#include "../libparsermodel/encoding.h"
+#include "../../toolchain/parser_insn.h"
 #include "test.h"
 #include <stdlib.h>
 #include <string.h>
@@ -281,6 +283,94 @@ TEST(t_mal_vlan_stack_overflow)   /* absurd VLAN nesting -> node-count guard */
     EXPECT_EQ(pm_run(&ps, prog, n), P_STOP_MAX_NODES);
 }
 
+/* ---------------- instruction encoding (Phase 3) ---------------- */
+
+TEST(t_enc_framing)   /* opcode + Fnc4 land in the right bits for each group */
+{
+    EXPECT_EQ(prs_opcode(prs_load_b(0)),  PRS_OP_C0);
+    EXPECT_EQ(prs_fnc4(prs_load_b(0)),    FNC4_LOAD);
+    EXPECT_EQ(prs_fnc4(prs_lencur_const(20)), FNC4_LEN);
+    EXPECT_EQ(prs_fnc4(prs_store(2, 0, 0)),   FNC4_STORE);
+    EXPECT_EQ(prs_fnc4(prs_storeimm(1, 4, 3)),FNC4_STOREIMM);
+    EXPECT_EQ(prs_fnc4(prs_camnext(1, 0, 1, 2)), FNC4_CAM);
+    EXPECT_EQ(prs_fnc4(prs_cmpib(0, 0x40, 0xF0, 3)), FNC4_CMPIB);
+    EXPECT_EQ(prs_fnc4(prs_nextnode(0)),  FNC4_NEXT);
+    EXPECT_EQ(prs_opcode(prs_mv_x_p(5, 1)), PRS_OP_C3);
+}
+
+TEST(t_enc_golden)    /* hand-derived words from the recovered bit ranges */
+{
+    /* PLOAD .h off=12: Sz=2[29:28], E=1[20], Offset=12[19:11], Fnc4=0, Op=0x0b.
+     * 0x20000000 | 0x00100000 | (12<<11) | 0x0b = 0x2010600b */
+    EXPECT_EQ(prs_load_h(12), 0x2010600bu);
+    /* PLOAD .b off=0: Sz=1[29:28] -> 0x10000000 | 0x0b */
+    EXPECT_EQ(prs_load_b(0), 0x1000000bu);
+    /* PSTOREIMM addr_type: Sz=1, Value=4[27:20], Offset=3[19:11]
+     * 0x10000000 | (4<<20) | (3<<11) | Fnc4(6)<<7 | 0x0b */
+    EXPECT_EQ(prs_storeimm(1, 4, 3),
+              0x10000000u | (4u<<20) | (3u<<11) | (6u<<7) | 0x0bu);
+}
+
+TEST(t_enc_roundtrip)  /* pack -> extract each field -> compare (every group) */
+{
+    uint32_t w;
+
+    w = prs_enc_load(1, 0, 3, 5, 6, 1, 0x1AB);
+    EXPECT_EQ(prs_get(w,31,31),1); EXPECT_EQ(prs_get(w,29,28),3);
+    EXPECT_EQ(prs_get(w,27,24),5); EXPECT_EQ(prs_get(w,23,21),6);
+    EXPECT_EQ(prs_get(w,20,20),1); EXPECT_EQ(prs_get(w,19,11),0x1AB);
+
+    w = prs_enc_len(1, 1, 2, 9, 3, 2, 0x7E);
+    EXPECT_EQ(prs_get(w,31,31),1); EXPECT_EQ(prs_get(w,30,30),1);
+    EXPECT_EQ(prs_get(w,29,28),2); EXPECT_EQ(prs_get(w,27,24),9);
+    EXPECT_EQ(prs_get(w,23,21),3); EXPECT_EQ(prs_get(w,20,19),2);
+    EXPECT_EQ(prs_get(w,18,11),0x7E);
+
+    w = prs_enc_store(1, 1, 2, 6, 1, 5, 0x1CD);
+    EXPECT_EQ(prs_get(w,30,30),1); EXPECT_EQ(prs_get(w,27,24),6);
+    EXPECT_EQ(prs_get(w,23,23),1); EXPECT_EQ(prs_get(w,22,20),5);
+    EXPECT_EQ(prs_get(w,19,11),0x1CD);
+
+    w = prs_enc_cam(1, 1, 1, 0, 0, 1, 3, 2);
+    EXPECT_EQ(prs_get(w,30,30),1); EXPECT_EQ(prs_get(w,20,20),1);
+    EXPECT_EQ(prs_get(w,19,16),3); EXPECT_EQ(prs_get(w,15,11),2);
+
+    w = prs_enc_cmpord(1, 0, 1, 2, 3, 2, 0x55);
+    EXPECT_EQ(prs_get(w,23,21),3); EXPECT_EQ(prs_get(w,20,19),2);
+    EXPECT_EQ(prs_get(w,18,11),0x55);
+
+    w = prs_enc_cmpib(3, 5, 0xA5, 0x0F);
+    EXPECT_EQ(prs_get(w,31,30),3); EXPECT_EQ(prs_get(w,29,27),5);
+    EXPECT_EQ(prs_get(w,26,19),0xA5); EXPECT_EQ(prs_get(w,18,11),0x0F);
+
+    w = prs_enc_cop(17, 0, 0, 1, 0, 9, 1, 0);   /* CPPRSWRCAM-ish */
+    EXPECT_EQ(prs_opcode(w), PRS_OP_C3);
+    EXPECT_EQ(prs_get(w,31,29),0); EXPECT_EQ(prs_get(w,28,24),17);
+    EXPECT_EQ(prs_get(w,19,15),9); EXPECT_EQ(prs_get(w,14,12),1);
+}
+
+TEST(t_enc_model_program)  /* every 32-bit instr in the slice encodes + decodes */
+{
+    size_t n; const instr *prog = pm_slice_program(&n);
+    int encoded = 0;
+    for (size_t i = 0; i < n; i++) {
+        uint32_t w;
+        if (pm_encode(&prog[i], &w) != 0) continue;   /* no 32-bit form (none here) */
+        encoded++;
+        EXPECT_EQ(prs_opcode(w), PRS_OP_C0);
+        enum opcode back = pm_decode_opcode(w);
+        /* PSTP is encoded as PSETCODE (Pos=10); everything else is exact. */
+        if (prog[i].op == OP_STP) EXPECT_EQ(back, OP_SETCODE);
+        else                      EXPECT_EQ(back, prog[i].op);
+        /* Loads must round-trip their Sz + Offset through the bit field. */
+        if (prog[i].op == OP_LOAD) {
+            EXPECT_EQ(prs_get(w, 29, 28), prog[i].sz);
+            EXPECT_EQ(prs_get(w, 19, 11), prog[i].offset);
+        }
+    }
+    EXPECT(encoded > 30);   /* the slice has 40+ encodable instructions */
+}
+
 /* ---------------- corpus smoke tests: pinned xdp2 pcap_templates ---------- */
 
 static int run_pcap(const char *dir, const char *name, struct flow_keys *fk, int32_t *code)
@@ -450,6 +540,10 @@ int main(void)
     RUN(t_mal_ipv4_ihl15_truncated);
     RUN(t_mal_ipv6_ext_past_eof);
     RUN(t_mal_vlan_stack_overflow);
+    RUN(t_enc_framing);
+    RUN(t_enc_golden);
+    RUN(t_enc_roundtrip);
+    RUN(t_enc_model_program);
     RUN(t_corpus_tcp);
     RUN(t_corpus_udp);
     RUN(t_corpus_ipv6);
