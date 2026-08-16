@@ -147,6 +147,13 @@ turns that into a build+prove design: ordered implementation increments (the
 speculation-safety fix first), a **table-driven** test framework (positive /
 negative / boundary / corner, model-generated oracles), and a **manufacturing /
 self-test (DFT)** section (scan/ATPG, MBIST/CAM-BIST, JTAG, golden-vector POST).
+Progress against that design is tracked live in
+**[analysis/cva6-implementation-status.md](analysis/cva6-implementation-status.md)**.
+Increment **I1** (commit-visible parser state — fixing the G2 speculation/flush
+state-corruption bug) is done: `cva6_parser_wrap` now keeps a speculative working
+copy plus a committed architectural shadow, rolling back on flush, verified by
+`nix run .#parser-wrap-test` (assertion-based rollback / commit-advance /
+backpressure) with no in-core regression.
 
 ## References
 

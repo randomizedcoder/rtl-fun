@@ -92,6 +92,10 @@ counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
   framework (positive/negative/boundary/corner, model-generated oracles), and a
   **manufacturing/self-test (DFT)** section — scan/ATPG, MBIST/CAM-BIST for the
   parser memories, JTAG, and a golden-vector power-on self-test (POST).
+- **[analysis/cva6-implementation-status.md](analysis/cva6-implementation-status.md)**
+  — the **live progress tracker** for executing that design (increments I1–I5, gap
+  burn-down G1–G14, verification-target snapshot). Updated per PR. I1
+  (speculation-safety, commit-visible parser state) is implemented and verified.
 - **[analysis/patent-conformance.md](analysis/patent-conformance.md)** — how the
   design compares to US Patent 12,461,885, and the prioritized corrections applied to
   follow Herbert's model closely.
