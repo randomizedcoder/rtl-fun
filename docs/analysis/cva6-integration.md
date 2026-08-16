@@ -167,19 +167,38 @@ already used by `scripts/cva6-baseline.sh`):
 |--|--|--|
 | `core/include/ariane_pkg.sv` | add `PARSER` to `fu_t`; parser `fu_op`s (`PARSER_C0`/`PARSER_C3`) | ✅ |
 | `core/decoder.sv` | `OpcodeCustom0`/`Custom3` → `fu = PARSER` + `fu_op` | ✅ |
-| `core/issue_read_operands.sv`, `issue_stage.sv` | route/handshake `parser_valid`/`parser_ready` | ⏭ |
-| `core/ex_stage.sv` | instantiate `parser_execute`; new WB group; mux `resolved_branch_o` | ⏭ |
-| `core/scoreboard.sv`, `commit_stage.sv` | retire parser WB by `trans_id` (no `rd` for custom-0) | ⏭ |
-| `core/cva6.sv` | thread parser ports + packet-buffer interface | ⏭ |
+| `core/issue_read_operands.sv`, `issue_stage.sv` | route/handshake `parser_valid`/`parser_ready`; carry raw word | ✅ |
+| `core/ex_stage.sv` | instantiate `cva6_parser_wrap` (+`parser_decode`/`pktbuf`/`cam`); new WB group; mux `resolved_branch_o` | ✅ |
+| `core/include/build_config_pkg.sv` | `NrWbPorts + 1` for the parser writeback port | ✅ |
+| `core/scoreboard.sv`, `commit_stage.sv` | retire parser WB by `trans_id` (no `rd` for custom-0) | ✅ (no change) |
+| `core/cva6.sv` | thread parser ports; pack parser WB group; `PARSER_WB = NrWbPorts-1` | ✅ |
 
-The ✅ rows land as `nix/cva6-parser/decode.patch`, applied to the pinned source
-by the cached `cva6-parser-src` derivation; `nix run .#cva6-parser` builds the
-patched Verilator model (vs `nix run .#cva6-baseline` for the stock core), so the
-decode integration is verified to elaborate with no baseline regression. The
-patch stays a plain unified diff so it reviews on its own. The parser micro-op is
-decoded **inside** the FU by `rtl/parser_decode.sv` (proven by
-`nix run .#parser-sim-decode`), so the ⏭ issue/EX rows thread the raw instruction
-word to the FU rather than pre-decoding a wide `fu_op` in the core decoder.
+The integration lands as two plain unified diffs applied by the cached
+`cva6-parser-src` derivation: `decode.patch` (fu_t + decoder routing) and
+`issue-ex.patch` (ISSUE handshake, EX FU instantiation, the +1 writeback port, and
+the `resolved_branch_o` end-of-node mux; the Flist gains `core/parser/*.sv`).
+`nix run .#cva6-parser` builds the patched Verilator model (vs
+`nix run .#cva6-baseline` for the stock core) — it elaborates through the full
+core with no baseline regression. **`nix run .#cva6-parser-test` proves execution
+in-core:** a bare-metal ELF of custom-0 words (`tests/cva6-parser/parser_insn.S`)
+runs on the patched model and reports the fesvr `tohost` PASS, i.e. the ops are
+fetched → decoded to `fu=PARSER` → issued over the handshake → executed by the FU
+→ retired, and the pipeline advances (on the stock core those words hit the
+illegal-instruction fallback and trap). The parser micro-op is decoded **inside**
+the FU by `rtl/parser_decode.sv` (also proven standalone by
+`nix run .#parser-sim-decode`), so the core decoder only routes — the raw
+instruction word is threaded to the FU (mirroring CVXIF's `x_off_instr`).
+
+**Scoreboard/commit need no change:** the decoder already forces custom-0 `rd=0`,
+so the generic `NrWbPorts` retire path marks the entry done and the (discarded) x0
+write is harmless — the parser reuses the existing writeback machinery.
+
+**Deferred (Phase 8):** the in-core packet window (`parser_pktbuf`) and CAM
+(`parser_cam`) are instantiated but empty-backed — the packet *data* feed (DMA)
+and CAM *programming* (custom-3) are Phase 8, so the directed test exercises the
+retire/handshake path; the `resolved_branch_o` redirect is wired and elaborates,
+and its end-of-node *target* (real PCs via the CAM = two-level parsing) is brought
+up alongside the packet feed.
 
 CVXIF path (alternative for custom-3, or fallback): implement a coprocessor behind
 `cvxif_fu.sv` using the `X_ISSUE`/`X_REGISTER`/`X_COMMIT`/`X_RESULT` channels in

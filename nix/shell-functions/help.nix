@@ -30,6 +30,7 @@
       $CVA6_SRC            pinned CVA6 source (read-only; copy out to build)
       nix run .#cva6-baseline     build the stock CVA6 Verilator model (unpatched)
       nix run .#cva6-parser       build the parser-patched CVA6 model (compare vs baseline)
+      nix run .#cva6-parser-test  build patched model + run the in-core custom-0 test
       nix build .#cva6-parser-src patched CVA6 source only (cached derivation)
 
     Golden model (Phase 2)

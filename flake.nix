@@ -39,7 +39,10 @@
 
         # Parser-patched CVA6 source, as its own cacheable derivation (only
         # rebuilds when the source or the patch changes).
-        cva6-parser-src = import ./nix/cva6-patched.nix { inherit pkgs cva6-src; };
+        cva6-parser-src = import ./nix/cva6-patched.nix {
+          inherit pkgs cva6-src;
+          parserRtl = ./rtl;
+        };
 
         # Two Verilator builds from ONE builder, for easy unpatched-vs-patched
         # compare: cva6-baseline (stock) and cva6-parser (patched). Distinct work
@@ -50,6 +53,13 @@
           cva6-src = cva6-parser-src;
           name = "cva6-parser";
           cva6Work = "$PWD/build/parser-core";
+        };
+
+        # Build the patched model + run the in-core directed test (custom-0 PARSER
+        # ops issue/execute/retire; fesvr tohost PASS).
+        cva6-parser-test = import ./nix/cva6-parser-test.nix {
+          inherit pkgs;
+          cva6-src = cva6-parser-src;
         };
 
         # Pinned xdp2 source (for the proto_audit packet corpus, Phase 2).
@@ -78,6 +88,7 @@
           # The two Verilator builders as packages too.
           cva6-baseline = cva6-baseline;
           cva6-parser = cva6-parser;
+          cva6-parser-test = cva6-parser-test;
           # The pinned xdp2 source (packet corpus): `nix build .#xdp2-src`.
           xdp2-src = xdp2-src;
           # Golden-model runners as packages too.
@@ -107,6 +118,13 @@
         apps.cva6-parser = {
           type = "app";
           program = "${cva6-parser}/bin/cva6-parser";
+        };
+
+        # Build the patched model and run the in-core directed test:
+        # `nix run .#cva6-parser-test`.
+        apps.cva6-parser-test = {
+          type = "app";
+          program = "${cva6-parser-test}/bin/cva6-parser-test";
         };
 
         # Run the golden-model tests: `nix run .#model-test`.

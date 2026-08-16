@@ -87,16 +87,22 @@ CAM table, resolved at run time), so the decoder produces every micro-op field t
 executor needs and the target arrives on `cam_target_i`. It is proven by the
 decode co-sim (§5.6, `parser-sim-decode`).
 
-The **in-core** decode patch is landed: `nix/cva6-parser/decode.patch` adds
-`PARSER` to `fu_t` (+ `PARSER_C0`/`PARSER_C3` `fu_op`s) and routes `custom-0`/
-`custom-3` to `fu = PARSER` in `decoder.sv`. It applies to the pinned source in a
-cached derivation (`cva6-parser-src`), and `nix run .#cva6-parser` builds the
-patched CVA6 Verilator model — it elaborates through the full core with no
-baseline regression (compare `nix run .#cva6-baseline`). The parser micro-op is
-decoded **inside** the FU by `parser_decode.sv` from the raw instruction word, so
-the core decoder only routes. Still pending: ISSUE routing/handshake and the EX
-FU instantiation + `resolved_branch_o` redirect —
-[`analysis/cva6-integration.md`](analysis/cva6-integration.md) §3/§8.
+The **in-core** integration is landed end to end as two cached patches
+(`nix/cva6-parser/{decode,issue-ex}.patch`) applied by `cva6-parser-src`:
+`decode.patch` adds `PARSER` to `fu_t` (+ `PARSER_C0`/`PARSER_C3` `fu_op`s) and
+routes `custom-0`/`custom-3` to `fu = PARSER` in `decoder.sv`; `issue-ex.patch`
+adds the ISSUE ready/valid handshake (`parser_valid`/`parser_ready`, raw word
+carried like CVXIF's `x_off_instr`), instantiates the FU in `ex_stage.sv`
+(`cva6_parser_wrap` + `parser_decode`/`parser_pktbuf`/`parser_cam`), adds a parser
+writeback port (`NrWbPorts + 1`, `PARSER_WB = NrWbPorts-1`), and muxes the
+end-of-node redirect onto `resolved_branch_o`. `nix run .#cva6-parser` builds the
+patched model (vs `nix run .#cva6-baseline`) with no baseline regression, and
+**`nix run .#cva6-parser-test` runs a bare-metal custom-0 program on it** that
+reports the fesvr `tohost` PASS — the ops issue → execute → retire in-core. The
+parser micro-op is decoded **inside** the FU by `parser_decode.sv`, so the core
+decoder only routes. Scoreboard/commit are unchanged (the decoder forces custom-0
+`rd=0`, so the generic retire path suffices). The packet-data feed and CAM
+programming are Phase 8; see [`analysis/cva6-integration.md`](analysis/cva6-integration.md) §3–§8.
 
 ### 5.3 Execute & handshake
 
@@ -155,22 +161,25 @@ targets (`parser-analyze`, `parser-formal`, `model-analyze`, `model-fuzz`) are i
 3. ✅ `parser_top` scaffold + `parser_smoke_tb`; bring up in Verilator.
 4. ✅ `cva6_parser_wrap` (interface-fidelity FU); Nix targets + lint.
 5. ✅ `parser_decode` (32-bit word → micro-op), proven by the decode co-sim.
-6. ⏭ Patch CVA6 decode/issue/EX to route custom opcodes (cva6-integration §8);
-   generate `parser_pkg` from `isa/`.
+6. ✅ Patch CVA6 decode/issue/EX to route + execute custom opcodes in-core
+   (cva6-integration §8); directed `.insn` test passes (`nix run .#cva6-parser-test`).
+7. ⏭ Generate `parser_pkg` from `isa/`; in-core packet feed + CAM programming (Phase 8).
 
 ## Deliverables / artifacts
 
 - ✅ `rtl/parser_*.sv` + `cva6_parser_wrap.sv`; a Verilator smoke test producing a
   `flow_keys` for a packet, checked against the model.
 - ✅ Four Nix sim/lint targets (run/trace/debug/lint).
-- ⏭ The CVA6 integration patch (next increment).
+- ✅ The CVA6 integration patch (decode + issue/EX/writeback/redirect) + an in-core
+  directed test (`nix run .#cva6-parser-test`).
 
 ## Exit criteria
 
 - ✅ Design elaborates and lints clean (no width/latch/loop warnings).
 - ✅ The vertical slice runs in Verilator and produces a `flow_keys` matching the
   model. (Full multi-packet slice coverage is [Phase 6](phase-6-verification.md).)
-- ⏭ In-core CVA6 execution (the decode + pipeline patch) — next increment.
+- ✅ In-core CVA6 execution: the patched core builds/elaborates and a custom-0
+  program issues → executes → retires in-core (`nix run .#cva6-parser-test`).
 
 ## Open questions
 
