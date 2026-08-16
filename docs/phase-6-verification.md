@@ -132,6 +132,19 @@ inputs in one process.
 - **TBD:** coverage % and fuzz budget that define "signed off."
 - Do we also cross-check against Spike once Phase 7 lands? (Nice-to-have.)
 
+## In-core verification (the CVA6-integrated FU)
+
+The plan above verifies the **standalone** parser unit against the model. The
+parser FU wired **into CVA6** is a distinct, thinner surface today (one directed
+`tohost` smoke test, `nix run .#cva6-parser-test`). Its honest gap analysis — what
+that test proves, the bug classes it cannot see (in-core value checking,
+speculation/flush state safety, the redirect path, hazards/interrupts, coverage),
+and the best-practice roadmap to close them (lock-step co-sim vs an extended Spike,
+`riscv-dv`, RVFI/formal, base-ISA regression) — is in
+**[analysis/cva6-test-evaluation.md](analysis/cva6-test-evaluation.md)**.
+
 ## References
 
-cocotb, Verilator; Phase 2 model/corpus. See [references.md](references.md).
+cocotb, Verilator; Phase 2 model/corpus;
+[analysis/cva6-test-evaluation.md](analysis/cva6-test-evaluation.md) (in-core test
+gap analysis + verification-methodology references). See [references.md](references.md).
