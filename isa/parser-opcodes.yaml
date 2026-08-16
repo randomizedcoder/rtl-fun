@@ -1,0 +1,251 @@
+# parser-opcodes.yaml — machine-readable parser-ISA encoding (Phase 3).
+#
+# Source of truth for bits: docs/analysis/patent-encodings-recovered.md, itself
+# pixel-verified from the USPTO drawing sheets of US 12,461,885 (FIG 43-47).
+# This table is the single place downstream artifacts are generated from: the C
+# encoder/decoder (model/libparsermodel/encoding.c), the .insn header
+# (toolchain/parser_insn.h), and — later — the RTL decode table and disassembler.
+#
+# Bit numbering: [hi, lo] inclusive, bit 0 = LSB (matches encoding.c). The
+# recovered doc draws bit 31 on the left; a field it lists [hi:lo] is [hi, lo] here.
+# Scope: 32-bit custom-0 forms + the custom-3 coprocessor R-form. 64-bit deferred.
+
+meta:
+  patent: US 12,461,885 B2
+  reference: docs/analysis/patent-encodings-recovered.md
+  bit_order: lsb0            # bit 0 = least-significant
+  scope: 32-bit custom-0 + custom-3 coprocessor
+
+framing:
+  opcode_field: [6, 0]
+  opcodes:
+    custom0: 0x0b            # 32-bit parser instructions; 4-byte aligned
+    custom3: 0x7b            # coprocessor moves / CAM+array programming
+  fnc4_field: [10, 7]        # selects the instruction group within custom-0
+
+# Fnc4 group map (FIG 46, p.49).
+fnc4_map:
+  0x0: [PLOAD, PLOADTLVLOOP, PTLVFASTLOOP]
+  0x1: [PFLAGSLOOP]
+  0x2: [PLENCUR, PLENDATA, PLENDATABND]
+  0x3: [PLENDATATLV, PLENDATAPAD, PLENDATAEOL]
+  0x4: [PSTORE]
+  0x5: [PSTOREREG]
+  0x6: [PSTOREIMM]
+  0x7: [PEXTRACT, PLOOP, PINCCNTR, PSETCNTRBIT, PRESETCNTR]
+  0x8: [PCAM, PCAMNEXT, PCAMJUMP, PCAMJUMPLOOP, PCAMJUMPTLVLOOP]
+  0x9: [PARR, PARRNEXT, PARRJUMP, PARRJUMPLOOP]
+  0xa: [PNEXTNODE, PSETIMM, PSETCODE, PSTP, PVARINT, PANDMASK]
+  0xb: [PCMPILTB, PCMPILTEB, PCMPIGTB, PCMPIGTEB]
+  0xc: [PCMPIH]
+  0xd: [PCMPIB]
+  0xe: [PCMPNEIB]
+  0xf: [PRUNTHREAD, PINITPARSER, PEVENTLOOP, PEVENTLOOPEND, PDATAEXTRACT]
+
+# Sz field (FIG 17). Two meanings; sub-register position 0 = first byte.
+sz:
+  general:      { 0: nibble, 1: byte, 2: half, 3: word }   # width = 4*(1<<Sz)
+  load_store:   { 0: dword,  1: byte, 2: half, 3: word }   # 0 = 8 bytes
+
+# Group formats. `fields` list bit ranges; `discriminator` picks the instruction.
+groups:
+
+  load:                       # Fnc4=0x0
+    fnc4: 0x0
+    fields:
+      X:      [31, 31]        # PLOAD: src select; PTLVFASTLOOP: X=1
+      D:      [30, 30]
+      Sz:     [29, 28]
+      Blen:   [27, 24]
+      Shift:  [23, 21]
+      E:      [20, 20]        # keep big-endian value
+      Offset: [19, 11]
+    variants:
+      PLOAD:        { X: src, D: 0 }
+      PLOADTLVLOOP: { X: 0, D: 1 }
+      PTLVFASTLOOP: { X: 1, D: 1 }
+    encoder: prs_enc_load
+
+  length:                     # Fnc4=0x2 (cur/data/bnd)
+    fnc4: 0x2
+    fields:
+      S:     [31, 31]
+      D:     [30, 30]
+      Sz:    [29, 28]
+      Pos:   [27, 24]
+      Shift: [23, 21]         # Shift==7 => constant-length (model convention)
+      F2:    [20, 19]
+      Len:   [18, 11]
+    discriminator:
+      by: [D, F2]
+      PLENCUR:     { F2: 0 }
+      PLENDATA:    { F2: 1 }
+      PLENDATABND: { F2: 2, D: 0 }
+    encoder: prs_enc_len
+
+  store:                      # Fnc4=0x4
+    fnc4: 0x4
+    fields:
+      S:      [31, 31]
+      F:      [30, 30]        # frame/flags select
+      Sz:     [29, 28]
+      Pos:    [27, 24]
+      J:      [23, 23]        # src: Accum(0) / Flags(1)
+      Sind:   [22, 20]        # store index
+      Offset: [19, 11]
+    encoder: prs_enc_store
+
+  storeimm:                   # Fnc4=0x6
+    fnc4: 0x6
+    fields:
+      S:      [31, 31]
+      F:      [30, 30]
+      Sz:     [29, 28]
+      Value:  [27, 20]
+      Offset: [19, 11]
+    encoder: prs_enc_storeimm
+
+  cam:                        # Fnc4=0x8
+    fnc4: 0x8
+    fields:
+      S:     [31, 31]
+      D:     [30, 30]
+      Sz:    [29, 28]
+      Pos:   [27, 24]
+      Func3: [23, 21]
+      F:     [20, 20]         # key src: Accum(0) / Flags(1)
+      Share: [19, 16]
+      Miss:  [15, 11]
+    discriminator:
+      by: [D, Func3]
+      PCAM:            { D: 0, Func3: 0 }
+      PCAMNEXT:        { D: 1, Func3: 0 }
+      PCAMJUMP:        { Func3: 1 }
+      PCAMJUMPLOOP:    { Func3: 2 }
+      PCAMJUMPTLVLOOP: { Func3: 3 }
+    note: >
+      The CAM key/target is a 20-bit-key/32-bit-target table entry programmed via
+      the custom-3 coprocessor (see cam_key), NOT part of this instruction word.
+    encoder: prs_enc_cam
+
+  next:                       # Fnc4=0xa
+    fnc4: 0xa
+    fields:
+      S:       [31, 31]
+      V:       [30, 30]       # overlay
+      Pos:     [29, 28]
+      A:       [27, 27]       # PANDMASK when 1
+      Payload: [26, 11]
+    discriminator:
+      by: [Pos, A]
+      PNEXTNODE: { Pos: 0 }
+      PSETIMM:   { Pos: 1 }
+      PSETCODE:  { Pos: 2, V: 0 }
+      PSTP:      { Pos: 2 }
+      PVARINT:   { Pos: 3 }
+      PANDMASK:  { A: 1 }
+    encoder: prs_enc_next
+
+  cmp_ordered:                # Fnc4=0xb — PCMPILTB/LTEB/GTB/GTEB
+    fnc4: 0xb
+    fields:
+      S:     [31, 31]
+      D:     [30, 30]
+      Sz:    [29, 28]
+      Pos:   [27, 24]
+      Func3: [23, 21]
+      Er:    [20, 19]
+      Value: [18, 11]
+    discriminator:
+      by: [Func3]
+      PCMPILTB:  { Func3: 0 }
+      PCMPILTEB: { Func3: 1 }
+      PCMPIGTB:  { Func3: 2 }
+      PCMPIGTEB: { Func3: 3 }
+    encoder: prs_enc_cmpord
+
+  cmp_masked_byte:            # Fnc4=0xd (PCMPIB) / 0xe (PCMPNEIB)
+    fnc4: [0xd, 0xe]
+    fields:
+      Er:    [31, 30]
+      Pos:   [29, 27]
+      Value: [26, 19]
+      Mask:  [18, 11]
+    variants:
+      PCMPIB:   { fnc4: 0xd }
+      PCMPNEIB: { fnc4: 0xe }
+    encoder: [prs_enc_cmpib, prs_enc_cmpneib]
+
+  cmp_half:                   # Fnc4=0xc — PCMPIH (table-only; encoder TBD)
+    fnc4: 0xc
+    fields:
+      Er:    [31, 30]
+      Pos:   [29, 27]
+      N:     [27, 27]
+      Value: [26, 11]
+
+# custom-3 coprocessor R-form (FIG 43/44). Standard RISC-V R-form on 0x7b.
+coprocessor:
+  opcode: 0x7b
+  fields:
+    CoP:   [31, 29]           # 000 = parser coprocessor
+    Cpreg: [28, 24]           # which p register
+    C:     [23, 23]           # a.k.a. D for CAM/array delete
+    S:     [22, 22]
+    I:     [21, 21]           # immediate form
+    R:     [20, 20]
+    Rs:    [19, 15]
+    Func3: [14, 12]
+    Rd:    [11, 7]
+  encoder: prs_enc_cop
+  instrs:      # S, I, R, Func3 [, D]
+    CPPRSRD:       { S: 0, I: 0, R: 0, Func3: 0, asm: "prs.mv.x.p ireg,preg" }
+    CPPRSWR:       { S: 0, I: 0, R: 0, Func3: 1, asm: "prs.mv.p.x preg,ireg" }
+    CPPRSWRIMM:    { S: 0, I: 1, R: 0, Func3: 1, asm: "prs.ld.immed preg,imm11" }
+    CPPRSRDCAM:    { S: 0, I: 0, R: 1, Func3: 0, asm: "prs.cam.read ireg,ireg" }
+    CPPRSWRCAM:    { S: 0, I: 0, R: 1, Func3: 1, D: 23, asm: "prs.cam.write/delete" }
+    CPPRSRDARRAY:  { S: 1, I: 0, R: 1, Func3: 0, asm: "prs.array.read ireg,ireg" }
+    CPPRSWRARRAY:  { S: 1, I: 0, R: 1, Func3: 1, D: 23, asm: "prs.array.write/delete" }
+
+# Next-node address/code word (data in Next/Loop/CAM targets, NOT the instr).
+next_word:
+  selector_bit: 31           # 0 = address, 1 = parser code
+  address:
+    bits: [23, 0]            # 24-bit relative; addr = ParserInstrBase | (4*addr)
+    control:
+      E:  0x40000000         # encapsulation
+      V:  0x20000000         # overlay
+      NE: 0x10000000         # next-encap
+      NV: 0x08000000         # next-overlay
+  code:
+    bits: [7, 0]             # negative parser code, sign-extended
+
+# CAM key (20-bit key + 32-bit target).
+cam_key:
+  shared:     { Shared: [19, 16], Match: [15, 0] }        # Shared 1..15
+  selector:   { Shared: [19, 16], Selector: [15, 8], Match: [7, 0] }  # Shared==0
+  selector_formula: "(PC << 6) & 0xFF00"
+
+# Parser codes (FIG 45). Negative bytes; STOP_FAIL(-13) splits normal/abnormal.
+parser_codes:
+  OKAY: 0
+  OKAY_RET: -1
+  OKAY_USE_WILD: -2
+  OKAY_USE_ALT_WILD: -3
+  STOP_OKAY: -4
+  STOP_NODE_OKAY: -5
+  STOP_SUB_NODE_OKAY: -6
+  STOP_FAIL: -13
+  STOP_LENGTH: -14
+  STOP_UNKNOWN_PROTO: -15
+  STOP_ENCAP_DEPTH: -16
+  STOP_UNKNOWN_TLV: -17
+  STOP_TLV_LENGTH: -18
+  STOP_BAD_FLAG: -19
+  STOP_FAIL_CMP: -20
+  STOP_LOOP_CNT: -21
+  STOP_PADDING_LIMIT: -22
+  STOP_OPTION_LIMIT: -23
+  STOP_MAX_NODES: -24
+  STOP_COMPARE: -25
+  # STOP_CNTR1..7: -26..-32

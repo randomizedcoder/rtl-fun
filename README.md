@@ -38,11 +38,18 @@ complete; phases are now being built in order.
   and corpus tests against a pinned [xdp2](https://github.com/randomizedcoder/xdp2)
   `proto_audit` corpus — all 306 Ethernet pcaps terminate cleanly, no
   crashes/hangs (`nix run .#model-test`). Debug a parse with `nix run .#pm-trace`.
-- ⏭ **Phase 3 (next) — Instruction encoding** (`custom-0..3` opcodes & formats).
+- ✅ **Phase 3 — Instruction encoding:** the patent's bit-accurate scheme
+  (custom-0 `0x0b` + `Fnc4`; custom-3 `0x7b` coprocessor) as a machine-readable
+  table ([`isa/parser-opcodes.yaml`](isa/parser-opcodes.yaml)) with a C
+  encoder/decoder in the model and `.insn` emitters
+  ([`toolchain/parser_insn.h`](toolchain/parser_insn.h)); every slice instruction
+  round-trips (`nix run .#model-test`).
+- ⏭ **Phase 4 (next) — Microarchitecture** (parser datapath + CVA6 integration).
 
 No RTL yet — the `rtl/`, etc. source directories are skeletons until their phase
-lands (per-phase status: [docs/README.md](docs/README.md)). Deferred model work:
-TLV *extraction* loops and tunnel protocols (GRE/GTP/VXLAN).
+lands (per-phase status: [docs/README.md](docs/README.md)). Deferred: 64-bit
+instruction form, the array/counter/TLV-loop encoder+execution, and tunnel
+protocols (GRE/GTP/VXLAN).
 
 ## Repo map
 

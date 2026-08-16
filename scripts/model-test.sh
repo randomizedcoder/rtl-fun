@@ -24,6 +24,7 @@ cc -std=c11 -O2 -Wall -Wextra -Werror \
   "$SRC/libparsermodel/parser.c" \
   "$SRC/libparsermodel/program.c" \
   "$SRC/libparsermodel/pcap.c" \
+  "$SRC/libparsermodel/encoding.c" \
   -o "$OUT/pm-test"
 
 echo "CORPUS_DIR=${CORPUS_DIR:-<unset>}"

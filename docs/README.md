@@ -14,7 +14,7 @@ golden model and prototyped on FPGA.
 | 0 | [Scope & stack](phase-0-scope-and-stack.md) | Lock goals, base core, first vertical slice | ✅ Done |
 | 1 | [ISA spec](phase-1-isa-spec.md) · [**semantics**](phase-1-isa-semantics.md) | Define parser registers & instruction semantics | ✅ Done |
 | 2 | [Reference model](phase-2-reference-model.md) | Golden C model + packet corpus | ✅ Done |
-| 3 | [Encoding](phase-3-encoding.md) | Allocate `custom-0..3` opcodes & formats | 🟡 Draft |
+| 3 | [Encoding](phase-3-encoding.md) | Allocate `custom-0..3` opcodes & formats | ✅ Done |
 | 4 | [Microarchitecture](phase-4-microarchitecture.md) | Parser datapath + core integration | 🟡 Draft |
 | 5 | [RTL](phase-5-rtl.md) | SystemVerilog implementation | 🟡 Draft |
 | 6 | [Verification](phase-6-verification.md) | Co-sim RTL vs golden model | 🟡 Draft |
@@ -37,9 +37,15 @@ It passes directed unit tests, hostile/malformed cases (§2.3), and a robustness
 sweep over the pinned xdp2 `proto_audit` corpus — all 306 Ethernet pcaps
 terminate cleanly, no crashes/hangs (`nix run .#model-test`). A single-step
 tracer lives in [tools/pm-trace](../tools/README.md).
-**Next:** Phase 3 (allocate `custom-0..3` opcodes & instruction encoding).
-Deferred to a later slice: true TLV *extraction* loops (DataHdr/DataBound/
-`camjumptlvloop`) and tunnel protocols (GRE/GTP/VXLAN).
+Phase 3 done — the bit-accurate encoding is captured as a machine-readable table
+([`isa/parser-opcodes.yaml`](../isa/parser-opcodes.yaml)), with a C encoder/decoder
+wired into the model ([`encoding.c`](../model/libparsermodel/encoding.c)) and
+`.insn` emitters ([`toolchain/parser_insn.h`](../toolchain/parser_insn.h)). Every
+instruction in the slice program encodes to its exact custom-0 word and decodes
+back (round-trip + golden-vector tests in `nix run .#model-test`).
+**Next:** Phase 4 (parser microarchitecture + CVA6 integration point).
+Deferred slices: 64-bit instruction form; encoders/execution for the array /
+counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 
 ## Analysis
 
