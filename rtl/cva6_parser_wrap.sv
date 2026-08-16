@@ -194,6 +194,20 @@ module cva6_parser_wrap
   wire accept_state = accept & ~uop_i.rd_preg;   // a state-advancing parse op
   wire accept_rd    = accept &  uop_i.rd_preg;   // a custom-3 register read
 
+  // ---- end-of-node redirect target (I4, closes G3) ------------------------------
+  // parser_execute reports the next NODE INDEX in st_n.next_pc (0..2^PC_W-1), not a
+  // byte PC. The parser program is a contiguous block of parser instructions — node
+  // i at ParserInstrBase + i*4 — so the real fetch target is the current op's byte PC
+  // plus the signed node delta times 4. Deriving the base from (pc_i, current node)
+  // needs no external ParserInstrBase and stays correct across jumps, PROVIDED the
+  // block is contiguous (no non-parser instructions interspersed within the parse
+  // program, and custom-3 reads — which don't advance the node index — sit outside
+  // the jump range). A fall-through (delta==+1) does not redirect; see below.
+  wire signed [VLEN-1:0] node_delta_v =
+        $signed({{(VLEN-PC_W){1'b0}}, st_n.next_pc}) -
+        $signed({{(VLEN-PC_W){1'b0}}, st_q.next_pc});
+  wire [VLEN-1:0] redirect_pc_calc = pc_i + (node_delta_v <<< 2);   // + delta*4 bytes
+
   always_ff @(posedge clk_i or negedge rst_ni) begin
     if (!rst_ni) begin
       st_q              <= reset_state();
@@ -207,17 +221,12 @@ module cva6_parser_wrap
       parser_trans_id_o <= '0;
       parser_result_o   <= '0;
       parser_we_o       <= 1'b0;
-      resolve_branch_o  <= 1'b0;
-      parse_exit_o      <= 1'b0;
-      parse_code_o      <= '0;
-      redirect_pc_o     <= '0;
     end else begin
       parser_valid_o   <= 1'b0;
       parser_we_o      <= 1'b0;
-      resolve_branch_o <= 1'b0;
-      parse_exit_o     <= 1'b0;
 
-      // ---- EXECUTE: retire to the scoreboard + steer fetch (speculative) ----------
+      // ---- EXECUTE: retire to the scoreboard (the fetch steer is combinational,
+      //      see resolve_branch_o/redirect_pc_o below) --------------------------------
       if (accept) begin
         parser_valid_o    <= 1'b1;                // retire this micro-op
         parser_trans_id_o <= trans_id_i;
@@ -229,14 +238,6 @@ module cva6_parser_wrap
         end else begin
           st_q              <= st_n;              // speculative fast path (forwards)
           parser_result_o   <= st_n.accum;
-          // end-of-node: redirect fetch, or signal parse exit
-          if (st_n.done) begin
-            parse_exit_o <= 1'b1;
-            parse_code_o <= st_n.code;
-          end else if (st_n.next_pc != (st_q.next_pc + 1'b1)) begin
-            resolve_branch_o <= 1'b1;            // a node/loop redirect happened
-            redirect_pc_o    <= {{(VLEN-PC_W){1'b0}}, st_n.next_pc};
-          end
         end
       end
 
@@ -282,8 +283,22 @@ module cva6_parser_wrap
     end
   end
 
-  // resolved_branch_o payload is bound to ariane_pkg::bp_resolve_t in the in-core
-  // patch (target_address/is_taken/is_mispredict/cf_type); left at default here.
+  // ---- end-of-node fetch steer : COMBINATIONAL, same-cycle as the executing op ----
+  // The frontend/controller resolve contract is same-cycle: controller.sv flushes on
+  // resolved_branch_i.is_mispredict and the ex_stage mux samples the LIVE pc_i in the
+  // very cycle the op is in EX (exactly how branch_unit.sv drives its resolve). A
+  // registered/late strobe would carry a stale pc_i and miss the flush window, so the
+  // core never refetches (fetch hangs). We therefore drive the steer combinationally
+  // off accept_state. Only the FETCH steer is speculative here — parser register state
+  // (st_q/st_arch_q) and the metadata frame stay commit-gated (I1), just like a real
+  // branch resolves (steers) at execute but retires at commit.
+  assign resolve_branch_o = accept_state & ~st_n.done &
+                            (st_n.next_pc != (st_q.next_pc + 1'b1));
+  assign redirect_pc_o    = redirect_pc_calc;             // node index -> byte PC (I4)
+  assign parse_exit_o     = accept_state & st_n.done;     // parser exited (okay/fail)
+  assign parse_code_o     = st_n.code;
+  // resolved_branch_o payload is rebuilt in the in-core patch's redirect mux from
+  // {resolve_branch_o, redirect_pc_o, pc_i}; this port is left unbound here.
   assign resolved_branch_o = '0;
 
   // ---- handshake + speculation-safety assertions (compiled out unless
@@ -300,5 +315,10 @@ module cva6_parser_wrap
   `PRS_ASSERT(a_arch_committed, clk_i, rst_ni, !$stable(st_arch_q) |-> $past(pend_commit))
   // SPECULATION SAFETY (G2): after a flush the speculative state == committed state
   `PRS_ASSERT(a_flush_rollback, clk_i, rst_ni, $past(flush_i) |-> (st_q == st_arch_q))
+  // REDIRECT (I4/G3): a fetch redirect and a parse-exit never co-assert in one retire
+  `PRS_ASSERT(a_redirect_xor_exit, clk_i, rst_ni, !(resolve_branch_o & parse_exit_o))
+  // REDIRECT (I4/G3): a redirect strobe is combinational — it co-asserts with the
+  // accepted parse op it steers on (same-cycle resolve contract, like branch_unit)
+  `PRS_ASSERT(a_redirect_after_state, clk_i, rst_ni, resolve_branch_o |-> accept_state)
 
 endmodule : cva6_parser_wrap

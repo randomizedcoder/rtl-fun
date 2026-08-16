@@ -80,8 +80,13 @@ complete; phases are now being built in order.
   (`nix run .#parser-sim-suite`); and **static analysis + fuzzing** — verible +
   svlint on the RTL (`nix run .#parser-analyze`), cppcheck + gcc `-fanalyzer` +
   clang-tidy + ASan/UBSan on the model (`nix run .#model-analyze`), and libFuzzer
-  + ASan/UBSan on random packets (`nix run .#model-fuzz`). Remaining: the full
-  RTL↔model corpus co-simulation (cocotb + DPI-C) and coverage sign-off.
+  + ASan/UBSan on random packets (`nix run .#model-fuzz`). The in-core FU is being
+  hardened increment by increment against a [status tracker](docs/analysis/cva6-implementation-status.md):
+  **I1** speculation-safe commit-visible parser state, **I2** commit-gated metadata
+  sink (first in-core value-check), **I3** custom-3 register readback, and **I4a**
+  end-of-node fetch redirect (node-index→byte-PC) — all green in-core via
+  `nix run .#cva6-parser-test`. Remaining: the full RTL↔model corpus co-simulation
+  (cocotb + DPI-C) and coverage sign-off.
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)); the
 remaining source dirs (`tb/`, `fpga/`) are skeletons until their phase lands

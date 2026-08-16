@@ -22,6 +22,10 @@
 // retires with we=1 and rd = the selected parser register, and does NOT advance
 // parser state or enter the pending queue (it is a register move, not a parse op).
 //
+// Scenario 6 proves the I4 end-of-node REDIRECT target translation (gap G3): a
+// next-node jump asserts resolve and drives redirect_pc_o as a BYTE PC
+// (pc_i + node_delta*4), not the raw parser node index.
+//
 // The concurrent SVA in cva6_parser_wrap (a_arch_committed / a_flush_rollback) run
 // alongside as a second oracle (+define+PARSER_ASSERT). Run: nix run .#parser-wrap-test.
 
@@ -122,6 +126,16 @@ module parser_wrap_tb
     m         = '0;
     m.rd_preg = 1'b1;
     m.cpreg   = cp;
+    return m;
+  endfunction
+
+  // a next-node micro-op with the end-of-node (s) bit: jumps to node `target`.
+  function automatic micro_op_t nextnode_op(input logic signed [15:0] target);
+    micro_op_t m;
+    m         = '0;
+    m.op      = OP_NEXTNODE;
+    m.payload = target;   // absolute node index (address form)
+    m.s       = 1'b1;     // trailing end-of-node => control transfer
     return m;
   endfunction
 
@@ -272,9 +286,27 @@ module parser_wrap_tb
     @(posedge clk); #1;
     check(!we, "we should deassert after the readback retires");
 
+    // ================================================================
+    // Scenario 6 — end-of-node REDIRECT target translation (I4, gap G3).
+    // ================================================================
+    // From whatever the current node index is, a next-node jump forward by +10 nodes
+    // must assert resolve and produce a BYTE PC = pc_i + 10*4 (pc_i is the dut's fixed
+    // 0x8000_0000), NOT the raw node index. Capturing the base from (pc_i, cur node)
+    // keeps the target correct regardless of the committed state left by prior scenarios.
+    cnt_before = int'(dut.st_q.next_pc);          // current node index
+    uop = nextnode_op(16'(cnt_before + 10)); tid = 3'd6; valid = 1'b1;
+    #1;   // resolve is now COMBINATIONAL (same-cycle as the op in EX) — sample while
+          // valid is still high, before the clock edge advances/releases it.
+    check(resolve_br,   "REDIRECT: resolve should assert on a node jump");
+    check(!parse_exit,  "REDIRECT: a jump is not a parse exit");
+    check(redir_pc == (64'h8000_0000 + 64'd10 * 4),
+          "REDIRECT: target should be pc_i + node_delta*4 (byte PC, not node index)");
+    @(posedge clk); #1; valid = 1'b0;
+    @(posedge clk); #1;
+
     // ---- verdict ----
     if (errors == 0)
-      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 custom-3 readback)");
+      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4 redirect)");
     else
       $fatal(1, "parser_wrap_tb: FAIL (%0d checks failed)", errors);
     $finish;

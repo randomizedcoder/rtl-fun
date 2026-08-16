@@ -64,6 +64,9 @@ cat "$LOG"
 #   2. "*** PARSER META OK ***"   — the I2 backdoor observed the parser's
 #      commit-gated metadata frame reach 0xAB in-core (first in-core value-check;
 #      gaps G1/G8). Emitted by tb-backdoor.patch's XMR watcher.
+#   3. "*** PARSER REDIRECT OK ***" — the I4 end-of-node next-node jump steered the
+#      frontend refetch to the byte-translated node target: the poison store was
+#      skipped (meta[5]==0) and the target landed (meta[6]==0xCC) (gap G3).
 ok=1
 if ! grep -q "\*\*\* SUCCESS \*\*\*" "$LOG" || [ "$rc" -ne 0 ]; then
   echo "== FAIL: model did not report SUCCESS (rc=$rc) ==" >&2
@@ -73,8 +76,12 @@ if ! grep -q "\*\*\* PARSER META OK \*\*\*" "$LOG"; then
   echo "== FAIL: I2 backdoor did not observe meta[4]=0xAB committed in-core ==" >&2
   ok=0
 fi
+if ! grep -q "\*\*\* PARSER REDIRECT OK \*\*\*" "$LOG"; then
+  echo "== FAIL: I4 end-of-node redirect did not steer fetch (poison not skipped / target not landed) ==" >&2
+  ok=0
+fi
 if [ "$ok" -eq 1 ]; then
-  echo "== PASS: PARSER ops retired in-core + metadata sink (I2) + custom-3 readback self-check (I3) =="
+  echo "== PASS: in-core PARSER ops + metadata sink (I2) + custom-3 readback (I3) + end-of-node redirect (I4) =="
   exit 0
 else
   exit 1
