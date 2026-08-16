@@ -35,8 +35,10 @@ nix/
   packages.nix                # tool groups (docs / rtl / sim / toolchain / riscv / common)
   cva6.nix                    # pinned CVA6 base-core source (fetchFromGitHub)
   cva6-patched.nix            # cva6-parser-src: patched CVA6 source (cacheable derivation)
-  cva6-parser/decode.patch    # the in-core decode patch (fu_t::PARSER + custom-0/3 routing)
+  cva6-parser/decode.patch    # in-core decode patch (fu_t::PARSER + custom-0/3 routing)
+  cva6-parser/issue-ex.patch  # in-core issue/EX/writeback/redirect patch + Flist parser files
   cva6-baseline.nix           # cva6-baseline / cva6-parser builders (writeShellApplication)
+  cva6-parser-test.nix        # cva6-parser-test: build patched model + run in-core custom-0 test
   xdp2.nix                    # pinned xdp2 source (packet corpus, Phase 2)
   model.nix                   # golden-model apps: model-test, model-analyze, model-fuzz, pm-trace
   rtl.nix                     # parser-unit sim/lint/analyze/formal apps (Phase 5/6)
@@ -45,6 +47,7 @@ nix/
     help.nix                  # the rtl-help function
 scripts/
   cva6-baseline.sh            # body of the cva6-baseline app (Phase 0 sim baseline)
+  cva6-parser-test.sh         # in-core custom-0 directed test (assemble ELF + run) (Phase 5)
   model-test.sh, pm-trace.sh  # bodies of the golden-model apps (Phase 2)
   model-analyze.sh            # cppcheck + gcc -fanalyzer + clang-tidy + ASan/UBSan (Phase 6)
   model-fuzz.sh               # libFuzzer + ASan/UBSan harness runner (Phase 6)
@@ -62,6 +65,7 @@ One `writeShellApplication` per runner; each puts its tools on `PATH` via
 |-----|--------------|------:|
 | `cva6-baseline` | build the **stock** CVA6 Verilator model | 0 |
 | `cva6-parser` | build the **parser-patched** CVA6 Verilator model (compare vs baseline) | 5 |
+| `cva6-parser-test` | build patched model + run the in-core custom-0 directed test | 5 |
 | `model-test` | golden-model unit + corpus tests | 2 |
 | `model-analyze` | cppcheck + gcc `-fanalyzer` + clang-tidy + ASan/UBSan run | 6 |
 | `model-fuzz` | libFuzzer + ASan/UBSan on random packets (`FUZZ_SECONDS=`) | 6 |

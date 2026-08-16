@@ -58,9 +58,16 @@ complete; phases are now being built in order.
   **runs the vertical slice in Verilator, producing a `flow_keys` that matches the
   golden model byte-for-byte** (`nix run .#parser-sim`). Lint-clean under `-Wall`,
   with four Verilator targets at different debug levels
-  (`parser-sim{,-trace,-debug}`, `parser-lint`). The FU also exists at
-  CVA6-interface fidelity (`cva6_parser_wrap.sv`). Remaining: the 32-bit word
-  decoder and the in-core CVA6 decode/issue/EX patch
+  (`parser-sim{,-trace,-debug}`, `parser-lint`). The 32-bit word decoder
+  (`parser_decode.sv`) is proven equivalent to the model over the whole suite
+  (`nix run .#parser-sim-decode`), and the **in-core CVA6 patch is complete**:
+  custom-0/custom-3 route to a new `fu_t::PARSER`, issue over a ready/valid
+  handshake, execute in the EX-stage FU (`cva6_parser_wrap`), retire via a new
+  writeback port, and can redirect fetch via `resolved_branch_o`. The patched core
+  builds (`nix run .#cva6-parser`) with no baseline regression, and a bare-metal
+  custom-0 program **issues, executes, and retires in-core**
+  (`nix run .#cva6-parser-test` → fesvr `tohost` PASS). Remaining: generate
+  `parser_pkg` from `isa/`; the packet-data feed + CAM programming (Phase 8)
   ([`docs/analysis/cva6-integration.md`](docs/analysis/cva6-integration.md) §8).
 - 🔵 **Phase 6 (in progress) — Verification:** the verification foundation is in
   place across all four techniques, every target green from the flake:

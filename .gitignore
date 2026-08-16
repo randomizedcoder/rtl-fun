@@ -8,3 +8,8 @@
 
 # CVA6 baseline build tree (imperative, not tracked)
 /build/
+
+# CVA6 in-core test build/trace artifacts
+tests/cva6-parser/*.elf
+trace_hart_*.dasm
+trace_rvfi_hart_*.dasm

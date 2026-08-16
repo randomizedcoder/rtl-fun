@@ -1,0 +1,399 @@
+diff --git a/core/Flist.cva6 b/core/Flist.cva6
+index e82365d..891b014 100644
+--- a/core/Flist.cva6
++++ b/core/Flist.cva6
+@@ -116,6 +116,16 @@ ${CVA6_REPO_DIR}/core/zcmt_decoder.sv
+ ${CVA6_REPO_DIR}/core/csr_buffer.sv
+ ${CVA6_REPO_DIR}/core/csr_regfile.sv
+ ${CVA6_REPO_DIR}/core/decoder.sv
++// Parser instruction unit (rtl-fun): the custom-0/custom-3 PARSER FU and its leaf
++// units, copied into core/parser/ by the cva6-parser-src derivation. Compiled into
++// the core so ex_stage can instantiate cva6_parser_wrap. (docs/analysis/cva6-integration.md)
+++incdir+${CVA6_REPO_DIR}/core/parser/
++${CVA6_REPO_DIR}/core/parser/parser_pkg.sv
++${CVA6_REPO_DIR}/core/parser/parser_pktbuf.sv
++${CVA6_REPO_DIR}/core/parser/parser_cam.sv
++${CVA6_REPO_DIR}/core/parser/parser_decode.sv
++${CVA6_REPO_DIR}/core/parser/parser_execute.sv
++${CVA6_REPO_DIR}/core/parser/cva6_parser_wrap.sv
+ ${CVA6_REPO_DIR}/core/ex_stage.sv
+ ${CVA6_REPO_DIR}/core/instr_realign.sv
+ ${CVA6_REPO_DIR}/core/id_stage.sv
+diff --git a/core/cva6.sv b/core/cva6.sv
+index e42e6c3..5be4c41 100644
+--- a/core/cva6.sv
++++ b/core/cva6.sv
+@@ -491,6 +491,15 @@ module cva6
+   logic x_issue_ready_ex_id;
+   logic [31:0] x_off_instr_id_ex;
+   logic x_transaction_rejected;
++  // PARSER FU (custom-0/custom-3) — mirrors the CVXIF writeback group
++  localparam int unsigned PARSER_WB = CVA6Cfg.NrWbPorts - 1;
++  logic [CVA6Cfg.NrIssuePorts-1:0] parser_valid_id_ex;
++  logic parser_ready_ex_id;
++  logic [31:0] parser_off_instr_id_ex;
++  logic [CVA6Cfg.TRANS_ID_BITS-1:0] parser_trans_id_ex_id;
++  logic [CVA6Cfg.XLEN-1:0] parser_result_ex_id;
++  logic parser_valid_ex_id;
++  exception_t parser_exception_ex_id;
+   // --------------
+   // EX <-> COMMIT
+   // --------------
+@@ -799,6 +808,14 @@ module cva6
+     assign cvxif_req = '0;
+   end
+ 
++  // PARSER writeback group — always present, occupies the highest WB port
++  // (PARSER_WB = NrWbPorts-1). custom-0 retires with rd already forced to x0 by
++  // the decoder, so the generic scoreboard retire path needs no change.
++  assign trans_id_ex_id[PARSER_WB] = parser_trans_id_ex_id;
++  assign wbdata_ex_id[PARSER_WB]   = parser_result_ex_id;
++  assign ex_ex_ex_id[PARSER_WB]    = parser_exception_ex_id;
++  assign wt_valid_ex_id[PARSER_WB] = parser_valid_ex_id;
++
+   if (CVA6Cfg.CvxifEn && CVA6Cfg.EnableAccelerator) begin : gen_err_xif_and_acc
+     $error("X-interface and accelerator port cannot be enabled at the same time.");
+   end
+@@ -866,6 +883,10 @@ module cva6
+       .xfu_valid_o             (x_issue_valid_id_ex),
+       .xfu_ready_i             (x_issue_ready_ex_id),
+       .x_off_instr_o           (x_off_instr_id_ex),
++      // PARSER
++      .parser_valid_o          (parser_valid_id_ex),
++      .parser_ready_i          (parser_ready_ex_id),
++      .parser_off_instr_o      (parser_off_instr_id_ex),
+       .hart_id_i               (hart_id_i),
+       .x_issue_ready_i         (x_issue_ready),
+       .x_issue_resp_i          (x_issue_resp),
+@@ -1003,6 +1024,14 @@ module cva6
+       .x_result_valid_i        (x_result_valid),
+       .x_result_i              (x_result),
+       .x_result_ready_o        (x_result_ready),
++      // PARSER FU (custom-0/custom-3)
++      .parser_valid_i          (parser_valid_id_ex),
++      .parser_ready_o          (parser_ready_ex_id),
++      .parser_off_instr_i      (parser_off_instr_id_ex),
++      .parser_trans_id_o       (parser_trans_id_ex_id),
++      .parser_result_o         (parser_result_ex_id),
++      .parser_valid_o          (parser_valid_ex_id),
++      .parser_exception_o      (parser_exception_ex_id),
+       // Accelerator
+       .acc_valid_i             (acc_valid_acc_ex),
+       // Performance counters
+diff --git a/core/ex_stage.sv b/core/ex_stage.sv
+index 4bd3a82..1aaeb69 100644
+--- a/core/ex_stage.sv
++++ b/core/ex_stage.sv
+@@ -159,6 +159,20 @@ module ex_stage
+     output logic x_result_ready_o,
+     // CVXIF Issue transaction rejected -> illegal instruction - ISSUE_STAGE
+     input logic x_transaction_rejected_i,
++    // PARSER instruction is valid - ISSUE_STAGE
++    input logic [CVA6Cfg.NrIssuePorts-1:0] parser_valid_i,
++    // PARSER FU is ready - ISSUE_STAGE
++    output logic parser_ready_o,
++    // PARSER raw (undecoded) instruction word - ISSUE_STAGE
++    input logic [31:0] parser_off_instr_i,
++    // PARSER writeback transaction ID - ISSUE_STAGE
++    output logic [CVA6Cfg.TRANS_ID_BITS-1:0] parser_trans_id_o,
++    // PARSER result (custom-3 reads; custom-0 = 0) - ISSUE_STAGE
++    output logic [CVA6Cfg.XLEN-1:0] parser_result_o,
++    // PARSER result is valid (retire strobe) - ISSUE_STAGE
++    output logic parser_valid_o,
++    // PARSER exception (unused for the slice; parser exits redirect, not trap) - ISSUE_STAGE
++    output exception_t parser_exception_o,
+     // accelerate port result is valid - ACC_DISPATCHER
+     input logic acc_valid_i,
+     // Enable virtual memory translation - CSR_REGFILE
+@@ -272,6 +286,14 @@ module ex_stage
+   logic [CVA6Cfg.TRANS_ID_BITS-1:0] mult_trans_id;
+   logic mult_valid;
+ 
++  // branch unit resolves onto internal wires; the parser end-of-node redirect is
++  // muxed onto {resolved_branch_o, resolve_branch_o} below (cva6-integration §4).
++  bp_resolve_t branch_resolved_branch;
++  logic        branch_resolve_branch;
++  // parser end-of-node redirect (from the parser FU)
++  logic                    parser_resolve_branch;
++  logic [CVA6Cfg.VLEN-1:0] parser_redirect_pc;
++
+   logic [CVA6Cfg.NrIssuePorts-1:0] one_cycle_select;
+   assign one_cycle_select = alu_valid_i | branch_valid_i | csr_valid_i;
+ 
+@@ -328,8 +350,8 @@ module ex_stage
+       .branch_comp_res_i (alu_branch_res),
+       .branch_result_o   (branch_result),
+       .branch_predict_i,
+-      .resolved_branch_o,
+-      .resolve_branch_o,
++      .resolved_branch_o (branch_resolved_branch),
++      .resolve_branch_o  (branch_resolve_branch),
+       .branch_exception_o(flu_exception_o)
+   );
+ 
+@@ -635,6 +657,100 @@ module ex_stage
+     assign x_valid_o        = '0;
+   end
+ 
++  // ------------------------------------------------------------------
++  // PARSER functional unit (custom-0 in-pipeline / custom-3 coprocessor)
++  // ------------------------------------------------------------------
++  // The parser micro-op is decoded INSIDE the FU from the raw instruction word
++  // (parser_decode), executed by cva6_parser_wrap (which holds the persistent
++  // parser register state), against an in-core packet window (parser_pktbuf) and
++  // CAM (parser_cam). Packet/CAM *contents* are fed later (Phase 8 DMA / custom-3
++  // programming); here they are empty-backed, so the wiring elaborates and a
++  // custom-0 op issues → executes → retires. End-of-node redirect is muxed onto
++  // resolved_branch_o below. See docs/analysis/cva6-integration.md §3–§5.
++  begin : gen_parser
++    parser_pkg::micro_op_t parser_uop;
++    logic                  parser_dec_illegal;
++    logic [parser_pkg::PKT_OFF_W-1:0] parser_pkt_off;
++    logic [63:0]           parser_pkt_win_be;
++    logic [3:0]            parser_cam_share;
++    logic [15:0]           parser_cam_match;
++    logic                  parser_cam_hit;
++    logic [31:0]           parser_cam_target;
++    logic                  parser_parse_exit;
++    logic signed [31:0]    parser_parse_code;
++    bp_resolve_t           parser_bp_unused;
++
++    // decode the raw word -> micro-op
++    parser_decode u_parser_decode (
++        .word_i   (parser_off_instr_i),
++        .op_o     (parser_uop),
++        .illegal_o(parser_dec_illegal)
++    );
++
++    // in-core packet window + CAM (empty-backed for the slice)
++    parser_pktbuf u_parser_pktbuf (
++        .req_off_i(parser_pkt_off),
++        .win_be_o (parser_pkt_win_be)
++    );
++    parser_cam u_parser_cam (
++        .share_i (parser_cam_share),
++        .match_i (parser_cam_match),
++        .hit_o   (parser_cam_hit),
++        .target_o(parser_cam_target)
++    );
++
++    cva6_parser_wrap #(
++        .bp_resolve_t (bp_resolve_t),
++        .VLEN         (CVA6Cfg.VLEN),
++        .TRANS_ID_BITS(CVA6Cfg.TRANS_ID_BITS)
++    ) u_parser_fu (
++        .clk_i,
++        .rst_ni,
++        .flush_i,
++        .parser_valid_i   (|parser_valid_i),
++        .uop_i            (parser_uop),
++        // parser is single-in-flight and issues on port 0 only (fus_busy[1].parser)
++        .trans_id_i       (fu_data_i[0].trans_id),
++        .pc_i             (pc_i),
++        .parse_len_i      (16'(parser_pkg::PKT_MAX)),  // provisional; real ParseLen via pkt buffer (Phase 8)
++        .parser_ready_o   (parser_ready_o),
++        .parser_valid_o   (parser_valid_o),
++        .parser_trans_id_o(parser_trans_id_o),
++        .parser_result_o  (parser_result_o),
++        .parser_we_o      (  /* custom-0 never writes integer rd */),
++        .resolved_branch_o(parser_bp_unused),
++        .resolve_branch_o (parser_resolve_branch),
++        .redirect_pc_o    (parser_redirect_pc),
++        .parse_exit_o     (parser_parse_exit),
++        .parse_code_o     (parser_parse_code),
++        .pkt_off_o        (parser_pkt_off),
++        .pkt_win_be_i     (parser_pkt_win_be),
++        .cam_share_o      (parser_cam_share),
++        .cam_match_o      (parser_cam_match),
++        .cam_hit_i        (parser_cam_hit),
++        .cam_target_i     (parser_cam_target)
++    );
++    // the parser drives no CPU exception (exits redirect via resolved_branch_o)
++    assign parser_exception_o = '0;
++  end
++
++  // Redirect mux: branch_unit and the parser are mutually exclusive by
++  // construction (in-order issue + single in-flight parser op), so OR the resolve
++  // strobes and select the parser's payload when it resolves (cva6-integration §4).
++  always_comb begin : gen_resolved_branch_mux
++    resolve_branch_o  = branch_resolve_branch | parser_resolve_branch;
++    resolved_branch_o = branch_resolved_branch;
++    if (parser_resolve_branch) begin
++      resolved_branch_o                = '0;
++      resolved_branch_o.valid          = 1'b1;
++      resolved_branch_o.pc             = pc_i;
++      resolved_branch_o.target_address = parser_redirect_pc;
++      resolved_branch_o.is_mispredict  = 1'b1;
++      resolved_branch_o.is_taken       = 1'b1;
++      resolved_branch_o.cf_type        = ariane_pkg::JumpR;
++    end
++  end
++
+   if (CVA6Cfg.RVS) begin
+     if (CVA6Cfg.RVH) begin
+       always_ff @(posedge clk_i or negedge rst_ni) begin
+diff --git a/core/include/build_config_pkg.sv b/core/include/build_config_pkg.sv
+index dae76f6..eb0c138 100644
+--- a/core/include/build_config_pkg.sv
++++ b/core/include/build_config_pkg.sv
+@@ -19,7 +19,10 @@ package build_config_pkg;
+     bit XF8Vec     = CVA6Cfg.XF8     & CVA6Cfg.XFVec & FLen>8;  // FP8 vectors available if vectors and larger fmt enabled
+ 
+     bit EnableAccelerator = CVA6Cfg.RVV;  // Currently only used by V extension (Ara)
+-    int unsigned NrWbPorts = (CVA6Cfg.CvxifEn || EnableAccelerator) ? 5 : 4;
++    // +1 writeback port for the parser FU (custom-0/custom-3), which retires by
++    // trans_id like any other FU. The parser port is always the highest index
++    // (NrWbPorts-1); see core/cva6.sv PARSER_WB. (cva6-integration.md §3/§4.)
++    int unsigned NrWbPorts = ((CVA6Cfg.CvxifEn || EnableAccelerator) ? 5 : 4) + 1;
+ 
+     int unsigned ICACHE_INDEX_WIDTH = $clog2(CVA6Cfg.IcacheByteSize / CVA6Cfg.IcacheSetAssoc);
+     int unsigned DCACHE_INDEX_WIDTH = $clog2(CVA6Cfg.DcacheByteSize / CVA6Cfg.DcacheSetAssoc);
+diff --git a/core/issue_read_operands.sv b/core/issue_read_operands.sv
+index 8f70016..fde3d67 100644
+--- a/core/issue_read_operands.sv
++++ b/core/issue_read_operands.sv
+@@ -94,6 +94,12 @@ module issue_read_operands
+     input logic cvxif_ready_i,
+     // CVXIF offloader instruction value - EX_STAGE
+     output logic [31:0] cvxif_off_instr_o,
++    // PARSER FU is valid - EX_STAGE
++    output logic [CVA6Cfg.NrIssuePorts-1:0] parser_valid_o,
++    // PARSER FU is ready - EX_STAGE
++    input logic parser_ready_i,
++    // PARSER raw (undecoded) instruction word - EX_STAGE
++    output logic [31:0] parser_off_instr_o,
+     // CVA6 Hart ID - SUBSYSTEM
+     input logic [CVA6Cfg.XLEN-1:0] hart_id_i,
+     // CVXIF Issue interface
+@@ -133,7 +139,7 @@ module issue_read_operands
+   localparam OPERANDS_PER_INSTR = CVA6Cfg.NrRgprPorts / CVA6Cfg.NrIssuePorts;
+ 
+   typedef struct packed {
+-    logic none, load, store, alu, alu2, ctrl_flow, mult, csr, fpu, fpu_vec, cvxif, accel;
++    logic none, load, store, alu, alu2, ctrl_flow, mult, csr, fpu, fpu_vec, cvxif, accel, parser;
+   } fus_busy_t;
+ 
+   logic [CVA6Cfg.NrIssuePorts-1:0] stall_raw, stall_waw, stall_rs1, stall_rs2, stall_rs3;
+@@ -164,6 +170,9 @@ module issue_read_operands
+   logic [CVA6Cfg.NrIssuePorts-1:0] cvxif_valid_n, cvxif_valid_q;
+   logic [31:0] cvxif_off_instr_n, cvxif_off_instr_q;
+   logic                                              cvxif_instruction_valid;
++  // PARSER (custom-0/custom-3) issue strobe + raw instruction word (mirrors CVXIF)
++  logic [CVA6Cfg.NrIssuePorts-1:0] parser_valid_n, parser_valid_q;
++  logic [31:0] parser_off_instr_n, parser_off_instr_q;
+ 
+   //fwd logic
+   logic [CVA6Cfg.NrIssuePorts-1:0]                   rs1_has_raw;
+@@ -274,6 +283,8 @@ module issue_read_operands
+   assign alu2_valid_o = alu2_valid_q;
+   assign cvxif_valid_o = CVA6Cfg.CvxifEn ? cvxif_valid_q : '0;
+   assign cvxif_off_instr_o = CVA6Cfg.CvxifEn ? cvxif_off_instr_q : '0;
++  assign parser_valid_o = parser_valid_q;
++  assign parser_off_instr_o = parser_off_instr_q;
+   assign stall_issue_o = stall_raw[0];
+   assign tinst_o = CVA6Cfg.RVH ? tinst_q : '0;
+   // ---------------
+@@ -311,6 +322,13 @@ module issue_read_operands
+       fus_busy[0].store = 1'b1;
+     end
+ 
++    // The parser is a single-in-flight variable-latency FU: stall a new parser
++    // op while one is still executing (or after a parse exit). This one interlock
++    // removes every parser-register hazard for free (cva6-integration.md §6).
++    if (!parser_ready_i) begin
++      fus_busy[0].parser = 1'b1;
++    end
++
+     if (CVA6Cfg.SuperscalarEn) begin
+       fus_busy[1] = fus_busy[0];
+ 
+@@ -318,6 +336,8 @@ module issue_read_operands
+       fus_busy[1].csr = 1'b1;
+       // Never issue CVXIF instruction on second issue port.
+       fus_busy[1].cvxif = 1'b1;
++      // Never issue PARSER instruction on second issue port (single in-flight).
++      fus_busy[1].parser = 1'b1;
+ 
+       unique case (issue_instr_i[0].fu)
+         NONE: fus_busy[1].none = 1'b1;
+@@ -394,6 +414,7 @@ module issue_read_operands
+         LOAD: fu_busy[i] = fus_busy[i].load;
+         STORE: fu_busy[i] = fus_busy[i].store;
+         CVXIF: fu_busy[i] = fus_busy[i].cvxif;
++        PARSER: fu_busy[i] = fus_busy[i].parser;
+         default:
+         if (CVA6Cfg.FpPresent) begin
+           unique case (issue_instr_i[i].fu)
+@@ -797,6 +818,8 @@ module issue_read_operands
+     alu2_valid_n   = '0;
+     csr_valid_n    = '0;
+     branch_valid_n = '0;
++    parser_valid_n     = '0;
++    parser_off_instr_n = 32'b0;
+     for (int unsigned i = 0; i < CVA6Cfg.NrIssuePorts; i++) begin
+       if (!issue_instr_i[i].ex.valid && issue_instr_valid_i[i] && issue_ack_o[i]) begin
+         case (issue_instr_i[i].fu)
+@@ -828,6 +851,10 @@ module issue_read_operands
+               fpu_valid_n[i] = 1'b1;
+               fpu_fmt_n      = orig_instr.rvftype.vfmt;  // vfmt bits from instruction
+               fpu_rm_n       = {2'b0, orig_instr.rvftype.repl};  // repl bit from instruction
++            end else if (issue_instr_i[i].fu == PARSER) begin
++              // custom-0/custom-3 -> parser FU; carry the raw word for in-FU decode
++              parser_valid_n[i]  = 1'b1;
++              parser_off_instr_n = orig_instr_i[i];
+             end
+           end
+         endcase
+@@ -843,6 +870,7 @@ module issue_read_operands
+       alu2_valid_n   = '0;
+       csr_valid_n    = '0;
+       branch_valid_n = '0;
++      parser_valid_n = '0;
+     end
+   end
+   // FU select, assert the correct valid out signal (in the next cycle)
+@@ -858,6 +886,8 @@ module issue_read_operands
+       alu2_valid_q   <= '0;
+       csr_valid_q    <= '0;
+       branch_valid_q <= '0;
++      parser_valid_q     <= '0;
++      parser_off_instr_q <= 32'b0;
+     end else begin
+       alu_valid_q    <= alu_valid_n;
+       lsu_valid_q    <= lsu_valid_n;
+@@ -868,6 +898,8 @@ module issue_read_operands
+       alu2_valid_q   <= alu2_valid_n;
+       csr_valid_q    <= csr_valid_n;
+       branch_valid_q <= branch_valid_n;
++      parser_valid_q     <= parser_valid_n;
++      parser_off_instr_q <= parser_off_instr_n;
+     end
+   end
+ 
+diff --git a/core/issue_stage.sv b/core/issue_stage.sv
+index 4ffc538..ca40a75 100644
+--- a/core/issue_stage.sv
++++ b/core/issue_stage.sv
+@@ -100,6 +100,12 @@ module issue_stage
+     input logic xfu_ready_i,
+     // CVXIF offloader instruction value - EX_STAGE
+     output logic [31:0] x_off_instr_o,
++    // PARSER FU is valid - EX_STAGE
++    output logic [CVA6Cfg.NrIssuePorts-1:0] parser_valid_o,
++    // PARSER FU is ready - EX_STAGE
++    input logic parser_ready_i,
++    // PARSER raw (undecoded) instruction word - EX_STAGE
++    output logic [31:0] parser_off_instr_o,
+     // CVA6 Hart ID - SUBSYSTEM
+     input logic [CVA6Cfg.XLEN-1:0] hart_id_i,
+     // CVXIF Issue interface - EX_STAGE
+@@ -280,6 +286,9 @@ module issue_stage
+       .cvxif_valid_o           (xfu_valid_o),
+       .cvxif_ready_i           (xfu_ready_i),
+       .cvxif_off_instr_o       (x_off_instr_o),
++      .parser_valid_o          (parser_valid_o),
++      .parser_ready_i          (parser_ready_i),
++      .parser_off_instr_o      (parser_off_instr_o),
+       .hart_id_i               (hart_id_i),
+       .x_issue_ready_i         (x_issue_ready_i),
+       .x_issue_resp_i          (x_issue_resp_i),
