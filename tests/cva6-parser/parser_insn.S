@@ -40,6 +40,11 @@
 # This exercises the rs1 operand threaded from ex_stage + the CAM program port, and
 # unblocks OP_CAMNEXT (a programmed CAM entry driving a real fetch redirect).
 #
+# Then (V4/V5, gap G6) two in-core pipeline checks: a write-after-write to a parser
+# register proves the younger write wins (V4), and a custom-3 readback placed back-to-
+# back with a mul + CSR read + branches proves the parser writeback port doesn't
+# contend with adjacent retires (V5). Both are program-self-checked via tohost.
+#
 # Run: Variane_testharness parser_insn.elf   (tohost=1 => exit code 0 => PASS)
 
 .section .text.init
@@ -108,6 +113,44 @@ _start:
     .word 0x1EE0430B        # POISON: prs.storeimm 0xEE -> meta[8] (node 9, skipped)
     .word 0x1DD04B0B        # landing: prs.storeimm 0xDD -> meta[9] (node 10)
 
+    # --- V4 (Table C, gap G6): WAW on the parser register file — last writer wins ---
+    # Two custom-3 writes to the SAME p-register (p16 Flags) in program order; the
+    # younger must win. Custom-3 layout (opcode 0x7b): CoP[31:29]=0, Cpreg[28:24],
+    # R[20], Rs[19:15], Func3[14:12], Rd[11:7]. So:
+    #   0x1005107B = CPPRSWR p16, a0   (cpreg=16, R=0, Func3=1, Rs=a0/x10)
+    #   0x100007FB = CPPRSRD a5, p16   (cpreg=16, R=0, Func3=0, Rd=a5/x15)
+    # The readback reads the working state that reflects every older accepted write, so a
+    # stale (older) value fails the self-check. (The wrap-TB Scenario 9 additionally
+    # proves the *architectural/committed* WAW ordering.)
+    li   a0, 0x11
+    .word 0x1005107B        # CPPRSWR p16, a0   (Flags <- 0x11)
+    li   a0, 0x22
+    .word 0x1005107B        # CPPRSWR p16, a0   (Flags <- 0x22, write-after-write)
+    .word 0x100007FB        # CPPRSRD a5, p16   (a5 <- Flags)
+    li   a6, 0x22
+    beq  a5, a6, 4f
+    li   t0, 9             # V4 WAW mismatch => tohost=9 => FAIL
+4:
+    # --- V5 (Table C, gap G6): parser op adjacent to mul/CSR/branch — no WB/commit contention ---
+    # The custom-3 readback retires on the parser writeback port; back-to-back with a MUL
+    # (mult-unit WB), a CSR read (CSR WB), and taken branches it checks that the added
+    # parser WB port neither drops nor corrupts a neighbour's retire (and vice-versa). We
+    # first write a known sentinel to p16, then value-check BOTH the parser readback of it
+    # AND the mul result.
+    li   a0, 0x5A
+    .word 0x1005107B        # CPPRSWR p16, a0   (Flags <- 0x5A)
+    li   s1, 7
+    li   s2, 6
+    mul  s0, s1, s2         # s0 = 42, mult-unit writeback
+    .word 0x100007FB        # CPPRSRD a5, p16   (a5 <- Flags), adjacent to the mul
+    csrr s3, mhartid        # CSR read adjacent (M-mode safe; exercises CSR WB adjacency)
+    li   a6, 0x5A
+    bne  a5, a6, 5f
+    li   a7, 42
+    bne  s0, a7, 5f
+    j    6f
+5:  li   t0, 11            # V5 adjacency mismatch => tohost=11 => FAIL
+6:
     # --- signal result: tohost = t0 ---
     la   t1, tohost
     sd   t0, 0(t1)

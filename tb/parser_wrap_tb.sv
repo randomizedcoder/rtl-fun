@@ -219,6 +219,29 @@ module parser_wrap_tb
     @(posedge clk); #1;
 
     // ================================================================
+    // Scenario 0 — V11: reset => defined, X-free state (Table C, G13).
+    // ================================================================
+    // Straight out of reset, before any op is issued, the speculative and
+    // architectural state and the handshake outputs must be fully defined (no X),
+    // agree with each other, and present an empty pending queue.
+    check(!$isunknown(ready),         "RESET: ready must be defined (no X)");
+    check(!$isunknown(dut.st_q),      "RESET: speculative st_q must be X-free");
+    check(!$isunknown(dut.st_arch_q), "RESET: architectural st_arch_q must be X-free");
+    check(dut.pend_cnt_q == 0,        "RESET: pending queue must be empty");
+    check(dut.st_q === dut.st_arch_q, "RESET: spec and arch state must agree at reset");
+    // The FIRST op after reset must yield a defined result / post-state — no X leaks
+    // out of an uninitialised register. A custom-3 readback is used because it neither
+    // enqueues nor advances state, leaving the clean post-reset condition Scenario 1
+    // expects.
+    uop = rdpreg_op(5'd11); tid = 3'd0; valid = 1'b1;
+    #1;
+    check(!$isunknown(result),        "RESET: first-op result must be X-free");
+    @(posedge clk); #1; valid = 1'b0;
+    check(!$isunknown(dut.st_q),      "RESET: first-op post-state must be X-free");
+    check(dut.pend_cnt_q == 0,        "RESET: readback must not perturb the queue");
+    @(posedge clk); #1;
+
+    // ================================================================
     // Scenario 1 — speculative advance then FLUSH must roll back (G2).
     // ================================================================
     check(ready, "ready should be high after reset");
@@ -434,9 +457,70 @@ module parser_wrap_tb
     @(posedge clk); #1; valid = 1'b0;
     @(posedge clk); #1;
 
+    // ================================================================
+    // Scenario 9 — V4: WAW on the parser register file (Table C, last writer wins).
+    // ================================================================
+    // Two CPPRSWR writes to the SAME p-register (p16 Flags) are both accepted into the
+    // pending queue before either commits, then committed in order. The speculative
+    // value tracks the YOUNGER write immediately; the architectural shadow reaches the
+    // older value on the first commit and the younger on the second. A readback returns
+    // the surviving (younger) value. Proves write-after-write ordering survives the
+    // commit pipeline.
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    @(posedge clk); #1;
+    // (a) older write: p16 <- 0x1111
+    rs1 = 64'h0000_0000_0000_1111;
+    uop = wrpreg_op(5'd16); tid = 3'd0; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    check(dut.pend_cnt_q == 1,             "WAW: first write should enqueue");
+    // (b) younger write: p16 <- 0x2222, in flight before the first commits
+    rs1 = 64'h0000_0000_0000_2222;
+    uop = wrpreg_op(5'd16); tid = 3'd1; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    check(dut.pend_cnt_q == 2,             "WAW: both writes in flight (queue depth 2)");
+    check(dut.st_q.flags == 64'h2222,      "WAW: speculative flags = younger write");
+    check(dut.st_arch_q.flags == 64'h0,    "WAW: arch flags unchanged before any commit");
+    // commit the older then the younger
+    commit = 1'b1; commit_tid = 3'd0; @(posedge clk); #1; commit = 1'b0;
+    check(dut.st_arch_q.flags == 64'h1111, "WAW: arch = older write after first commit");
+    commit = 1'b1; commit_tid = 3'd1; @(posedge clk); #1; commit = 1'b0;
+    check(dut.st_arch_q.flags == 64'h2222, "WAW: arch = younger write after second commit");
+    check(dut.pend_cnt_q == 0,             "WAW: queue empty after both commits");
+    // readback confirms the surviving value
+    uop = rdpreg_op(5'd16); tid = 3'd2; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    check(result == 64'h0000_0000_0000_2222, "WAW: readback returns the younger write");
+    @(posedge clk); #1;
+
+    // ================================================================
+    // Scenario 10 — Table B: store-past-frame is bounds-gated (no write, no corruption).
+    // ================================================================
+    // parser_execute suppresses a metadata write whose (offset+nbytes) exceeds META_MAX
+    // (64), so the commit-time byte-scatter never runs for it. A store at the LAST valid
+    // byte (off=63, 1 byte) lands; a store PAST the frame (off=64) asserts no meta_we and
+    // disturbs no committed byte (in particular it must not wrap to offset 0).
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    @(posedge clk); #1;
+    // (a) in-bounds store at the last frame byte: off=63, 1 byte 0x5A -> lands on commit
+    uop = storeimm_op(9'd63, 16'h005A); tid = 3'd0; valid = 1'b1;
+    #1;
+    check(dut.meta_we,  "STORE-BOUND: in-bounds store (off=63) should assert meta_we");
+    @(posedge clk); #1; valid = 1'b0;
+    commit = 1'b1; commit_tid = 3'd0; @(posedge clk); #1; commit = 1'b0;
+    check(dut.meta_mem[63] == 8'h5A, "STORE-BOUND: in-bounds byte should land at offset 63");
+    // (b) out-of-bounds store at off=64 (== META_MAX): must be suppressed
+    uop = storeimm_op(9'd64, 16'h00A5); tid = 3'd1; valid = 1'b1;
+    #1;
+    check(!dut.meta_we, "STORE-BOUND: store past the frame (off=64) must not assert meta_we");
+    @(posedge clk); #1; valid = 1'b0;
+    commit = 1'b1; commit_tid = 3'd1; @(posedge clk); #1; commit = 1'b0;
+    check(dut.meta_mem[63] == 8'h5A, "STORE-BOUND: OOB store must not corrupt the valid frame");
+    check(dut.meta_mem[0]  == 8'h00, "STORE-BOUND: OOB store must not wrap into offset 0");
+    @(posedge clk); #1;
+
     // ---- verdict ----
     if (tb_fails == 0)
-      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext + I5 MMIO meta read)");
+      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext + I5 MMIO meta read + V4 WAW + V11 reset/X + store-bound)");
     else
       $fatal(1, "parser_wrap_tb: FAIL (%0d checks failed)", tb_fails);
     $finish;

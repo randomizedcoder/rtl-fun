@@ -15,7 +15,8 @@ parser_smoke_tb.sv   standalone RTL-vs-model suite testbench (assertion-based,
                      runs every directed case). Top for parser-sim / -suite / -decode.
 parser_wrap_tb.sv    assertion-based testbench for cva6_parser_wrap: I1 commit/flush
                      rollback + backpressure, I2 metadata, I3 readback, I4a/I4b
-                     redirect + CAM (8 scenarios). Top for parser-wrap-test.
+                     redirect + CAM + V11 reset/X, V4 WAW, store-bound (11
+                     scenarios). Top for parser-wrap-test.
 ```
 
 These compile against the synthesizable units in `rtl/` (via Verilator `-I rtl`,
