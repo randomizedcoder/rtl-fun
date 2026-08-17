@@ -422,15 +422,25 @@ frame (I2). Encodings generated from `encoding.c` (I5).
 | `next` / `stp` | end-of-node → redirect/exit | — | redirect PC / exit |
 | custom-3 moves | read/write p-reg == expected | `rd`+forwarding | integer `rd` |
 
-> **Status.** Every op class in this table is **exercised in-core** — the 15 cosim
+> **Status.** Every op class in this table is **exercised in-core** — the 22 cosim
 > packets walk graphs that use load/store/storeimm/lensetmin/cmpib·neib·cmpord/cam/
 > camnext/next/stp, and the custom-3 moves drive CAM programming + readback each run;
-> the positive behaviour is model-checked end-to-end via flow_keys + exit code.
-> **Deferred (tracked):** the dedicated *per-op negative/boundary* rows (e.g. an
-> isolated "store past frame → assert fires", "lensetmin min>remaining", "load past
-> parse_len") as standalone directed cases — the negative behaviour is today covered
-> only where the corpus packets happen to hit it, not one row per op (canonical
-> deferral list §3.1, item 2).
+> the positive behaviour is model-checked end-to-end via flow_keys + exit code. The
+> **negative/boundary** column is covered as follows:
+> - *store past frame* — **directed** by `parser_wrap_tb` Scenario 10 (PR-5): a store at
+>   the last valid byte (`off=63`) lands; a store past `META_MAX` (`off=64`) is
+>   bounds-gated in `parser_execute` (`meta_we` suppressed) and corrupts no committed byte.
+> - *lensetmin min>remaining* — Table A **row 17** (ipv4 `ihl=0`) trips the `LENCUR`
+>   min-length trap in-core (`-14` LENGTH), model-checked.
+> - *load past `parse_len`* — Table A **rows 13/22** (truncated / 1-byte) run a load off
+>   the end and fail-safe (`-14`), model-checked; the standalone TB also carries the
+>   `a_load_inbounds` safety assertion.
+> - *CAM miss → miss-target/fail* — Table A **rows 09/11** (unknown ethertype / proto)
+>   drive a `MISS_STOP` and fail (`-15`), model-checked.
+>
+> So the per-op negatives are now covered — the assertion-firing/boundary control that no
+> corpus packet expresses is the `parser_wrap_tb` store-bound scenario; the rest are
+> reachable directed packets. No Table-B rows remain in the deferral list (§3.1).
 
 ### 2.5 Table C — pipeline/integration cases (fixes G2/G3/G6/G7)
 
@@ -442,14 +452,14 @@ have. Each is a directed program plus a property.
 | V1 | parser op in **mispredicted branch shadow** | COR | parser state unchanged vs no-op run (**G2**) |
 | V2 | back-to-back parser ops at full issue rate | COR | each retires; interlock holds |
 | V3 | custom-3 `rd` → **dependent next instr** | COR | forwarded value correct (**G6** RAW) |
-| V4 | WAW on parser reg file | COR | last writer wins |
-| V5 | parser op adjacent to load/store/branch/CSR/mul | COR | no WB/commit-port contention |
+| V4 | WAW on parser reg file | COR | last writer wins — ✅ PR-5: `parser_wrap_tb` Sc.9 proves committed/arch WAW; `parser_insn.S` self-checks it in-core |
+| V5 | parser op adjacent to load/store/branch/CSR/mul | COR | no WB/commit-port contention — ✅ PR-5: `parser_insn.S` interleaves a custom-3 readback with mul/CSR/branch, value-checks both retires |
 | V6 | **timer/external interrupt** mid-parse | COR | clean; resumes or restarts correctly (**G7**) |
 | V7 | preceding **faulting** instr squashes parser op | COR | no state corruption (**G2/G7**) |
 | V8 | **end-of-node redirect** taken | POS | fetch resumes at target PC (**G3**) — ✅ I4a + I5 (every cosim walk jumps mid-graph) |
 | V9 | parse-**exit** redirect (not trap) | POS | redirects per contract (**G7**) — ✅ I5: on exit the FU steers fetch to a program-provided landing PC ("subroutine return"); all 22 cosim cases return + read back |
 | V10 | **context switch** save/restore of parser regs | COR | state preserved (Risk R2 — needs design) |
-| V11 | **reset** then first op | BND | defined state, no X (**G13**) |
+| V11 | **reset** then first op | BND | defined state, no X (**G13**) — ✅ PR-5: `parser_wrap_tb` Sc.0 asserts `$isunknown`-free spec/arch state + first-op result out of reset |
 
 V10 requires a *design decision first* (parser state is internal — how is it
 saved/restored across a trap? CSR-mapped? memory-mapped? not-context-switchable
@@ -496,14 +506,14 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
 | G3 redirect untested | I4 → **I5** | ✅ V8/V9 realized (every cosim walk jumps + exit-returns) |
 | G4 custom-3 untested | I3 / I4b | ✅ custom-3 read (I3) + write/CAM-program/readback (I4b); Table B custom-3 rows, V3 |
 | G5 one op only | **I5** | ✅ all op classes in the cosim + wrap-TB |
-| G6 hazards | I3/I1 | 🔵 RAW forwarding proven; full V2–V5 later |
+| G6 hazards | I3/I1 + V-rows | ✅ RAW (V3), WAW (V4), adjacency/no-WB-contention (V5) — PR-5 (`parser_wrap_tb` + in-core `parser_insn.S`); V2 back-to-back interlock in wrap-TB Sc.3 |
 | G7 interrupts/ctx-switch | I5 (+design) | 🔵 V9 parse-exit redirect done (I5); V6/V7/V10 deferred (§3.1) |
 | G8 metadata sink | I2 → **I5** | ✅ commit-gated frame, MMIO-visible, cosim-checked |
 | G9 hand-encoded | **I5** | ✅ program + CAM model-generated (`enc.hex`/`camprog.hex`) |
 | G10 single config | — | §2.7 config matrix (build superscalar/no-cvxif) |
 | G11 no negative control | — | §2.7 CI baseline-trap assertion |
 | G12 no coverage | — | §2.6.5 functional + toggle coverage |
-| G13 X-prop/reset | I2 | V11 + Verilator `--x-assign` pass |
+| G13 X-prop/reset | I2 + V11 | ✅ V11 reset X-freedom (`parser_wrap_tb` Sc.0, `$isunknown`-free spec/arch state + first-op) — PR-5 |
 | G14 timing/physical | Phase 8 | synthesis + STA (§5 tapeout exit bar) |
 
 ### 3.1 Canonical deferral list (single source of truth)
@@ -518,13 +528,15 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
    Added as packet builders in `verif/gen/gen_parser_rom.c`; they flow into **both**
    the standalone suite and the cosim (one generator), now **22/22** in each, with the
    model self-check gating the expected OK/fail. See §2.3 Table A.
-2. **Table B per-op negative/boundary rows** — dedicated directed cases: store past
-   frame (assert fires), `lensetmin` min > remaining, load past `parse_len`, CAM
-   miss → miss-target. Today covered only where a corpus packet happens to hit the
-   path, not one row per op. *Planned PR-5.*
-3. **V-table V4 / V5 / V11** — WAW on the parser reg file (V4); parser op adjacent to
-   load/store/branch/CSR/mul, no WB/commit-port contention (V5); reset → first op is
-   X-free / defined state (V11, closes **G13**). *Planned PR-5.*
+2. ~~**Table B per-op negative/boundary rows** — store past frame, `lensetmin`
+   min>remaining, load past `parse_len`, CAM miss.~~ **✅ Closed by PR-5.** Store-past-
+   frame is a directed `parser_wrap_tb` scenario (bounds-gated, no write); the other
+   three are directed reachable packets (Table A rows 17 / 13·22 / 09·11), model-checked.
+   See §2.4.
+3. ~~**V-table V4 / V5 / V11** — WAW on the parser reg file (V4); parser op adjacent to
+   load/store/branch/CSR/mul (V5); reset → first op X-free (V11, **G13**).~~ **✅ Closed
+   by PR-5.** V4 + V11 are `parser_wrap_tb` scenarios (Sc.9 / Sc.0); V4 + V5 are also
+   self-checked in-core in `parser_insn.S`. See §2.5.
 4. **V-table V6 / V7 / V10** — interrupt mid-parse (V6) and faulting-instruction
    squash (V7) need interrupt/exception plumbing; context-switch save/restore (V10)
    needs the parser-state ABI decision first (§6). Deferred **beyond** this refactor.
