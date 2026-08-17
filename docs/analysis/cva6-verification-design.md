@@ -487,10 +487,19 @@ Directed tables are the floor. Layered on top, in adoption order:
 4. **Base-ISA regression.** `riscv-tests` + RISCOF on the *base* ISA of the patched
    core — we changed `NrWbPorts` and shared pipeline logic, so proving we didn't
    break standard RV64GC is a required gate, not a nicety.
-5. **Coverage closure.** Functional coverage over the cross-product
-   `op × qualifier × class × pipeline-event`, plus Verilator line/toggle coverage
-   on the parser modules, with a **numeric closure target** that defines "done"
-   (**Decision/TBD:** set the number with the corpus).
+5. **Coverage closure.** ✅ **Realized by N7** (`nix run .#parser-coverage`).
+   Functional coverage over the cross-product `op × pipeline-event × exit-outcome` is
+   captured as SystemVerilog `cover property` points (`+define+PARSER_COVER`, the
+   `PRS_COVER` macro in `parser_asserts.svh`): op-class bins in `tb/parser_top.sv` +
+   `rtl/cva6_parser_wrap.sv` (merged UNION — a class the model program never emits is
+   still closed when the wrap-TB drives it), pipeline-event + exit bins alongside. The
+   app also builds with Verilator `--coverage-line --coverage-toggle`, runs the 22-case
+   smoke suite + the wrap-TB, and merges every `coverage.dat` with `verilator_coverage`.
+   **Numeric closure target = 100% of the functional bins** (the gate fails on any unhit
+   bin, naming it); structural line/toggle % is reported for visibility. Coverage found
+   real gaps — full-queue backpressure, the CAM dependent-lookup interlock, exit+redirect,
+   and five op classes absent from the corpus — all closed by `parser_wrap_tb` Scenario 13.
+   (A corpus-scaled line-% floor stays Phase-7.)
 
 ### 2.7 CI gate
 
@@ -505,9 +514,11 @@ the assertion. The base-ISA regression half is now a runnable app too
 M, A, F/D, CSR, every branch flavour, JAL/JALR), each result value-checked, runs on
 the *patched* model — the extension is behaviorally transparent to the base ISA. And
 the FU is proven under a 2nd config (`nix run .#cva6-parser-config-wb`, **N6**) — the
-patched model built under `cv64a6_imafdc_sv39_wb` runs the in-core parser test. Nightly:
-a bounded `riscv-dv` + lock-step campaign and the fuzz budget. **Fail on** any value
-mismatch, any watchdog timeout, any coverage regression, or a base-ISA regression.
+patched model built under `cv64a6_imafdc_sv39_wb` runs the in-core parser test. And
+coverage is a runnable gate (`nix run .#parser-coverage`, **N7**) — Verilator line/
+toggle + functional cover points, gated on 100% of the §2.6.5 cross-product bins.
+Nightly: a bounded `riscv-dv` + lock-step campaign and the fuzz budget. **Fail on** any
+value mismatch, any watchdog timeout, any coverage regression, or a base-ISA regression.
 
 ## 3. Requirements traceability — every gap has an owner
 
@@ -524,7 +535,7 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
 | G9 hand-encoded | **I5** | ✅ program + CAM model-generated (`enc.hex`/`camprog.hex`) |
 | G10 single config | **N6** | ✅ `cva6-parser-config-wb` builds the patched model under a 2nd RV64GC config (`cv64a6_imafdc_sv39_wb`, write-back cache) + runs the in-core parser test — the FU integrates under a different config. Superscalar (`NrIssuePorts=2`) still deferred (§3.1) |
 | G11 no negative control | **N1** (negative control) + **N6** (base-ISA) | ✅ `parser-negative-control` asserts the **stock** core traps the custom-0 word (illegal-instruction, mcause=2 → fesvr SUCCESS); **`cva6-parser-baseisa` asserts a directed RV64GC slice still retires on the PATCHED core** (extension is base-ISA-transparent). Full upstream riscv-tests suite is a deferred complement (§3.1) |
-| G12 no coverage | — | §2.6.5 functional + toggle coverage |
+| G12 no coverage | **N7** | ✅ `parser-coverage` — Verilator line/toggle + functional cover points (`+define+PARSER_COVER`), merged with `verilator_coverage`; gate = **100%** of the §2.6.5 cross-product bins (op class × pipeline event × exit outcome) hit. Corpus-scaled line-% floor is Phase-7 |
 | G13 X-prop/reset | I2 + V11 | ✅ V11 reset X-freedom (`parser_wrap_tb` Sc.0, `$isunknown`-free spec/arch state + first-op) — PR-5 |
 | G14 timing/physical | Phase 8 | synthesis + STA (§5 tapeout exit bar) |
 
@@ -585,8 +596,9 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
    suite is the heavier deferred complement). **2nd config ✅ N6** (`cva6-parser-config-wb`
    — the FU integrates under `cv64a6_imafdc_sv39_wb`); **superscalar `NrIssuePorts=2`
    stays deferred** — it needs a new cv64 superscalar config pkg + validating the
-   no-parser-on-issue-port-1 interlock and `PARSER_WB` indexing. Coverage (N7, G12);
-   `riscv-dv` + Spike lock-step stay Phase 7+.
+   no-parser-on-issue-port-1 interlock and `PARSER_WB` indexing. **Coverage ✅ N7**
+   (`parser-coverage` — Verilator line/toggle + 100%-functional cover closure over the
+   §2.6.5 cross-product). `riscv-dv` + Spike lock-step stay Phase 7+.
 8. **Real DMA packet feed** — the I5 MMIO peripheral is **test-grade** (CPU/fesvr
    fills the buffer); the DMA feed + runtime CAM programming from the wire are Phase 8.
 9. **DFT / POST (§4)** — scan/ATPG/MBIST + power-on self-test ROM: a Phase-8 silicon
@@ -815,7 +827,9 @@ closure on `parser_execute` + the injected redirect path (G14).
   `commit_stage.sv` to the FU. Scope during I1.
 - **Decision (V10):** parser-state context-switch contract — CSR-mapped,
   memory-mapped, or "not context-switchable" by ABI? Test follows.
-- **TBD (§2.6.5):** numeric functional-coverage closure target and fuzz budget.
+- **Decided (§2.6.5, N7):** functional-coverage closure target = **100% of the
+  enumerated cross-product bins** (`parser-coverage` gates on it). A corpus-scaled
+  line-% floor + the fuzz budget stay Phase-7.
 - **TBD (§4.7):** confirmed DFT area-overhead figures (research pending) for §6
   references.
 - **TBD (G10):** which config matrix (superscalar, CvxifEn off, accelerator on).

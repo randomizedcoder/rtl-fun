@@ -158,6 +158,7 @@
           parser-analyze = rtl.parser-analyze;
           parser-formal = rtl.parser-formal;
           parser-wrap-test = rtl.parser-wrap-test;
+          parser-coverage = rtl.parser-coverage;
         };
 
         # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
@@ -292,6 +293,13 @@
         apps.parser-wrap-test = {
           type = "app";
           program = "${rtl.parser-wrap-test}/bin/parser-wrap-test";
+        };
+
+        # Coverage (G12): line/toggle + functional cover points, merged report +
+        # 100%-functional closure gate: `nix run .#parser-coverage`.
+        apps.parser-coverage = {
+          type = "app";
+          program = "${rtl.parser-coverage}/bin/parser-coverage";
         };
 
         # `nix fmt` formats the .nix files.

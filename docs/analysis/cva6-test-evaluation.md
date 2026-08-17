@@ -202,11 +202,17 @@ concrete test/fix that would. Severity is the tapeout cost if it escaped.
   break RV64GC. (The full upstream riscv-tests suite is the heavier deferred complement
   — the vendored `ci/build-riscv-tests.sh` flow stands it up for a Phase-7 run.)
 
-- **G12 — No coverage measurement.** *Sev: medium.* Nothing measures functional or
-  code/toggle coverage of the in-core FU, so "how much is tested" is unknown and
-  "done" is undefined. **Fix:** functional coverage (op × qualifier × hazard ×
-  control-flow outcome) with a numeric closure target; Verilator line/toggle
-  coverage on the parser modules.
+- **G12 — No coverage measurement.** *Sev: medium.* ✅ **Closed (N7).**
+  `nix run .#parser-coverage` builds the smoke suite + wrap-TB under Verilator
+  `--coverage-line --coverage-toggle --coverage-user` (`+define+PARSER_COVER`), runs
+  them, and merges every `coverage.dat` with `verilator_coverage`. Functional coverage
+  is a set of `cover property` points over the §2.6.5 cross-product — op class ×
+  pipeline event (accept/commit/flush/backpressure/interlock/redirect/exit) × exit
+  outcome — with a **numeric closure target of 100% of the enumerated bins** (the gate
+  names any unhit bin). It found and drove out real gaps (full-queue backpressure, the
+  CAM dependent-lookup interlock, exit+redirect, five corpus-absent op classes — closed
+  by `parser_wrap_tb` Scenario 13). Structural line/toggle % is reported for visibility;
+  a corpus-scaled line-% floor stays Phase-7.
 
 - **G13 — X-propagation / reset.** *Sev: medium.* Empty buffers read as defined 0
   today, but a real (uninitialized) packet buffer or CAM could inject X's; reset

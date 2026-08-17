@@ -66,6 +66,7 @@ exit code against the model's generated vectors.
 | `nix run .#parser-sim-trace` / `-debug` | + VCD waveform / `-O0 -ggdb` for gdb |
 | `nix run .#parser-lint` | `--lint-only -Wall` (fast strict lint, no build) |
 | `nix run .#parser-analyze` | extra SV lint: verible + svlint |
+| `nix run .#parser-coverage` | **coverage (G12)**: builds the smoke suite + wrap-TB under Verilator line/toggle/user coverage, merges with `verilator_coverage`, and gates on **100% of the functional cover points** — the §2.6.5 cross-product (op class × pipeline event × exit outcome). Structural line/toggle % is reported for visibility |
 
 Lives in `tb/`: `parser_top.sv` (scaffold), `parser_smoke_tb.sv` (the `CHECK`-macro
 testbench, reads per-packet params at runtime so one build runs every case).
@@ -81,7 +82,7 @@ and target specific integration seams).
 | Command | What it proves |
 |---------|----------------|
 | `nix run .#cva6-parser-test` | a bare-metal custom-0/custom-3 program issues/executes/retires in-core; markers confirm the I2 metadata sink (`META OK`), I3 custom-3 readback, and I4a/I4b fetch redirect (`REDIRECT OK` / `CAM REDIRECT OK`); fesvr `tohost` PASS |
-| `nix run .#parser-wrap-test` | 13 assertion-based scenarios on `cva6_parser_wrap`: V11 reset/X-freedom, I1 commit/flush rollback + backpressure, I2 metadata, I3 readback, I4a redirect target, I4b CAM program/readback + CAMNEXT-hit redirect, V4 WAW last-writer-wins, store-past-frame bound, CPPRSWRIMM immediate-load (commit-gate + rollback), CPPRSWRCAM commit-gate + flush-rollback + dependent-lookup interlock |
+| `nix run .#parser-wrap-test` | 14 assertion-based scenarios on `cva6_parser_wrap`: V11 reset/X-freedom, I1 commit/flush rollback + backpressure, I2 metadata, I3 readback, I4a redirect target, I4b CAM program/readback + CAMNEXT-hit redirect, V4 WAW last-writer-wins, store-past-frame bound, CPPRSWRIMM immediate-load (commit-gate + rollback), CPPRSWRCAM commit-gate + flush-rollback + dependent-lookup interlock, and (Sc.13, N7) an op-class sweep + full-queue backpressure + interlock + real exit-redirect that close the functional-coverage cross-product |
 
 Lives in `tests/cva6-parser/parser_insn.S` (the in-core directed program, hand-encoded
 `.word`s) and `tb/parser_wrap_tb.sv` (the wrap-TB). The I1 speculation-safety SVAs
@@ -132,7 +133,7 @@ Every layer is green from the flake. To run the lot:
 
 ```sh
 nix run .#model-test          # Layer 1
-nix run .#parser-sim-suite    # Layer 2 (+ .#parser-sim-decode, .#parser-lint, .#parser-analyze)
+nix run .#parser-sim-suite    # Layer 2 (+ .#parser-sim-decode, .#parser-lint, .#parser-analyze, .#parser-coverage)
 nix run .#cva6-parser-test    # Layer 3 (+ .#parser-wrap-test)
 nix run .#cva6-parser-cosim   # Layer 4 (+ .#parser-formal)
 nix run .#parser-negative-control   # regression: stock core must trap the parser word (G11)
