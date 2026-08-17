@@ -83,6 +83,14 @@
           cva6-src = cva6-parser-src;
         };
 
+        # V6 (G7): build the patched model + assert a machine software interrupt (msip)
+        # that flushes an in-flight parser op mid-parse does not corrupt its committed
+        # result — the asynchronous companion to V7's synchronous ecall.
+        cva6-parser-trap-v6 = import ./nix/parser-trap-v6.nix {
+          inherit pkgs;
+          cva6-src = cva6-parser-src;
+        };
+
         # Pinned xdp2 source (for the proto_audit packet corpus, Phase 2).
         xdp2-src = import ./nix/xdp2.nix { inherit pkgs; };
 
@@ -113,6 +121,7 @@
           cva6-parser-cosim = cva6-parser-cosim;
           parser-negative-control = parser-negative-control;
           cva6-parser-trap-v7 = cva6-parser-trap-v7;
+          cva6-parser-trap-v6 = cva6-parser-trap-v6;
           # The pinned xdp2 source (packet corpus): `nix build .#xdp2-src`.
           xdp2-src = xdp2-src;
           # Golden-model runners as packages too.
@@ -171,6 +180,14 @@
         apps.cva6-parser-trap-v7 = {
           type = "app";
           program = "${cva6-parser-trap-v7}/bin/cva6-parser-trap-v7";
+        };
+
+        # V6 interrupt-mid-parse squash (G7): a machine software interrupt (msip) must
+        # flush an in-flight parser op which re-executes to the same committed result:
+        # `nix run .#cva6-parser-trap-v6`.
+        apps.cva6-parser-trap-v6 = {
+          type = "app";
+          program = "${cva6-parser-trap-v6}/bin/cva6-parser-trap-v6";
         };
 
         # Run the golden-model tests: `nix run .#model-test`.

@@ -158,8 +158,13 @@ concrete test/fix that would. Severity is the tapeout cost if it escaped.
   save/restore across traps. **Progress:** the parse-exit redirect is realized in-core
   (I5, all 22 cosim cases), and the **preceding-faulting-instruction squash is closed by
   N4** (`parser_trap_v7.S` + the reusable `trap.S` scaffold: an `ecall` flushes an
-  in-flight parser op, which re-executes and commits the fault-free result). Remaining:
-  the timer-interrupt-mid-parse test (V6, N5) and the context-switch save/restore (V10).
+  in-flight parser op, which re-executes and commits the fault-free result), and the
+  **interrupt-mid-parse squash is closed by N5** (`parser_trap_v6.S`, reusing `trap.S`:
+  a CLINT machine software interrupt — msip — flushes the in-flight parser op mid-parse;
+  the handler clears msip and `mret`s without advancing mepc, so it re-executes and
+  commits the interrupt-free result). V6+V7 cover both flavours of the FU `flush_i`
+  (async interrupt / sync exception). Remaining: the context-switch save/restore (V10),
+  which is decision-gated on the D7 parser-state ABI.
 
 - **G8 — Metadata sink undefined in-core.** *Sev: medium (blocks G1).* There is no
   in-core metadata/`flow_keys` frame; store results are dropped. Until a sink
