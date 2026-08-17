@@ -76,6 +76,13 @@
           inherit pkgs cva6-src;
         };
 
+        # V7 (G7): build the patched model + assert a faulting instruction (an ecall)
+        # that flushes an in-flight parser op does not corrupt its committed result.
+        cva6-parser-trap-v7 = import ./nix/parser-trap-v7.nix {
+          inherit pkgs;
+          cva6-src = cva6-parser-src;
+        };
+
         # Pinned xdp2 source (for the proto_audit packet corpus, Phase 2).
         xdp2-src = import ./nix/xdp2.nix { inherit pkgs; };
 
@@ -105,6 +112,7 @@
           cva6-parser-test = cva6-parser-test;
           cva6-parser-cosim = cva6-parser-cosim;
           parser-negative-control = parser-negative-control;
+          cva6-parser-trap-v7 = cva6-parser-trap-v7;
           # The pinned xdp2 source (packet corpus): `nix build .#xdp2-src`.
           xdp2-src = xdp2-src;
           # Golden-model runners as packages too.
@@ -156,6 +164,13 @@
         apps.parser-negative-control = {
           type = "app";
           program = "${parser-negative-control}/bin/parser-negative-control";
+        };
+
+        # V7 faulting-instruction squash (G7): the ecall-flushed parser op must
+        # re-execute and commit the same result: `nix run .#cva6-parser-trap-v7`.
+        apps.cva6-parser-trap-v7 = {
+          type = "app";
+          program = "${cva6-parser-trap-v7}/bin/cva6-parser-trap-v7";
         };
 
         # Run the golden-model tests: `nix run .#model-test`.

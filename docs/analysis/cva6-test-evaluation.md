@@ -155,7 +155,11 @@ concrete test/fix that would. Severity is the tapeout cost if it escaped.
   interrupt that swaps threads must save/restore them (Risk R2), and there is no
   mechanism or test for that. *Current: not caught.* **Fix:** interrupt-injection
   tests; a parse-exit redirect test; a design decision + test for parser-state
-  save/restore across traps.
+  save/restore across traps. **Progress:** the parse-exit redirect is realized in-core
+  (I5, all 22 cosim cases), and the **preceding-faulting-instruction squash is closed by
+  N4** (`parser_trap_v7.S` + the reusable `trap.S` scaffold: an `ecall` flushes an
+  in-flight parser op, which re-executes and commits the fault-free result). Remaining:
+  the timer-interrupt-mid-parse test (V6, N5) and the context-switch save/restore (V10).
 
 - **G8 — Metadata sink undefined in-core.** *Sev: medium (blocks G1).* There is no
   in-core metadata/`flow_keys` frame; store results are dropped. Until a sink

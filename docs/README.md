@@ -76,7 +76,7 @@ CVA6 pipeline and matches the model byte-for-byte + exit code
 (`nix run .#cva6-parser-cosim`, 22/22). A **negative control** now guards the
 extension: the *stock* core traps the identical custom-0 word as illegal
 (`nix run .#parser-negative-control`, G11). **Next:** the directed V-table
-interrupt/fault rows (V6/V7), base-ISA regression, a 2nd config, and coverage sign-off.
+interrupt row (V6; V7 faulting-squash done in N4), base-ISA regression, a 2nd config, and coverage sign-off.
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 

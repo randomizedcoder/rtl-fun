@@ -98,8 +98,11 @@ complete; phases are now being built in order.
   green in-core (`nix run .#cva6-parser-test`). A **negative control**
   now guards the extension both ways: the *stock* core traps the identical custom-0
   word as an illegal instruction (`nix run .#parser-negative-control`, G11), so the
-  patched core's PASS is specific to the patch. Remaining: the directed V-table
-  interrupt/fault rows (V6/V7), base-ISA regression on the patched core, a 2nd config,
+  patched core's PASS is specific to the patch. A **V7** in-core test now proves a
+  faulting instruction that squashes an in-flight parser op does not corrupt its
+  committed result — the op re-executes and commits the fault-free value through a real
+  machine-mode exception (`nix run .#cva6-parser-trap-v7`, G7). Remaining: the
+  interrupt-mid-parse row (V6), base-ISA regression on the patched core, a 2nd config,
   and coverage sign-off.
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its
