@@ -100,6 +100,8 @@ peripheral instead of a Verilator scaffold.
 | `nix run .#parser-negative-control` | negative control (G11): the **stock** (unpatched) model runs `negctl.S` — the identical custom-0 word traps illegal-instruction (mcause=2) on the base RV64GC decoder → handler `tohost=1` → fesvr SUCCESS. Proves the parser ops are a genuine ISA *extension*, so Layer 3/4's PASS is specific to the patch |
 | `nix run .#cva6-parser-trap-v7` | V7 (G7): an `ecall` flushes an in-flight `CPPRSWR` parser write; the trap handler (`trap.S`) returns onto it and it re-executes, committing the **same value as a fault-free run**. Demonstrates the I1 flush→rollback→re-execute path end-to-end through a real machine-mode exception |
 | `nix run .#cva6-parser-trap-v6` | V6 (G7): a CLINT machine **software interrupt** (`msip`) flushes an in-flight `CPPRSWR` mid-parse; the handler clears `msip` and `mret`s **without** advancing `mepc`, so it re-executes to the **same value as an interrupt-free run**. The asynchronous companion to V7 — together they cover both flavours of the single-cycle `flush_i` the parser FU sees |
+| `nix run .#cva6-parser-baseisa` | base-ISA regression (G11): a directed **RV64GC** slice (integer incl. `*w`, M, A, F/D, CSR, every branch flavour, JAL/JALR), each result value-checked, still retires correctly on the **patched** core. The complement to the negative control — N1 proves the stock core *rejects* the parser ops; this proves the patched core still *accepts* the whole base ISA (the extension is behaviorally transparent) |
+| `nix run .#cva6-parser-config-wb` | 2nd-config integration (G10): the patched model built under a **different** RV64GC config — `cv64a6_imafdc_sv39_wb` (write-back cache) — runs the in-core parser test, so the `fu_t::PARSER` integration (extra WB port, NrWbPorts, issue/commit wiring) holds under more than the one config it was developed against |
 
 Lives in `tests/cva6-parser/cosim_main.S` (the fixed driver, linked per-case with the
 generator's `prog.S` + `case.S`), the MMIO peripheral in `nix/cva6-parser/mmio.patch`
@@ -117,7 +119,7 @@ munges `packet`/`expected`/`params.hex` into assembly.
 | Standalone testbenches / scaffold | `tb/parser_smoke_tb.sv`, `tb/parser_top.sv` |
 | Wrap testbench | `tb/parser_wrap_tb.sv` |
 | Formal harness | `verif/formal/` |
-| In-core test programs | `tests/cva6-parser/` (`parser_insn.S`, `cosim_main.S`, `negctl.S`, `parser_trap_v7.S`, `parser_trap_v6.S`, `trap.S`, `link.ld`) |
+| In-core test programs | `tests/cva6-parser/` (`parser_insn.S`, `cosim_main.S`, `negctl.S`, `parser_trap_v7.S`, `parser_trap_v6.S`, `base_isa.S`, `trap.S`, `link.ld`) |
 | Runner script bodies | `scripts/*.sh` (readFile'd into the nix `writeShellApplication` wrappers) |
 | CVA6 patches | `nix/cva6-parser/*.patch` |
 
@@ -136,6 +138,8 @@ nix run .#cva6-parser-cosim   # Layer 4 (+ .#parser-formal)
 nix run .#parser-negative-control   # regression: stock core must trap the parser word (G11)
 nix run .#cva6-parser-trap-v7       # V7: a faulting instr must not corrupt an in-flight parser op (G7)
 nix run .#cva6-parser-trap-v6       # V6: an async interrupt mid-parse must not corrupt an in-flight parser op (G7)
+nix run .#cva6-parser-baseisa       # base-ISA regression: RV64GC still retires on the patched core (G11)
+nix run .#cva6-parser-config-wb     # 2nd config: the FU integrates under cv64a6_imafdc_sv39_wb (G10)
 ```
 
 ## Coverage status & what's deferred

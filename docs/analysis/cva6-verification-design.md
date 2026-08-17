@@ -500,8 +500,13 @@ control is now a runnable app (`nix run .#parser-negative-control`, **N1**): it
 builds the *stock* (unpatched) model and runs `tests/cva6-parser/negctl.S` — the
 same custom-0 word the patched core executes traps illegal-instruction (mcause=2)
 on the stock decoder, whose handler writes tohost=1 → fesvr SUCCESS, so the pass IS
-the assertion. The base-ISA regression half of the gate lands in N6. Nightly: a bounded
-`riscv-dv` + lock-step campaign and the fuzz budget. **Fail on** any value
+the assertion. The base-ISA regression half is now a runnable app too
+(`nix run .#cva6-parser-baseisa`, **N6**): a directed RV64GC slice (integer incl. *w,
+M, A, F/D, CSR, every branch flavour, JAL/JALR), each result value-checked, runs on
+the *patched* model — the extension is behaviorally transparent to the base ISA. And
+the FU is proven under a 2nd config (`nix run .#cva6-parser-config-wb`, **N6**) — the
+patched model built under `cv64a6_imafdc_sv39_wb` runs the in-core parser test. Nightly:
+a bounded `riscv-dv` + lock-step campaign and the fuzz budget. **Fail on** any value
 mismatch, any watchdog timeout, any coverage regression, or a base-ISA regression.
 
 ## 3. Requirements traceability — every gap has an owner
@@ -517,8 +522,8 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
 | G7 interrupts/ctx-switch | I5 (+design) / **N4 / N5** | 🔵 V9 parse-exit redirect done (I5); **V7 faulting-squash done (N4)**; **V6 interrupt-mid-parse done (N5)** — both flavours of the flush_i that reaches the FU; V10 ctx-switch deferred (§3.1, needs the D7 ABI) |
 | G8 metadata sink | I2 → **I5** | ✅ commit-gated frame, MMIO-visible, cosim-checked |
 | G9 hand-encoded | **I5** | ✅ program + CAM model-generated (`enc.hex`/`camprog.hex`) |
-| G10 single config | — | §2.7 config matrix (build superscalar/no-cvxif) |
-| G11 no negative control | **N1** (negative control) | 🔵 `parser-negative-control` asserts the **stock** core traps the custom-0 word (illegal-instruction, mcause=2 → fesvr SUCCESS); base-ISA regression half deferred to N6 |
+| G10 single config | **N6** | ✅ `cva6-parser-config-wb` builds the patched model under a 2nd RV64GC config (`cv64a6_imafdc_sv39_wb`, write-back cache) + runs the in-core parser test — the FU integrates under a different config. Superscalar (`NrIssuePorts=2`) still deferred (§3.1) |
+| G11 no negative control | **N1** (negative control) + **N6** (base-ISA) | ✅ `parser-negative-control` asserts the **stock** core traps the custom-0 word (illegal-instruction, mcause=2 → fesvr SUCCESS); **`cva6-parser-baseisa` asserts a directed RV64GC slice still retires on the PATCHED core** (extension is base-ISA-transparent). Full upstream riscv-tests suite is a deferred complement (§3.1) |
 | G12 no coverage | — | §2.6.5 functional + toggle coverage |
 | G13 X-prop/reset | I2 + V11 | ✅ V11 reset X-freedom (`parser_wrap_tb` Sc.0, `$isunknown`-free spec/arch state + first-op) — PR-5 |
 | G14 timing/physical | Phase 8 | synthesis + STA (§5 tapeout exit bar) |
@@ -573,10 +578,15 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
    (`toolchain/parser_insn.h`). (Register write + CAM program + CAM readback merged in
    I4b, PR #25; register read in I3, PR #23.)
 7. **Escalation layers (§2.6/§2.7)** — constrained-random `riscv-dv`, extended-Spike
-   lock-step, base-ISA regression + negative control + coverage closure
-   (**G10/G11/G12**). **Negative control ✅ closed by N1** (`parser-negative-control`
-   — the stock core traps the custom-0 word). Base-ISA regression + 2nd config
-   (N6, G10/G11), coverage (N7, G12); `riscv-dv` + Spike lock-step stay Phase 7+.
+   lock-step, base-ISA regression + negative control + 2nd config + coverage closure
+   (**G10/G11/G12**). **Negative control ✅ N1** (`parser-negative-control` — the stock
+   core traps the custom-0 word). **Base-ISA regression ✅ N6** (`cva6-parser-baseisa` —
+   a directed RV64GC slice retires on the patched core; the full upstream riscv-tests
+   suite is the heavier deferred complement). **2nd config ✅ N6** (`cva6-parser-config-wb`
+   — the FU integrates under `cv64a6_imafdc_sv39_wb`); **superscalar `NrIssuePorts=2`
+   stays deferred** — it needs a new cv64 superscalar config pkg + validating the
+   no-parser-on-issue-port-1 interlock and `PARSER_WB` indexing. Coverage (N7, G12);
+   `riscv-dv` + Spike lock-step stay Phase 7+.
 8. **Real DMA packet feed** — the I5 MMIO peripheral is **test-grade** (CPU/fesvr
    fills the buffer); the DMA feed + runtime CAM programming from the wire are Phase 8.
 9. **DFT / POST (§4)** — scan/ATPG/MBIST + power-on self-test ROM: a Phase-8 silicon

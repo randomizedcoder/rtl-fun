@@ -180,21 +180,27 @@ concrete test/fix that would. Severity is the tapeout cost if it escaped.
   the wrong instruction. **Fix:** generate the test encodings from `encoding.c`
   (reuse `gen_parser_rom`'s `enc.hex`), or add `.insn`/assembler macros and diff.
 
-- **G10 — Single core configuration.** *Sev: medium.* Only `cv64a6_imafdc_sv39`
-  (single-issue, `SuperscalarEn=0`, `CvxifEn=1`) is built. The
-  `PARSER_WB = NrWbPorts-1` indexing, the "no parser on issue port 1" interlock,
-  and `NrWbPorts` arithmetic have config-dependent assumptions (superscalar,
-  CvxifEn off, accelerator on) that are unexercised. **Fix:** build+test a small
-  matrix of configs, especially a superscalar one.
+- **G10 — Single core configuration.** *Sev: medium.* ✅ **2nd config closed (N6).**
+  `nix run .#cva6-parser-config-wb` builds the patched model under a **second** existing
+  RV64GC config — `cv64a6_imafdc_sv39_wb` (write-back cache, a different cache
+  architecture / writeback-port arrangement than the default write-through) — and runs
+  the in-core parser test on it: the `fu_t::PARSER` integration (extra WB port,
+  `NrWbPorts` arithmetic, `PARSER_WB` indexing, issue/commit wiring) issues/executes/
+  retires there too. **Still deferred:** the **superscalar** (`NrIssuePorts=2`,
+  `SuperscalarEn=1`) config — it needs a new cv64 superscalar config pkg and validating
+  the "no parser on issue port 1" interlock under two issue ports (§3.1).
 
-- **G11 — No negative control in CI.** *Sev: low.* ✅ **Negative control closed (N1).**
+- **G11 — No negative control in CI.** *Sev: low.* ✅ **Closed (N1 + N6).**
   `nix run .#parser-negative-control` builds the **stock** (unpatched) model and runs
   `tests/cva6-parser/negctl.S`: the identical custom-0 word the patched core executes
   traps illegal-instruction (mcause=2) on the base RV64GC decoder; the handler writes
   tohost=1 → fesvr SUCCESS, so a regression turning `custom-0` into a silent NOP would
-  make *this* app fail. The base-ISA regression on the *patched* core (riscv-tests
-  green — the `NrWbPorts`/pipeline change didn't break RV64GC) is the remaining half,
-  tracked as N6.
+  make *this* app fail. The base-ISA regression on the *patched* core is now a runnable
+  app too — `nix run .#cva6-parser-baseisa` runs `tests/cva6-parser/base_isa.S`, a
+  directed RV64GC slice (integer incl. `*w`, M, A, F/D, CSR, every branch flavour,
+  JAL/JALR), each result value-checked, proving the `NrWbPorts`/pipeline change didn't
+  break RV64GC. (The full upstream riscv-tests suite is the heavier deferred complement
+  — the vendored `ci/build-riscv-tests.sh` flow stands it up for a Phase-7 run.)
 
 - **G12 — No coverage measurement.** *Sev: medium.* Nothing measures functional or
   code/toggle coverage of the in-core FU, so "how much is tested" is unknown and
