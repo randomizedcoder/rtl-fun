@@ -1,8 +1,10 @@
 # rtl/ — SystemVerilog parser unit (Phase 5/6)
 
-The parser execution unit and its integration into CVA6. The datapath is
-implemented and runs the vertical slice in Verilator, producing a `flow_keys`
-that matches the golden C model byte-for-byte.
+The parser execution unit and its integration into CVA6 — **synthesizable RTL only**.
+The datapath is implemented and runs the vertical slice in Verilator, producing a
+`flow_keys` that matches the golden C model byte-for-byte. Testbenches live in
+[`tb/`](../tb/README.md); the vector generator and formal harness in
+[`verif/`](../verif/README.md).
 
 ```
 parser_pkg.sv        types, params, ROM word layout, extract_subreg / bswap_n
@@ -12,34 +14,34 @@ parser_cam.sv        behavioural CAM (20-bit key -> 32-bit target); $readmemh-lo
                      + a clocked program/delete port (custom-3 CPPRSWRCAM, I4b)
 parser_execute.sv    the parser functional unit — a hardware exec_one +
                      common_end_of_node (one branch per model execute_*)
-parser_top.sv        bring-up scaffold: program ROM + micro-PC + metadata RAM
-                     (stands in for CVA6 fetch+redirect so the datapath runs solo)
-parser_smoke_tb.sv   Verilator testbench (assertion-based, `CHECK` macro; reads
-                     per-packet params at runtime so one build runs every case)
-parser_asserts.svh   toggleable assertion macros (PRS_ASSERT / PRS_ASSERT_I):
-                     real SVA under +define+PARSER_ASSERT / +FORMAL, else nothing
 parser_decode.sv     32-bit Phase-3 word -> micro_op_t (the CVA6 decode path;
                      RTL twin of model encoding.c / isa/parser-opcodes.yaml)
 cva6_parser_wrap.sv  the in-pipeline FU as it attaches to CVA6 (interface fidelity):
                      commit-gated state + flow_keys frame (I1/I2), custom-3 readback
                      + CAM program (I3/I4b), end-of-node & parse-exit fetch redirect,
                      and MMIO meta-read / ParseLen / exit-PC / status ports (I5)
-parser_wrap_tb.sv    assertion-based testbench for cva6_parser_wrap: I1 commit/flush
-                     rollback + backpressure, I2 metadata, I3 readback, I4a/I4b
-                     redirect + CAM (8 scenarios; `nix run .#parser-wrap-test`)
-gen/gen_parser_rom.c host generator: model -> program/CAM/packet/expected/enc vectors
-                     (baseline + the directed suite under build/parser/cases/)
-formal/              SymbiYosys harness + .sby proving parser_execute safety
+parser_asserts.svh   toggleable assertion macros (PRS_ASSERT / PRS_ASSERT_I):
+                     real SVA under +define+PARSER_ASSERT / +FORMAL, else nothing
 .rules.verible_lint  verible project rules (ALL_CAPS params, explicit ranges)
 .svlint.toml         svlint correctness-rule config
 ```
 
-> **Testing map.** For how this RTL is exercised across all four test layers (this
+Related, outside `rtl/`:
+
+```
+tb/parser_top.sv         bring-up scaffold: program ROM + micro-PC + metadata RAM
+tb/parser_smoke_tb.sv    standalone RTL-vs-model suite testbench
+tb/parser_wrap_tb.sv     assertion-based cva6_parser_wrap testbench (8 scenarios)
+verif/gen/gen_parser_rom.c  host generator: model -> program/CAM/packet/expected/enc
+verif/formal/            SymbiYosys harness + .sby proving parser_execute safety
+```
+
+> **Testing map.** For how this RTL is exercised across all four test layers (the
 > standalone suite, the in-core directed tests, the in-core cosim, and formal) and
 > which `nix run` runs each, see [`docs/testing-overview.md`](../docs/testing-overview.md).
 
 The RTL is a **hardware `pm_run`**: it interprets the SAME decoded program the C
-[model](../model/README.md) runs (`gen/gen_parser_rom.c` emits the vectors from
+[model](../model/README.md) runs (`verif/gen/gen_parser_rom.c` emits the vectors from
 `pm_slice_program()` — one source of truth, no second copy), so Phase-6
 co-simulation compares like with like.
 

@@ -21,7 +21,7 @@ register, G1–G14), [cva6-integration.md](cva6-integration.md) (signal map),
 1. **Golden-model-first.** The C model (`model/libparsermodel`) is the single
    source of truth. Every test's *expected* output is produced by the model on the
    same input — never hand-authored — so RTL and model can never silently drift.
-   This is already how the standalone suite works ([`rtl/gen/gen_parser_rom.c`](../../rtl/gen/gen_parser_rom.c));
+   This is already how the standalone suite works ([`verif/gen/gen_parser_rom.c`](../../verif/gen/gen_parser_rom.c));
    the in-core plan **extends the same generator**, it does not fork a second truth.
 2. **Table-driven.** Tests are *data*: a manifest of rows, each a
    `{name, class, stimulus, expected}`. Adding coverage = adding a row. The

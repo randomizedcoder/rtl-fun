@@ -7,7 +7,7 @@
 // decoded program the C model runs, so Phase-6 co-simulation compares like with
 // like. Constants here match model/libparsermodel and isa/parser-opcodes.yaml.
 //
-// NOTE (honesty): the micro-op ROM is *generated from the model* (rtl/gen/
+// NOTE (honesty): the micro-op ROM is *generated from the model* (verif/gen/
 // gen_parser_rom.c) rather than decoded from 32-bit words, because CAM/next
 // TARGETS are resolved at run time and are not carried in the instruction word
 // (see model/libparsermodel/encoding.h). Decoding the Phase-3 32-bit encodings

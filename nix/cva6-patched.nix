@@ -43,8 +43,8 @@ pkgs.runCommand "cva6-parser-src"
   cd "$out"
 
   # (1) copy the parser FU RTL into the core so the Flist can compile it. Only the
-  # synthesizable units the in-core FU needs — the sim scaffolds (parser_top,
-  # parser_smoke_tb) are excluded.
+  # synthesizable units the in-core FU needs — the sim scaffolds (tb/parser_top.sv,
+  # tb/parser_smoke_tb.sv) and the generator/formal (verif/) are excluded.
   mkdir -p core/parser
   for f in parser_pkg parser_pktbuf parser_cam parser_decode parser_execute cva6_parser_wrap; do
     cp --no-preserve=mode,ownership ${parserRtl}/$f.sv core/parser/$f.sv

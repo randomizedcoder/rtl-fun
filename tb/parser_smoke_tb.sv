@@ -1,6 +1,6 @@
 // parser_smoke_tb.sv — Verilator smoke / directed-suite test for the parser unit.
 //
-// Runs the generated slice program (rtl/gen/gen_parser_rom.c) on a packet through
+// Runs the generated slice program (verif/gen/gen_parser_rom.c) on a packet through
 // parser_top and asserts the resulting metadata bytes equal the golden model's
 // flow_keys, byte-for-byte, and that the exit code matches. Build/run:
 // scripts/parser-sim.sh (nix run .#parser-sim, or .#parser-sim-suite for the

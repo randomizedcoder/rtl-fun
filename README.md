@@ -97,9 +97,10 @@ complete; phases are now being built in order.
   (`nix run .#cva6-parser-test`). Remaining: the directed V-table hazard/interrupt rows,
   base-ISA regression, and coverage sign-off.
 
-The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)); the
-remaining source dirs (`tb/`, `fpga/`) are skeletons until their phase lands
-(per-phase status: [docs/README.md](docs/README.md)). Deferred: 64-bit instruction
+The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its
+testbenches in [`tb/`](tb/README.md) and the vector generator + formal harness in
+[`verif/`](verif/README.md); the remaining source dirs (`corpus/`, `fpga/`) are
+skeletons until their phase lands (per-phase status: [docs/README.md](docs/README.md)). Deferred: 64-bit instruction
 form, the array/counter/TLV-loop encoder+execution, and tunnel protocols
 (GRE/GTP/VXLAN).
 
@@ -109,11 +110,12 @@ form, the array/counter/TLV-loop encoder+execution, and tunnel protocols
 docs/          Design documentation (start here; testing map: docs/testing-overview.md)
 model/         Golden C reference model            (Phase 2)
 isa/           Machine-readable encoding tables     (Phase 3)
-rtl/           SystemVerilog parser unit + testbenches (Phase 5/6)
+rtl/           SystemVerilog parser unit — synthesizable RTL only (Phase 5)
+tb/            SystemVerilog testbenches (scaffold + smoke + wrap) (Phase 6)
+verif/         Vector generator (verif/gen) + formal harness (verif/formal) (Phase 6)
 tests/         In-core CVA6 test programs (parser_insn.S, cosim_main.S) (Phase 5/6)
 scripts/       Bodies of the `nix run .#<app>` runners (readFile'd into nix)
 tools/         Reusable dev utilities (pm-trace, bitgen)
-tb/            cocotb / Verilator testbench skeleton (being filled — Phase 6)
 corpus/        Packet corpus skeleton (incl. malformed) (Phase 2)
 toolchain/     .insn macros, intrinsics, MMIO map      (Phase 7)
 fpga/          Board build + block design           (Phase 8)

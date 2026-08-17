@@ -35,7 +35,7 @@ across all four techniques is in place and green (all runnable from the flake):
   positive (v4/v6 × tcp/udp, VLAN, QinQ, IPv6 HBH ext, IPv6 fragment), negative
   (unknown ethertype, bad IP version, unknown proto), boundary (minimal/truncated
   IPv4) and corner (empty, L2-only) — each checked byte-for-byte and exit-code
-  against the model. Vectors are generated from the model (`rtl/gen/gen_parser_rom.c`),
+  against the model. Vectors are generated from the model (`verif/gen/gen_parser_rom.c`),
   which self-checks each case's expected pass/fail, so RTL and model share one truth.
 - **Static analysis + fuzzing.** `nix run .#parser-analyze` (verible + svlint, on
   top of Verilator `-Wall`) and `nix run .#model-analyze` (cppcheck, gcc
