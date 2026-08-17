@@ -509,7 +509,7 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
 | G1 no value checking | I2 → **I5** | ✅ Table A in-core cosim over real MMIO (22/22) |
 | G2 speculation/flush | **I1** | ✅ `parser-wrap-test` (V1 + rollback SVA) |
 | G3 redirect untested | I4 → **I5** | ✅ V8/V9 realized (every cosim walk jumps + exit-returns) |
-| G4 custom-3 untested | I3 / I4b | ✅ custom-3 read (I3) + write/CAM-program/readback (I4b); Table B custom-3 rows, V3 |
+| G4 custom-3 untested | I3 / I4b / **N2** | ✅ custom-3 read (I3) + write/CAM-program/readback (I4b) + immediate-load (N2, `CPPRSWRIMM`); Table B custom-3 rows, V3, wrap-TB Sc.11 |
 | G5 one op only | **I5** | ✅ all op classes in the cosim + wrap-TB |
 | G6 hazards | I3/I1 + V-rows | ✅ RAW (V3), WAW (V4), adjacency/no-WB-contention (V5) — PR-5 (`parser_wrap_tb` + in-core `parser_insn.S`); V2 back-to-back interlock in wrap-TB Sc.3 |
 | G7 interrupts/ctx-switch | I5 (+design) | 🔵 V9 parse-exit redirect done (I5); V6/V7/V10 deferred (§3.1) |
@@ -550,8 +550,16 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
    frame), so a squashed CAM write leaves a stale entry. Acceptable for setup-time
    programming (the patent treats CAM programming as setup); commit-gated CAM
    programming is a tracked escalation.
-6. **Deferred custom-3 form** — the immediate-load move. (Register write + CAM
-   program + CAM readback merged in I4b, PR #25; register read in I3, PR #23.)
+6. ~~**Deferred custom-3 form** — the immediate-load move.~~ **✅ Closed by N2.**
+   `CPPRSWRIMM` writes a p-register from an 11-bit split immediate (`Imm2[20:15]`,
+   `Imm1[11:7]`), commit-gated on the same I1 pending-queue path as `CPPRSWR`. RTL:
+   `parser_decode` (I=1 leg + imm extract), `parser_pkg` (`wr_preg_imm`/`imm`),
+   `cva6_parser_wrap` (imm → `write_preg`); the decode patch forces integer `rs1`/`rd`
+   to x0 for I=1 (the immediate reuses those fields). Proven by `parser_wrap_tb` Sc.11
+   (rollback + commit + readback) and an in-core directed row (writes p16, reads it
+   back, and asserts the reused `Rd` register is untouched). Emitter: `prs_ld_immed`
+   (`toolchain/parser_insn.h`). (Register write + CAM program + CAM readback merged in
+   I4b, PR #25; register read in I3, PR #23.)
 7. **Escalation layers (§2.6/§2.7)** — constrained-random `riscv-dv`, extended-Spike
    lock-step, base-ISA regression + negative control + coverage closure
    (**G10/G11/G12**). **Negative control ✅ closed by N1** (`parser-negative-control`

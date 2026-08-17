@@ -31,7 +31,7 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 | G1 no in-core value checking | I2 → I5 | ✅ (I5: full packet→flow_keys cosim over real MMIO, 22/22 vs the model; the I2 sim-only backdoor is superseded) |
 | **G2 speculation/flush state corruption** | **I1** | ✅ (fix merged + verified by `parser-wrap-test`; PR #21) |
 | G3 redirect untested in-core | I4a (redirect) / I4b (CAM) → I5 | ✅ (I4a: end-of-node redirect fires + steers fetch in-core; I4b: CAM programmed/read back from the integer side, CAMNEXT hit drives a real redirect, mux-exclusivity SVA. **I5 exercises the redirect + CAMNEXT-hit + parse-exit-return path over 22 real packets** (15 at I5, +7 Table-A edge rows at PR-4) — every graph walk jumps/exits correctly. Remaining *separate* escalation: CAM-write speculation-safety, see notes) |
-| G4 custom-3 untested | I3 / I4b | ✅ (read **and** write now merged: CPPRSRD register read — `read_preg` p-reg selector, PR #23; CPPRSWR register write + CPPRSWRCAM CAM program + CPPRSRDCAM CAM readback, all rs1-threaded from `ex_stage`, PR #25. In-core self-checks + wrap-TB Scenarios 5/7. Remaining custom-3 form — immediate-load move — is in the canonical deferral list §3.1) |
+| G4 custom-3 untested | I3 / I4b | ✅ (read **and** write now merged: CPPRSRD register read — `read_preg` p-reg selector, PR #23; CPPRSWR register write + CPPRSWRCAM CAM program + CPPRSRDCAM CAM readback, all rs1-threaded from `ex_stage`, PR #25. In-core self-checks + wrap-TB Scenarios 5/7. The last custom-3 form — **CPPRSWRIMM immediate-load** — is now implemented (N2): `parser_decode` I=1 leg + split-imm extract, commit-gated on the CPPRSWR path, decode patch zeroes integer rs1/rd; wrap-TB Sc.11 + in-core directed row) |
 | G5 one op only | I5 | ✅ (every op class — load/store/storeimm/lensetmin/cmpib·neib·ord/cam/camnext/next/stp + custom-3 moves — exercised by the 22-case cosim + wrap-TB; model-generated program) |
 | G6 pipeline hazards | I3/I1 + V-rows | ✅ (RAW forwarding via the I3 self-check (V3); WAW last-writer-wins (V4) + parser-op adjacency to mul/CSR/branch with no WB/commit-port contention (V5) — PR-5, `parser_wrap_tb` Sc.9 + in-core `parser_insn.S`; back-to-back interlock is wrap-TB Sc.3 (V2)) |
 | G7 interrupts/exceptions/ctx-switch | I5 (parse-exit) / V-tables (+ ctx-switch design) | 🔵 (V9 parse-**exit** redirect realized in I5 — on exit the FU steers fetch to a program-provided landing PC, exercised by all 22 cosim cases; V6 interrupt-mid-parse, V7 faulting-squash, V10 context-switch remain deferred — canonical deferral list §3.1) |
@@ -117,8 +117,9 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
   therefore **vestigial** in this integration (kept as a documented internal strobe,
   asserted `a_we_iff_rdpreg`). To make the FU authoritatively gate `rd` (CVXIF-style),
   surface `parser_we_o` and gate `sbe.rd` in `scoreboard.sv` — deferred, not needed.
-  Deferred custom-3 forms: register write (`prs.mv.p.x`, needs rs1 → FU), immediate
-  load, CAM/array program (I4).
+  Custom-3 forms now implemented: register read (I3), register write + CAM program +
+  CAM readback (I4b), and immediate load (`prs.ld.immed`, N2 — I=1 split imm, decode
+  patch zeroes integer rs1/rd). Still deferred: array program/read (S=1 forms).
 - **I4a end-of-node redirect — two non-obvious fixes (both found in-core, not in the
   wrap-TB).** (1) **Same-cycle resolve.** `resolve_branch_o`/`redirect_pc_o`/
   `parse_exit_o` must be **combinational** (driven off `accept_state`), not registered:

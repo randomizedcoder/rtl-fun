@@ -182,6 +182,10 @@ module parser_wrap_tb
   function automatic micro_op_t wrpreg_op(input logic [4:0] cp);
     micro_op_t m; m = '0; m.wr_preg = 1'b1; m.cpreg = cp; return m;
   endfunction
+  // custom-3 immediate-load (CPPRSWRIMM): p[cp] = {53'b0, imm}, no integer operand.
+  function automatic micro_op_t wrpregimm_op(input logic [4:0] cp, input logic [10:0] imm);
+    micro_op_t m; m = '0; m.wr_preg_imm = 1'b1; m.cpreg = cp; m.imm = imm; return m;
+  endfunction
   // custom-3 CAM program/delete (CPPRSWRCAM): CAM[rs1] from p[cp]; del=1 => remove.
   function automatic micro_op_t wrcam_op(input logic [4:0] cp, input logic del);
     micro_op_t m; m = '0; m.wr_cam = 1'b1; m.cpreg = cp; m.cam_del = del; return m;
@@ -518,9 +522,41 @@ module parser_wrap_tb
     check(dut.meta_mem[0]  == 8'h00, "STORE-BOUND: OOB store must not wrap into offset 0");
     @(posedge clk); #1;
 
+    // ================================================================
+    // Scenario 11 — N2: CPPRSWRIMM immediate-load is commit-gated (rollback + commit).
+    // ================================================================
+    // The immediate form drives the SAME pending-queue path as CPPRSWR: the written
+    // value tracks the speculative shadow immediately, the architectural shadow only
+    // moves on commit, and a flush before commit rolls it back — so a squashed
+    // immediate write leaves no architectural trace. imm=0x1DC -> p16 (Flags).
+    // (arch flags carry the 0x2222 committed by Scenario 9 — flush rolls back, it does
+    // not zero arch — so assert against that inherited value, not literal 0.)
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    @(posedge clk); #1;
+    // (a) speculative immediate write, then FLUSH before commit -> rolled back
+    uop = wrpregimm_op(5'd16, 11'h1DC); tid = 3'd0; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    check(dut.pend_cnt_q == 1,             "IMM: immediate write should enqueue");
+    check(dut.st_q.flags == 64'h1DC,       "IMM: speculative flags = immediate");
+    check(dut.st_arch_q.flags != 64'h1DC,  "IMM: arch flags not updated before commit");
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    check(dut.pend_cnt_q == 0,                        "IMM: flush drains the pending queue");
+    check(dut.st_q.flags == dut.st_arch_q.flags,      "IMM: flush rolls speculative flags back to arch");
+    check(dut.st_q.flags != 64'h1DC,                  "IMM: flush discards the speculative immediate");
+    @(posedge clk); #1;
+    // (b) immediate write, then COMMIT -> architectural; readback returns it
+    uop = wrpregimm_op(5'd16, 11'h1DC); tid = 3'd1; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    commit = 1'b1; commit_tid = 3'd1; @(posedge clk); #1; commit = 1'b0;
+    check(dut.st_arch_q.flags == 64'h1DC, "IMM: arch flags = immediate after commit");
+    uop = rdpreg_op(5'd16); tid = 3'd2; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    check(result == 64'h0000_0000_0000_01DC, "IMM: readback returns the committed immediate");
+    @(posedge clk); #1;
+
     // ---- verdict ----
     if (tb_fails == 0)
-      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext + I5 MMIO meta read + V4 WAW + V11 reset/X + store-bound)");
+      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext + I5 MMIO meta read + V4 WAW + V11 reset/X + store-bound + CPPRSWRIMM)");
     else
       $fatal(1, "parser_wrap_tb: FAIL (%0d checks failed)", tb_fails);
     $finish;

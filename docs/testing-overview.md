@@ -81,7 +81,7 @@ and target specific integration seams).
 | Command | What it proves |
 |---------|----------------|
 | `nix run .#cva6-parser-test` | a bare-metal custom-0/custom-3 program issues/executes/retires in-core; markers confirm the I2 metadata sink (`META OK`), I3 custom-3 readback, and I4a/I4b fetch redirect (`REDIRECT OK` / `CAM REDIRECT OK`); fesvr `tohost` PASS |
-| `nix run .#parser-wrap-test` | 11 assertion-based scenarios on `cva6_parser_wrap`: V11 reset/X-freedom, I1 commit/flush rollback + backpressure, I2 metadata, I3 readback, I4a redirect target, I4b CAM program/readback + CAMNEXT-hit redirect, V4 WAW last-writer-wins, store-past-frame bound |
+| `nix run .#parser-wrap-test` | 12 assertion-based scenarios on `cva6_parser_wrap`: V11 reset/X-freedom, I1 commit/flush rollback + backpressure, I2 metadata, I3 readback, I4a redirect target, I4b CAM program/readback + CAMNEXT-hit redirect, V4 WAW last-writer-wins, store-past-frame bound, CPPRSWRIMM immediate-load (commit-gate + rollback) |
 
 Lives in `tests/cva6-parser/parser_insn.S` (the in-core directed program, hand-encoded
 `.word`s) and `tb/parser_wrap_tb.sv` (the wrap-TB). The I1 speculation-safety SVAs

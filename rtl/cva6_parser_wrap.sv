@@ -237,7 +237,7 @@ module cva6_parser_wrap
   // A genuine custom-0 PARSE op (advances the node index, can redirect/exit, keys the
   // CAM lookup); vs the custom-3 coprocessor moves (register/CAM I/O, no node advance).
   wire op_rd     = uop_i.rd_preg | uop_i.rd_cam;     // custom-3 read  -> integer rd
-  wire op_wr_reg = uop_i.wr_preg;                     // custom-3 write p-register
+  wire op_wr_reg = uop_i.wr_preg | uop_i.wr_preg_imm; // custom-3 write p-register (rs1 or imm)
   wire op_wr_cam = uop_i.wr_cam;                      // custom-3 program CAM
   wire is_parse  = ~(op_rd | op_wr_reg | op_wr_cam);  // custom-0 parse micro-op
 
@@ -283,9 +283,12 @@ module cva6_parser_wrap
   wire accept_wrcam   = accept & op_wr_cam;   // custom-3 CAM program
 
   // The architectural state THIS accepted op advances to: st_n for a parse op, or the
-  // rs1-written p-register for CPPRSWR (both enter the pending queue / commit-gate).
+  // written p-register for a custom-3 write (both enter the pending queue / commit-gate).
+  // CPPRSWR takes its value from the integer rs1; CPPRSWRIMM from the decoded immediate
+  // (zero-extended to 64 bits) — no integer operand.
+  wire [63:0] wr_preg_val = uop_i.wr_preg_imm ? {53'b0, uop_i.imm} : rs1_i;
   pstate_t st_adv;
-  assign st_adv = op_wr_reg ? write_preg(st_q, uop_i.cpreg, rs1_i) : st_n;
+  assign st_adv = op_wr_reg ? write_preg(st_q, uop_i.cpreg, wr_preg_val) : st_n;
 
   // custom-3 read result: CPPRSRD selects a p-register; CPPRSRDCAM returns the CAM
   // lookup target (all-ones on a miss, matching cam_lookup() in parser.c).

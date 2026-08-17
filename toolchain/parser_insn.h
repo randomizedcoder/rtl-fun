@@ -68,6 +68,12 @@ static inline uint32_t prs_mv_x_p(unsigned rd, unsigned cpreg)   /* read p -> in
 { return prs_enc_cop(cpreg, 0, 0, 0, 0, /*rs*/0, /*func3*/0, rd); }
 static inline uint32_t prs_mv_p_x(unsigned cpreg, unsigned rs)   /* write int -> p */
 { return prs_enc_cop(cpreg, 0, 0, 0, 0, rs, /*func3*/1, /*rd*/0); }
+/* CPPRSWRIMM: write p[cpreg] from an 11-bit immediate (no integer operand). The
+ * split immediate reuses the R/Rs and Rd fields — imm = {Imm2[20:15], Imm1[11:7]} —
+ * so drop imm[10] into R, imm[9:5] into Rs, imm[4:0] into Rd (see bitgen.py CP32). */
+static inline uint32_t prs_ld_immed(unsigned cpreg, unsigned imm11)
+{ return prs_enc_cop(cpreg, 0, 0, /*i*/1, /*r*/(imm11 >> 10) & 1u,
+                     /*rs*/(imm11 >> 5) & 0x1fu, /*func3*/1, /*rd*/imm11 & 0x1fu); }
 
 /* --- emit a constant word into the instruction stream (Phase 5+) --- *
  * GNU as `.insn <len>, <value>`; value must be a constant expression. */

@@ -201,6 +201,10 @@ coprocessor:
   instrs:      # S, I, R, Func3 [, D]
     CPPRSRD:       { S: 0, I: 0, R: 0, Func3: 0, asm: "prs.mv.x.p ireg,preg" }
     CPPRSWR:       { S: 0, I: 0, R: 0, Func3: 1, asm: "prs.mv.p.x preg,ireg" }
+    # CPPRSWRIMM (I=1) reuses the R/Rs and Rd fields as a split 11-bit immediate:
+    # imm = {Imm2[20:15], Imm1[11:7]} (bitgen.py CP32). Implemented in RTL (N2):
+    # parser_decode extracts the imm, cva6_parser_wrap writes p[Cpreg]={53'b0,imm}
+    # on the CPPRSWR commit-gate; the decode patch forces integer rs1/rd to x0.
     CPPRSWRIMM:    { S: 0, I: 1, R: 0, Func3: 1, asm: "prs.ld.immed preg,imm11" }
     CPPRSRDCAM:    { S: 0, I: 0, R: 1, Func3: 0, asm: "prs.cam.read ireg,ireg" }
     CPPRSWRCAM:    { S: 0, I: 0, R: 1, Func3: 1, D: 23, asm: "prs.cam.write/delete" }
