@@ -188,17 +188,28 @@ module parser_decode
       //   R=0,Func3=1  CPPRSWR    write p[cpreg] = regs[rs1]
       //   R=1,Func3=0  CPPRSRDCAM lookup key=regs[rs1]           -> rd
       //   R=1,Func3=1  CPPRSWRCAM CAM[regs[rs1]] from p[cpreg]; D=word[23] (delete)
-      // Array forms (S=1) and immediate (I=1) are deferred.
+      // The immediate form (I=1) reuses the R/Rs and Rd fields as split immediate
+      // bits (bitgen.py CP32 CPPRSWRIMM: Imm2[20:15], Imm1[11:7]):
+      //   S=0,I=1,Func3=1  CPPRSWRIMM write p[cpreg] = {53'b0, imm}    (N2)
+      // Array forms (S=1) stay deferred.
       if ((word_i[31:29] == 3'b000) &&        // CoP = parser coprocessor
-          (word_i[22:21] == 2'b00)) begin     // S=0, I=0 (register/CAM move subset)
+          (word_i[22] == 1'b0)) begin         // S=0 (register/CAM/imm subset)
         m.cpreg = word_i[28:24];
-        unique case ({word_i[20], word_i[14:12]})   // {R, Func3}
-          {1'b0, 3'b000}: begin m.rd_preg = 1'b1;                        illegal_o = 1'b0; end
-          {1'b0, 3'b001}: begin m.wr_preg = 1'b1;                        illegal_o = 1'b0; end
-          {1'b1, 3'b000}: begin m.rd_cam  = 1'b1;                        illegal_o = 1'b0; end
-          {1'b1, 3'b001}: begin m.wr_cam  = 1'b1; m.cam_del = word_i[23]; illegal_o = 1'b0; end
-          default: ;   // other Func3 (array/deferred): illegal
-        endcase
+        if (word_i[21] == 1'b0) begin
+          // I=0 : register / CAM moves (rs1 threaded from the integer side).
+          unique case ({word_i[20], word_i[14:12]})   // {R, Func3}
+            {1'b0, 3'b000}: begin m.rd_preg = 1'b1;                        illegal_o = 1'b0; end
+            {1'b0, 3'b001}: begin m.wr_preg = 1'b1;                        illegal_o = 1'b0; end
+            {1'b1, 3'b000}: begin m.rd_cam  = 1'b1;                        illegal_o = 1'b0; end
+            {1'b1, 3'b001}: begin m.wr_cam  = 1'b1; m.cam_del = word_i[23]; illegal_o = 1'b0; end
+            default: ;   // other Func3 (array/deferred): illegal
+          endcase
+        end else if (word_i[14:12] == 3'b001) begin
+          // I=1, Func3=1 : CPPRSWRIMM — write p[cpreg] from the split 11-bit imm.
+          m.wr_preg_imm = 1'b1;
+          m.imm         = {word_i[20:15], word_i[11:7]};   // {Imm2, Imm1}
+          illegal_o     = 1'b0;
+        end
       end
     end
 

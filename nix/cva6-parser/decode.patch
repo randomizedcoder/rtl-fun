@@ -24,7 +24,7 @@
    function automatic logic op_is_branch(input fu_op op);
 --- a/core/decoder.sv	1969-12-31 16:00:01.000000000 -0800
 +++ b/core/decoder.sv	2026-08-15 23:16:38.263766563 -0700
-@@ -1453,6 +1453,27 @@
+@@ -1453,6 +1453,31 @@
            instruction_o.rd = instr.utype.rd;
          end
  
@@ -45,8 +45,12 @@
 +        riscv::OpcodeCustom3: begin
 +          instruction_o.fu  = PARSER;
 +          instruction_o.op  = ariane_pkg::PARSER_C3;
-+          instruction_o.rs1 = instr.itype.rs1;
-+          instruction_o.rd  = instr.itype.rd;
++          // The immediate-load form (I=1, bit 21 — CPPRSWRIMM) reuses the Rs and Rd
++          // fields as split immediate bits (Imm2[20:15], Imm1[11:7]); it has no
++          // integer source or destination, so zero both to avoid a false rs1 hazard
++          // and (critically) clobbering x[Imm1] with the FU result.
++          instruction_o.rs1 = instr.instr[21] ? '0 : instr.itype.rs1;
++          instruction_o.rd  = instr.instr[21] ? '0 : instr.itype.rd;
 +        end
 +
          default: illegal_instr = 1'b1;

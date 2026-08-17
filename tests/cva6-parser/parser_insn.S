@@ -45,6 +45,11 @@
 # back with a mul + CSR read + branches proves the parser writeback port doesn't
 # contend with adjacent retires (V5). Both are program-self-checked via tohost.
 #
+# Finally (N2, §3.1 item 6) the custom-3 immediate-load form CPPRSWRIMM writes a
+# p-register from an 11-bit split immediate (no integer operand); the check proves
+# both that the immediate reaches the register and that the decode does NOT clobber
+# the integer register the reused Rd field would otherwise select.
+#
 # Run: Variane_testharness parser_insn.elf   (tohost=1 => exit code 0 => PASS)
 
 .section .text.init
@@ -151,6 +156,25 @@ _start:
     j    6f
 5:  li   t0, 11            # V5 adjacency mismatch => tohost=11 => FAIL
 6:
+    # --- N2 (Table B custom-3, §3.1 item 6): CPPRSWRIMM immediate-load ---
+    # The immediate-load form writes a p-register from an 11-bit split immediate
+    # (Imm2[20:15], Imm1[11:7]) — it has NO integer source or destination. Because the
+    # immediate reuses the Rs/Rd fields, the decode patch forces integer rs1/rd to x0
+    # for I=1, so a buggy decoder that kept Rd=Imm1[4:0] would clobber x[Imm1]. Here
+    # imm=0x1DC => Imm1=0x1C=t3: preset t3 to a sentinel and prove it is UNCHANGED, and
+    # read p16 (Flags) back == 0x1DC (proving the immediate reached the p-register and
+    # overwrote the 0x5A left by V5). Commit-gated like CPPRSWR.
+    #   0x10271E7B = CPPRSWRIMM p16, 0x1DC  (cpreg=16, S=0, I=1, Func3=1)
+    #   0x100007FB = CPPRSRD    a5, p16
+    li   t3, 0xBEEF         # sentinel in x[Imm1]; a correct decode must NOT touch it
+    .word 0x10271E7B        # CPPRSWRIMM p16, 0x1DC  (Flags <- 0x1DC; no integer rd)
+    .word 0x100007FB        # CPPRSRD a5, p16   (a5 <- Flags)
+    li   a6, 0xBEEF
+    bne  t3, a6, 8f         # t3 clobbered => decode wrote x[Imm1] => FAIL
+    li   a6, 0x1DC
+    beq  a5, a6, 7f
+8:  li   t0, 13            # N2 CPPRSWRIMM mismatch/clobber => tohost=13 => FAIL
+7:
     # --- signal result: tohost = t0 ---
     la   t1, tohost
     sd   t0, 0(t1)
