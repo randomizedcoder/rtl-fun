@@ -69,6 +69,13 @@
           cva6-src = cva6-parser-src;
         };
 
+        # Negative control (G11): build the STOCK model + assert the base core
+        # REJECTS a custom-0 parser word (illegal-instruction trap). Uses the
+        # unpatched source, so the parser ops are proven a genuine ISA extension.
+        parser-negative-control = import ./nix/parser-negative-control.nix {
+          inherit pkgs cva6-src;
+        };
+
         # Pinned xdp2 source (for the proto_audit packet corpus, Phase 2).
         xdp2-src = import ./nix/xdp2.nix { inherit pkgs; };
 
@@ -97,6 +104,7 @@
           cva6-parser = cva6-parser;
           cva6-parser-test = cva6-parser-test;
           cva6-parser-cosim = cva6-parser-cosim;
+          parser-negative-control = parser-negative-control;
           # The pinned xdp2 source (packet corpus): `nix build .#xdp2-src`.
           xdp2-src = xdp2-src;
           # Golden-model runners as packages too.
@@ -141,6 +149,13 @@
         apps.cva6-parser-cosim = {
           type = "app";
           program = "${cva6-parser-cosim}/bin/cva6-parser-cosim";
+        };
+
+        # Negative control (G11): the stock core must reject the parser ops:
+        # `nix run .#parser-negative-control`.
+        apps.parser-negative-control = {
+          type = "app";
+          program = "${parser-negative-control}/bin/parser-negative-control";
         };
 
         # Run the golden-model tests: `nix run .#model-test`.

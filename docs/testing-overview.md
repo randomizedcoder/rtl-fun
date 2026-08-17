@@ -97,6 +97,7 @@ peripheral instead of a Verilator scaffold.
 |---------|----------------|
 | `nix run .#cva6-parser-cosim` | for every suite packet: `sd` the packet into the FU packet buffer over MMIO, program the CAM, run the parse graph in-core, `ld` the committed flow_keys back, compare to the model — **22/22, byte-for-byte + exit code** |
 | `nix run .#parser-formal` | SymbiYosys 1-step BMC: `parser_execute` never writes metadata out of bounds and always exits with a valid code, for *all* inputs |
+| `nix run .#parser-negative-control` | negative control (G11): the **stock** (unpatched) model runs `negctl.S` — the identical custom-0 word traps illegal-instruction (mcause=2) on the base RV64GC decoder → handler `tohost=1` → fesvr SUCCESS. Proves the parser ops are a genuine ISA *extension*, so Layer 3/4's PASS is specific to the patch |
 
 Lives in `tests/cva6-parser/cosim_main.S` (the fixed driver, linked per-case with the
 generator's `prog.S` + `case.S`), the MMIO peripheral in `nix/cva6-parser/mmio.patch`
@@ -114,7 +115,7 @@ munges `packet`/`expected`/`params.hex` into assembly.
 | Standalone testbenches / scaffold | `tb/parser_smoke_tb.sv`, `tb/parser_top.sv` |
 | Wrap testbench | `tb/parser_wrap_tb.sv` |
 | Formal harness | `verif/formal/` |
-| In-core test programs | `tests/cva6-parser/` (`parser_insn.S`, `cosim_main.S`, `link.ld`) |
+| In-core test programs | `tests/cva6-parser/` (`parser_insn.S`, `cosim_main.S`, `negctl.S`, `link.ld`) |
 | Runner script bodies | `scripts/*.sh` (readFile'd into the nix `writeShellApplication` wrappers) |
 | CVA6 patches | `nix/cva6-parser/*.patch` |
 
@@ -130,6 +131,7 @@ nix run .#model-test          # Layer 1
 nix run .#parser-sim-suite    # Layer 2 (+ .#parser-sim-decode, .#parser-lint, .#parser-analyze)
 nix run .#cva6-parser-test    # Layer 3 (+ .#parser-wrap-test)
 nix run .#cva6-parser-cosim   # Layer 4 (+ .#parser-formal)
+nix run .#parser-negative-control   # regression: stock core must trap the parser word (G11)
 ```
 
 ## Coverage status & what's deferred

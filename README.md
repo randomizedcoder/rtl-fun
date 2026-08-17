@@ -95,8 +95,12 @@ complete; phases are now being built in order.
   packets parse in-core and match the model **byte-for-byte + exit code**
   (`nix run .#cva6-parser-cosim`, 22/22 — the full Table A, incl. the ihl=15/ihl=0,
   deep-VLAN, len=0-ext, and 256-B/over-buffer edge rows added by PR-4). All increments
-  green in-core (`nix run .#cva6-parser-test`). Remaining: the directed V-table
-  hazard/interrupt rows, base-ISA regression, and coverage sign-off.
+  green in-core (`nix run .#cva6-parser-test`). A **negative control**
+  now guards the extension both ways: the *stock* core traps the identical custom-0
+  word as an illegal instruction (`nix run .#parser-negative-control`, G11), so the
+  patched core's PASS is specific to the patch. Remaining: the directed V-table
+  interrupt/fault rows (V6/V7), base-ISA regression on the patched core, a 2nd config,
+  and coverage sign-off.
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its
 testbenches in [`tb/`](tb/README.md) and the vector generator + formal harness in
