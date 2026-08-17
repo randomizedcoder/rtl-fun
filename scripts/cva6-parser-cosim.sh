@@ -51,7 +51,7 @@ mkdir -p "$OUT"
 # ---- 1. generate the vectors from the golden model (whole directed suite) ----
 echo "== generating vectors from the model =="
 cc -std=c11 -O2 -Wall -Wextra -I "$MODEL" \
-  "$ROOT/rtl/gen/gen_parser_rom.c" "$MODEL/parser.c" "$MODEL/program.c" "$MODEL/encoding.c" \
+  "$ROOT/verif/gen/gen_parser_rom.c" "$MODEL/parser.c" "$MODEL/program.c" "$MODEL/encoding.c" \
   -o "$OUT/gen_parser_rom"
 "$OUT/gen_parser_rom" "$OUT" --suite >/dev/null
 

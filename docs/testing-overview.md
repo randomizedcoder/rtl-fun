@@ -14,7 +14,7 @@
 The C reference model (`model/libparsermodel`) is the **single source of truth**.
 Every test's *expected* output — flow_keys bytes, exit code — is produced by the
 model on the same input, never hand-authored. One generator,
-[`rtl/gen/gen_parser_rom.c`](../rtl/gen/gen_parser_rom.c), runs the model over a
+[`verif/gen/gen_parser_rom.c`](../verif/gen/gen_parser_rom.c), runs the model over a
 table of packet cases (`suite[]`) and emits the vectors; adding coverage means
 adding a row, not writing a new testbench. See the design rationale in
 [analysis/cva6-verification-design.md](analysis/cva6-verification-design.md) §0.
@@ -22,14 +22,14 @@ adding a row, not writing a new testbench. See the design rationale in
 ```
                          model/libparsermodel  (golden C model — the oracle)
                                     │
-                    rtl/gen/gen_parser_rom.c  (one generator, `suite[]` = the cases)
+                  verif/gen/gen_parser_rom.c  (one generator, `suite[]` = the cases)
                                     │
             ┌───────────────────────┴───────────────────────┐
             │  program.hex / cam.hex                          │  enc.hex / camprog.hex
             │  enc.hex / packet.hex   ($readmemh)             │  + packet/expected/params.hex
             ▼                                                 ▼
    LAYER 2: standalone RTL suite                    LAYER 4: in-core co-sim
-   parser_top.sv + parser_smoke_tb.sv               tests/cva6-parser/cosim_main.S
+   tb/parser_top.sv + tb/parser_smoke_tb.sv         tests/cva6-parser/cosim_main.S
    (Verilator, RTL vs model)                        (real CVA6 pipeline, MMIO, vs model)
 ```
 
@@ -67,7 +67,7 @@ exit code against the model's generated vectors.
 | `nix run .#parser-lint` | `--lint-only -Wall` (fast strict lint, no build) |
 | `nix run .#parser-analyze` | extra SV lint: verible + svlint |
 
-Lives in `rtl/`: `parser_top.sv` (scaffold), `parser_smoke_tb.sv` (the `CHECK`-macro
+Lives in `tb/`: `parser_top.sv` (scaffold), `parser_smoke_tb.sv` (the `CHECK`-macro
 testbench, reads per-packet params at runtime so one build runs every case).
 Consumes `program.hex`/`cam.hex`/`enc.hex`/`packet.hex` via RTL `$readmemh`.
 
@@ -84,7 +84,7 @@ and target specific integration seams).
 | `nix run .#parser-wrap-test` | 8 assertion-based scenarios on `cva6_parser_wrap`: I1 commit/flush rollback + backpressure, I2 metadata, I3 readback, I4a redirect target, I4b CAM program/readback + CAMNEXT-hit redirect |
 
 Lives in `tests/cva6-parser/parser_insn.S` (the in-core directed program, hand-encoded
-`.word`s) and `rtl/parser_wrap_tb.sv` (the wrap-TB). The I1 speculation-safety SVAs
+`.word`s) and `tb/parser_wrap_tb.sv` (the wrap-TB). The I1 speculation-safety SVAs
 (`a_arch_committed`, `a_flush_rollback`) are proven here.
 
 ### Layer 4 — In-core co-simulation vs model + formal  (the top of the pyramid)
@@ -101,28 +101,25 @@ peripheral instead of a Verilator scaffold.
 Lives in `tests/cva6-parser/cosim_main.S` (the fixed driver, linked per-case with the
 generator's `prog.S` + `case.S`), the MMIO peripheral in `nix/cva6-parser/mmio.patch`
 (see [analysis/cva6-parser-mmio.md](analysis/cva6-parser-mmio.md)), and the formal
-harness in `rtl/formal/`. Consumes `enc.hex`/`camprog.hex` from the generator and
+harness in `verif/formal/`. Consumes `enc.hex`/`camprog.hex` from the generator and
 munges `packet`/`expected`/`params.hex` into assembly.
 
-## Where the source lives (today)
+## Where the source lives
 
-| Artifact | Path (today) |
-|----------|--------------|
+| Artifact | Path |
+|----------|------|
 | Golden model | `model/libparsermodel/` |
-| Vector generator | `rtl/gen/gen_parser_rom.c` |
+| Vector generator | `verif/gen/gen_parser_rom.c` |
 | Synthesizable RTL + assertions | `rtl/*.sv`, `rtl/parser_asserts.svh` |
-| Standalone testbenches / scaffold | `rtl/parser_smoke_tb.sv`, `rtl/parser_top.sv` |
-| Wrap testbench | `rtl/parser_wrap_tb.sv` |
-| Formal harness | `rtl/formal/` |
+| Standalone testbenches / scaffold | `tb/parser_smoke_tb.sv`, `tb/parser_top.sv` |
+| Wrap testbench | `tb/parser_wrap_tb.sv` |
+| Formal harness | `verif/formal/` |
 | In-core test programs | `tests/cva6-parser/` (`parser_insn.S`, `cosim_main.S`, `link.ld`) |
 | Runner script bodies | `scripts/*.sh` (readFile'd into the nix `writeShellApplication` wrappers) |
 | CVA6 patches | `nix/cva6-parser/*.patch` |
 
-> **Planned move (PR-2 of the verification refactor).** The testbenches, scaffold,
-> generator, and formal harness will move out of `rtl/` (which should hold only
-> synthesizable RTL) into `tb/` and `verif/` — filling today's empty `tb/` skeleton.
-> This page is the anchor that move makes physically true; the paths above will be
-> updated when it lands.
+`rtl/` holds only synthesizable RTL; the testbenches live in [`tb/`](../tb/README.md)
+and the generator + formal harness in [`verif/`](../verif/README.md).
 
 ## The full green matrix
 

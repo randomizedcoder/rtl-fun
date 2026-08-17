@@ -16,6 +16,7 @@ set -euo pipefail
 
 REPO="${REPO:-$PWD}"
 RTL="$REPO/rtl"
+TB="$REPO/tb"
 
 if [ ! -d "$RTL" ]; then
   echo "parser-analyze: $RTL not found — run from the repo root" >&2
@@ -28,7 +29,7 @@ srcs=(
   "$RTL/parser_cam.sv"
   "$RTL/parser_decode.sv"
   "$RTL/parser_execute.sv"
-  "$RTL/parser_top.sv"
+  "$TB/parser_top.sv"
   "$RTL/cva6_parser_wrap.sv"
 )
 

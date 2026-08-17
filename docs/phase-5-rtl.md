@@ -38,7 +38,7 @@ Delivered this increment:
   `common_end_of_node`, one `execute_*` branch per model routine).
 - **Bring-up scaffold** `parser_top` + Verilator testbench `parser_smoke_tb`
   (assertion-based, `` `CHECK `` macro), driven from vectors generated off the
-  model by `rtl/gen/gen_parser_rom.c` (single source of truth — no second copy).
+  model by `verif/gen/gen_parser_rom.c` (single source of truth — no second copy).
 - **CVA6 seam** `cva6_parser_wrap` at interface fidelity: the in-pipeline FU with
   the exact CVA6-shaped ports (issue handshake, `resolved_branch_o` redirect,
   packet-window + CAM), holding persistent parser state and driving end-of-node.
@@ -60,16 +60,20 @@ Deferred to the next increment (honest scope):
 ### 5.1 Module breakdown
 
 ```
-rtl/
+rtl/                   synthesizable RTL only
   parser_pkg.sv        types, params, ROM word layout, extract_subreg/bswap_n
   parser_pktbuf.sv     packet buffer + 128-bit window + byte aligner
   parser_cam.sv        behavioural CAM (20-bit key -> 32-bit target), loadable
   parser_execute.sv    the parser FU: hardware exec_one + common_end_of_node
-  parser_top.sv        bring-up scaffold: ROM + micro-PC + metadata RAM (sim)
-  parser_smoke_tb.sv   Verilator testbench (assertion-based)
   cva6_parser_wrap.sv  the in-pipeline FU as it attaches to CVA6 (interface fidelity)
   parser_decode.sv     32-bit Phase-3 word -> micro_op_t (the CVA6 decode path)
+tb/                    SystemVerilog testbenches
+  parser_top.sv        bring-up scaffold: ROM + micro-PC + metadata RAM (sim)
+  parser_smoke_tb.sv   Verilator testbench (assertion-based)
+  parser_wrap_tb.sv    assertion-based cva6_parser_wrap testbench
+verif/                 verification infrastructure
   gen/gen_parser_rom.c host generator: model -> program/CAM/packet/expected/enc vectors
+  formal/              SymbiYosys harness proving parser_execute safety
 ```
 
 `parser_pkg` mirrors the model's machine state and decoded-instruction table;

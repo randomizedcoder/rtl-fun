@@ -19,6 +19,8 @@ set -euo pipefail
 
 REPO="${REPO:-$PWD}"
 RTL="$REPO/rtl"
+TB="$REPO/tb"
+VERIF="$REPO/verif"
 MODEL="$REPO/model/libparsermodel"
 MODE="${PARSER_MODE:-run}"
 BUILD="${PARSER_BUILD:-$REPO/build/parser}"
@@ -32,7 +34,7 @@ mkdir -p "$BUILD"
 # 1. generate the test vectors from the golden model (--suite emits the whole
 #    directed suite under $BUILD/cases/ plus the baseline case in $BUILD).
 cc -std=c11 -O2 -Wall -Wextra -I "$MODEL" \
-  "$RTL/gen/gen_parser_rom.c" "$MODEL/parser.c" "$MODEL/program.c" "$MODEL/encoding.c" \
+  "$VERIF/gen/gen_parser_rom.c" "$MODEL/parser.c" "$MODEL/program.c" "$MODEL/encoding.c" \
   -o "$BUILD/gen_parser_rom"
 # suite + decode both run every directed case; decode also needs enc.hex per case.
 if [ "$MODE" = "suite" ] || [ "$MODE" = "decode" ]; then
@@ -50,8 +52,8 @@ srcs=(
   "$RTL/parser_cam.sv"
   "$RTL/parser_decode.sv"
   "$RTL/parser_execute.sv"
-  "$RTL/parser_top.sv"
-  "$RTL/parser_smoke_tb.sv"
+  "$TB/parser_top.sv"
+  "$TB/parser_smoke_tb.sv"
 )
 common=(
   -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-SYNCASYNCNET

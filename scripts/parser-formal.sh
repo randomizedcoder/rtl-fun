@@ -3,8 +3,8 @@
 # Body for the parser-formal writeShellApplication (nix/rtl.nix). parser_execute
 # is combinational, so a 1-step bounded proof is exhaustive — the SMT solver
 # considers every machine state / micro-op / packet-window / CAM result at once
-# and proves the memory-safety + exit-code invariants in rtl/formal for ALL of
-# them (rtl/formal/parser_execute_fp.sv).
+# and proves the memory-safety + exit-code invariants in verif/formal for ALL of
+# them (verif/formal/parser_execute_fp.sv).
 #
 # yosys' built-in Verilog frontend can't parse our SystemVerilog (packed structs,
 # typedef enums, automatic functions), so we flatten to Verilog-2005 with sv2v
@@ -16,7 +16,7 @@ set -euo pipefail
 
 REPO="${REPO:-$PWD}"
 RTL="$REPO/rtl"
-FORMAL="$RTL/formal"
+FORMAL="$REPO/verif/formal"
 BUILD="${PARSER_BUILD:-$REPO/build/formal}"
 
 if [ ! -f "$FORMAL/parser_execute.sby" ]; then

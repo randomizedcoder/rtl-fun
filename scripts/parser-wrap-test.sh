@@ -3,7 +3,7 @@
 # Body for the parser-wrap-test writeShellApplication (nix/rtl.nix). This verilates
 # JUST the CVA6-seam FU (cva6_parser_wrap + parser_execute) with its handshake and
 # speculation-safety assertions ON (+define+PARSER_ASSERT) and runs
-# rtl/parser_wrap_tb.sv, which proves the commit-visible parser-state mechanism:
+# tb/parser_wrap_tb.sv, which proves the commit-visible parser-state mechanism:
 # rollback-on-flush, commit advances the architectural shadow, and pending-queue
 # backpressure. No CVA6 build, no golden model — a fast, focused unit check.
 #
@@ -16,6 +16,7 @@ set -euo pipefail
 
 REPO="${REPO:-$PWD}"
 RTL="$REPO/rtl"
+TB="$REPO/tb"
 BUILD="${PARSER_BUILD:-$REPO/build/parser-wrap}"
 
 if [ ! -d "$RTL" ]; then
@@ -30,7 +31,7 @@ srcs=(
   "$RTL/parser_pkg.sv"
   "$RTL/parser_execute.sv"
   "$RTL/cva6_parser_wrap.sv"
-  "$RTL/parser_wrap_tb.sv"
+  "$TB/parser_wrap_tb.sv"
 )
 
 echo "== verilating cva6_parser_wrap testbench (assertions on) =="

@@ -18,7 +18,7 @@ set -euo pipefail
 ROOT="${MODEL_ROOT:-$PWD}"
 SRC="$ROOT/model"
 LIB="$SRC/libparsermodel"
-GEN="$ROOT/rtl/gen/gen_parser_rom.c"
+GEN="$ROOT/verif/gen/gen_parser_rom.c"
 
 if [ ! -d "$LIB" ]; then
   echo "model-analyze: $LIB not found — run from the repo root" >&2
