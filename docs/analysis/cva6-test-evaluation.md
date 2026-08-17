@@ -283,6 +283,12 @@ adopt:
 
 ## 6. Prioritized roadmap (risk-reduction per unit effort)
 
+> **Current state.** Steps 1–4 below are **built and merged** (increments I1–I5, PRs
+> #21–#26 — see the [status tracker](cva6-implementation-status.md)). What remains
+> open from this roadmap is tracked in the single
+> [canonical deferral list](cva6-verification-design.md#31-canonical-deferral-list-single-source-of-truth)
+> — this doc does not keep its own copy.
+
 1. **Fix G2 (speculation safety)** — make parser state commit-visible, not
    execute-visible; add the SVA property and a branch-shadow directed test. *This is
    a latent correctness bug, not just a coverage gap — do it first.*

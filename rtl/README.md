@@ -24,12 +24,19 @@ cva6_parser_wrap.sv  the in-pipeline FU as it attaches to CVA6 (interface fideli
                      commit-gated state + flow_keys frame (I1/I2), custom-3 readback
                      + CAM program (I3/I4b), end-of-node & parse-exit fetch redirect,
                      and MMIO meta-read / ParseLen / exit-PC / status ports (I5)
+parser_wrap_tb.sv    assertion-based testbench for cva6_parser_wrap: I1 commit/flush
+                     rollback + backpressure, I2 metadata, I3 readback, I4a/I4b
+                     redirect + CAM (8 scenarios; `nix run .#parser-wrap-test`)
 gen/gen_parser_rom.c host generator: model -> program/CAM/packet/expected/enc vectors
                      (baseline + the directed suite under build/parser/cases/)
 formal/              SymbiYosys harness + .sby proving parser_execute safety
 .rules.verible_lint  verible project rules (ALL_CAPS params, explicit ranges)
 .svlint.toml         svlint correctness-rule config
 ```
+
+> **Testing map.** For how this RTL is exercised across all four test layers (this
+> standalone suite, the in-core directed tests, the in-core cosim, and formal) and
+> which `nix run` runs each, see [`docs/testing-overview.md`](../docs/testing-overview.md).
 
 The RTL is a **hardware `pm_run`**: it interprets the SAME decoded program the C
 [model](../model/README.md) runs (`gen/gen_parser_rom.c` emits the vectors from

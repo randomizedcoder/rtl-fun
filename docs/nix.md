@@ -37,8 +37,11 @@ nix/
   cva6-patched.nix            # cva6-parser-src: patched CVA6 source (cacheable derivation)
   cva6-parser/decode.patch    # in-core decode patch (fu_t::PARSER + custom-0/3 routing)
   cva6-parser/issue-ex.patch  # in-core issue/EX/writeback/redirect patch + Flist parser files
+  cva6-parser/mmio.patch      # SoC AXI MMIO parser peripheral (packet buf + flow_keys frame + regs, I5)
+  cva6-parser/tb-backdoor.patch # sim-only XMR watcher for cva6-parser-test markers (I2/I4)
   cva6-baseline.nix           # cva6-baseline / cva6-parser builders (writeShellApplication)
   cva6-parser-test.nix        # cva6-parser-test: build patched model + run in-core custom-0 test
+  cva6-parser-cosim.nix       # cva6-parser-cosim: table-driven in-core packet→flow_keys vs model (I5)
   xdp2.nix                    # pinned xdp2 source (packet corpus, Phase 2)
   model.nix                   # golden-model apps: model-test, model-analyze, model-fuzz, pm-trace
   rtl.nix                     # parser-unit sim/lint/analyze/formal apps (Phase 5/6)
@@ -48,6 +51,7 @@ nix/
 scripts/
   cva6-baseline.sh            # body of the cva6-baseline app (Phase 0 sim baseline)
   cva6-parser-test.sh         # in-core custom-0 directed test (assemble ELF + run) (Phase 5)
+  cva6-parser-cosim.sh        # table-driven in-core packet→flow_keys co-sim vs model (Phase 6, I5)
   model-test.sh, pm-trace.sh  # bodies of the golden-model apps (Phase 2)
   model-analyze.sh            # cppcheck + gcc -fanalyzer + clang-tidy + ASan/UBSan (Phase 6)
   model-fuzz.sh               # libFuzzer + ASan/UBSan harness runner (Phase 6)
@@ -67,6 +71,7 @@ One `writeShellApplication` per runner; each puts its tools on `PATH` via
 | `cva6-baseline` | build the **stock** CVA6 Verilator model | 0 |
 | `cva6-parser` | build the **parser-patched** CVA6 Verilator model (compare vs baseline) | 5 |
 | `cva6-parser-test` | build patched model + run the in-core custom-0 directed test | 5 |
+| `cva6-parser-cosim` | table-driven in-core packet→flow_keys co-sim vs the model (15/15) | 6 |
 | `model-test` | golden-model unit + corpus tests | 2 |
 | `model-analyze` | cppcheck + gcc `-fanalyzer` + clang-tidy + ASan/UBSan run | 6 |
 | `model-fuzz` | libFuzzer + ASan/UBSan on random packets (`FUZZ_SECONDS=`) | 6 |
@@ -119,7 +124,7 @@ Grouped in [`nix/packages.nix`](../nix/packages.nix) by the phase they serve:
 
 | Group | Tools | For |
 |-------|-------|-----|
-| **docs** | `poppler-utils` (pdftotext/pdftoppm/pdfimages), `python3` | patent-figure extraction, `bitgen.py`, scripts (today) |
+| **docs** | `poppler-utils` (pdftotext/pdftoppm/pdfimages), `python3` | patent-figure extraction, `tools/bitgen/bitgen.py`, scripts (today) |
 | **rtl** | `verilator`, `verible`, `svlint`, `gtkwave`, `yosys` | SystemVerilog design + lint (Phase 5) |
 | **sim** | `python3` + `cocotb`, `pytest`, `scapy` | co-simulation testbenches + corpus (Phase 2/6) |
 | **toolchain** | `spike`, `qemu` | RISC-V ISA sim + emulation (Phase 7) |

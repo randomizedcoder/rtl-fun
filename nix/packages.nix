@@ -27,7 +27,7 @@ let
   # Docs & reference tooling — what we use *today* (PDF extraction, diagrams).
   docsTools = [
     pkgs.poppler-utils # pdftotext / pdftoppm / pdfimages (patent figures)
-    pythonEnv # docs/analysis/bitgen.py and other scripts
+    pythonEnv # tools/bitgen/bitgen.py and other scripts
   ];
 
   # RTL design & lint (Phase 5).
