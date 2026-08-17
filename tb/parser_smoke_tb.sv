@@ -49,7 +49,7 @@ module parser_smoke_tb
   parser_top #(
       .PROG_FILE("program.hex"),
       .CAM_FILE ("cam.hex"),
-      .PKT_FILE ("packet.hex"),
+      .PKT_FILE ("pktbuf.hex"),   // buffer-sized image (packet.hex may exceed PKT_MAX)
       .ENC_FILE ("enc.hex"),
       .USE_DECODE(USE_DECODE)
   ) dut (

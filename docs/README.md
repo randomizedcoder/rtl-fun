@@ -71,9 +71,9 @@ verible + svlint on the RTL (`nix run .#parser-analyze`), cppcheck + gcc
 `-fanalyzer` + clang-tidy + ASan/UBSan on the model (`nix run .#model-analyze`),
 and libFuzzer + ASan/UBSan on random packets (`nix run .#model-fuzz`).
 The in-core FU is now hardened through increments **I1–I5**: the full **in-core
-packet→flow_keys co-simulation over real MMIO** parses all 15 corpus packets in the
+packet→flow_keys co-simulation over real MMIO** parses all 22 corpus packets in the
 CVA6 pipeline and matches the model byte-for-byte + exit code
-(`nix run .#cva6-parser-cosim`, 15/15). **Next:** the directed V-table
+(`nix run .#cva6-parser-cosim`, 22/22). **Next:** the directed V-table
 hazard/interrupt rows, base-ISA regression, and coverage sign-off.
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.

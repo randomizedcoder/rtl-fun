@@ -31,7 +31,7 @@ across all four techniques is in place and green (all runnable from the flake):
   SymbiYosys (z3) *prove* — over all inputs, not samples — that `parser_execute`
   never writes metadata outside the `flow_keys` frame, only ever writes 1/2/4/8
   bytes, and reports a negative exit code whenever it completes.
-- **Directed suite.** `nix run .#parser-sim-suite` runs 15 packets —
+- **Directed suite.** `nix run .#parser-sim-suite` runs 22 packets —
   positive (v4/v6 × tcp/udp, VLAN, QinQ, IPv6 HBH ext, IPv6 fragment), negative
   (unknown ethertype, bad IP version, unknown proto), boundary (minimal/truncated
   IPv4) and corner (empty, L2-only) — each checked byte-for-byte and exit-code
@@ -221,7 +221,7 @@ corpus packets: `sd`s the packet in, sets `ParseLen` + an exit-landing PC, progr
 CAM at runtime, jumps into the contiguous custom-0 block, lets the FU walk the graph
 (end-of-node redirects, and a **subroutine-return redirect** to the landing PC on parse
 exit), and `ld`s the committed flow_keys + exit status back to compare against the model.
-**Result: 15/15 — flow_keys byte-for-byte and exit code equal to the model** across
+**Result: 22/22 — flow_keys byte-for-byte and exit code equal to the model** across
 positive/negative/boundary/corner (`nix run .#cva6-parser-cosim`). One integration bug is
 worth recording (a testability lesson): a peripheral hung off `axi2mem` **must present
 registered read data** — `axi2mem` combinationally advances `addr_o` to the next beat the

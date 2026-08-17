@@ -71,7 +71,7 @@ One `writeShellApplication` per runner; each puts its tools on `PATH` via
 | `cva6-baseline` | build the **stock** CVA6 Verilator model | 0 |
 | `cva6-parser` | build the **parser-patched** CVA6 Verilator model (compare vs baseline) | 5 |
 | `cva6-parser-test` | build patched model + run the in-core custom-0 directed test | 5 |
-| `cva6-parser-cosim` | table-driven in-core packet→flow_keys co-sim vs the model (15/15) | 6 |
+| `cva6-parser-cosim` | table-driven in-core packet→flow_keys co-sim vs the model (22/22) | 6 |
 | `model-test` | golden-model unit + corpus tests | 2 |
 | `model-analyze` | cppcheck + gcc `-fanalyzer` + clang-tidy + ASan/UBSan run | 6 |
 | `model-fuzz` | libFuzzer + ASan/UBSan on random packets (`FUZZ_SECONDS=`) | 6 |
