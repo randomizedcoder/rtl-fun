@@ -456,7 +456,7 @@ have. Each is a directed program plus a property.
 | V3 | custom-3 `rd` → **dependent next instr** | COR | forwarded value correct (**G6** RAW) |
 | V4 | WAW on parser reg file | COR | last writer wins — ✅ PR-5: `parser_wrap_tb` Sc.9 proves committed/arch WAW; `parser_insn.S` self-checks it in-core |
 | V5 | parser op adjacent to load/store/branch/CSR/mul | COR | no WB/commit-port contention — ✅ PR-5: `parser_insn.S` interleaves a custom-3 readback with mul/CSR/branch, value-checks both retires |
-| V6 | **timer/external interrupt** mid-parse | COR | clean; resumes or restarts correctly (**G7**) |
+| V6 | **software/external interrupt** mid-parse | COR | clean; resumes or restarts correctly (**G7**) — ✅ N5: `parser_trap_v6.S` — a CLINT machine software interrupt (msip) flushes an in-flight CPPRSWR parser write mid-parse in-core; the handler clears msip and `mret`s WITHOUT advancing mepc, so it re-executes and commits the SAME value as an interrupt-free run (interrupt-run == clean-run + fired once) — the asynchronous companion to V7 |
 | V7 | preceding **faulting** instr squashes parser op | COR | no state corruption (**G2/G7**) — ✅ N4: `parser_trap_v7.S` — an `ecall` flushes an in-flight CPPRSWR parser write in-core; after the handler returns it re-executes and commits the SAME value as a fault-free run (fault-run == clean-run + trap fired once) |
 | V8 | **end-of-node redirect** taken | POS | fetch resumes at target PC (**G3**) — ✅ I4a + I5 (every cosim walk jumps mid-graph) |
 | V9 | parse-**exit** redirect (not trap) | POS | redirects per contract (**G7**) — ✅ I5: on exit the FU steers fetch to a program-provided landing PC ("subroutine return"); all 22 cosim cases return + read back |
@@ -514,7 +514,7 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
 | G4 custom-3 untested | I3 / I4b / **N2** | ✅ custom-3 read (I3) + write/CAM-program/readback (I4b) + immediate-load (N2, `CPPRSWRIMM`); Table B custom-3 rows, V3, wrap-TB Sc.11 |
 | G5 one op only | **I5** | ✅ all op classes in the cosim + wrap-TB |
 | G6 hazards | I3/I1 + V-rows | ✅ RAW (V3), WAW (V4), adjacency/no-WB-contention (V5) — PR-5 (`parser_wrap_tb` + in-core `parser_insn.S`); V2 back-to-back interlock in wrap-TB Sc.3 |
-| G7 interrupts/ctx-switch | I5 (+design) / **N4** | 🔵 V9 parse-exit redirect done (I5); **V7 faulting-squash done (N4)**; V6 interrupt-mid-parse (N5) + V10 ctx-switch deferred (§3.1) |
+| G7 interrupts/ctx-switch | I5 (+design) / **N4 / N5** | 🔵 V9 parse-exit redirect done (I5); **V7 faulting-squash done (N4)**; **V6 interrupt-mid-parse done (N5)** — both flavours of the flush_i that reaches the FU; V10 ctx-switch deferred (§3.1, needs the D7 ABI) |
 | G8 metadata sink | I2 → **I5** | ✅ commit-gated frame, MMIO-visible, cosim-checked |
 | G9 hand-encoded | **I5** | ✅ program + CAM model-generated (`enc.hex`/`camprog.hex`) |
 | G10 single config | — | §2.7 config matrix (build superscalar/no-cvxif) |
@@ -546,9 +546,14 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
    self-checked in-core in `parser_insn.S`. See §2.5.
 4. **V-table V6 / V7 / V10** — **V7 faulting-instruction squash ✅ closed by N4**
    (`parser_trap_v7.S` + the reusable `trap.S` scaffold: an `ecall` flushes an
-   in-flight CPPRSWR, which re-executes and commits the fault-free result). Interrupt
-   mid-parse (V6) reuses the same scaffold (N5); context-switch save/restore (V10)
-   needs the parser-state ABI decision first (§6). Deferred **beyond** this refactor.
+   in-flight CPPRSWR, which re-executes and commits the fault-free result). **V6
+   interrupt mid-parse ✅ closed by N5** (`parser_trap_v6.S`, reusing `trap.S`: a CLINT
+   machine software interrupt — msip — flushes the in-flight CPPRSWR mid-parse; the
+   handler clears msip and `mret`s without advancing mepc, so it re-executes and
+   commits the interrupt-free result). V6+V7 together cover **both** flavours of the
+   single-cycle `flush_i` that reaches the FU (async interrupt / sync exception), so
+   **G7 is closed** for the realized parser state; context-switch save/restore (V10)
+   remains deferred — it needs the parser-state ABI decision first (§6, D7).
 5. ~~**CAM-write speculation-safety** — `CPPRSWRCAM` applies at execute, not
    commit-gated.~~ **✅ Closed by N3.** `CPPRSWRCAM` now buffers its `{index,key,target}`
    in the I1 pending queue and applies to the CAM only on **commit**; a dependent CAM
