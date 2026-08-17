@@ -91,6 +91,23 @@
           cva6-src = cva6-parser-src;
         };
 
+        # Base-ISA regression (G11): build the patched model + assert a directed slice
+        # of RV64GC (integer/M/A/F/D/CSR/branches) still retires correctly on the
+        # PATCHED core — the parser extension is transparent to the base ISA. Companion
+        # to the negative control (N1).
+        cva6-parser-baseisa = import ./nix/parser-baseisa.nix {
+          inherit pkgs;
+          cva6-src = cva6-parser-src;
+        };
+
+        # 2nd-config integration (G10): build the patched model under the RV64GC
+        # write-back-cache config (cv64a6_imafdc_sv39_wb) + run the in-core parser test
+        # — the FU integrates under a different config, not just the default.
+        cva6-parser-config-wb = import ./nix/parser-config-wb.nix {
+          inherit pkgs;
+          cva6-src = cva6-parser-src;
+        };
+
         # Pinned xdp2 source (for the proto_audit packet corpus, Phase 2).
         xdp2-src = import ./nix/xdp2.nix { inherit pkgs; };
 
@@ -122,6 +139,8 @@
           parser-negative-control = parser-negative-control;
           cva6-parser-trap-v7 = cva6-parser-trap-v7;
           cva6-parser-trap-v6 = cva6-parser-trap-v6;
+          cva6-parser-baseisa = cva6-parser-baseisa;
+          cva6-parser-config-wb = cva6-parser-config-wb;
           # The pinned xdp2 source (packet corpus): `nix build .#xdp2-src`.
           xdp2-src = xdp2-src;
           # Golden-model runners as packages too.
@@ -188,6 +207,21 @@
         apps.cva6-parser-trap-v6 = {
           type = "app";
           program = "${cva6-parser-trap-v6}/bin/cva6-parser-trap-v6";
+        };
+
+        # Base-ISA regression (G11): RV64GC must still retire correctly on the patched
+        # core — the parser extension is transparent to the base ISA:
+        # `nix run .#cva6-parser-baseisa`.
+        apps.cva6-parser-baseisa = {
+          type = "app";
+          program = "${cva6-parser-baseisa}/bin/cva6-parser-baseisa";
+        };
+
+        # 2nd-config FU integration (G10): the parser FU must issue/execute/retire
+        # under the RV64GC write-back-cache config too: `nix run .#cva6-parser-config-wb`.
+        apps.cva6-parser-config-wb = {
+          type = "app";
+          program = "${cva6-parser-config-wb}/bin/cva6-parser-config-wb";
         };
 
         # Run the golden-model tests: `nix run .#model-test`.
