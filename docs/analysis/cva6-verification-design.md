@@ -284,18 +284,20 @@ mutual-exclusion assumption); a `custom-3` readback confirms state after redirec
 > resolves, so it asserts they never co-assert). Also proven by wrap-TB Scenarios 7
 > (program → readback) and 8 (`CAMNEXT` hit → redirect).
 >
-> **⚠ Deferred escalation — CAM-write speculation-safety.** Unlike parser register state
-> (commit-gated via the pending queue, I1) and the metadata frame (commit-gated, I2), the
-> CAM write is applied at **execute** — deliberately, so a following lookup in the same
-> straight-line program sees the entry immediately (there is no CAM speculative-forward
-> path). A squashed `CPPRSWRCAM` would therefore leave a stale entry. This is acceptable
-> for setup-time programming (the patent treats CAM programming as setup, not a
-> parse-hot-path op) and for the directed test, but commit-gated / flush-rolled-back CAM
-> programming is a **tracked escalation** (same honest-deferral posture as the I2 sim-only
-> backdoor) — loop back when deeper analysis (speculative CAM writes on a mispredict path)
-> requires it. Full packet→flow_keys equivalence still needs I5's model cosim (the golden
-> model's CAM is static `const` tables and does not execute runtime `CPPRSWRCAM`, so the
-> CAM-write path is in-core self-checked here, not model-compared).
+> **✓ CAM-write speculation-safety — closed by N3.** The `CPPRSWRCAM` program now rides
+> the same pending-queue commit-gate as parser register state (I1) and the metadata frame
+> (I2): its `{index, key, target}` are buffered on accept and applied to the CAM only when
+> the op **commits**, so a squashed speculative `CPPRSWRCAM` never reaches the CAM. Because
+> there is no CAM speculative-forward path, a dependent lookup (`CPPRSRDCAM` or a parse
+> `OP_CAMNEXT`) **interlocks** at issue until every older CPPRSWRCAM has committed — correct
+> because CAM programming is setup-time (the patent treats it as setup, not a parse-hot-path
+> op), and the older commit never depends on the stalled lookup, so it cannot deadlock.
+> Proven by `parser_wrap_tb` Sc.12 (speculative program → flush → entry absent; program →
+> commit → entry present) plus the `a_camprog_on_commit` / `a_cam_lookup_interlock` SVAs, and
+> exercised in-core (`*** PARSER CAM REDIRECT OK ***`) and over all 22 cosim packets. Full
+> packet→flow_keys equivalence still needs I5's model cosim (the golden model's CAM is static
+> `const` tables and does not execute runtime `CPPRSWRCAM`, so the CAM-write path is in-core
+> self-checked, not model-compared).
 
 ### I5 — Full op coverage + model-generated encodings (fixes G5/G9)
 
@@ -545,11 +547,14 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
 4. **V-table V6 / V7 / V10** — interrupt mid-parse (V6) and faulting-instruction
    squash (V7) need interrupt/exception plumbing; context-switch save/restore (V10)
    needs the parser-state ABI decision first (§6). Deferred **beyond** this refactor.
-5. **CAM-write speculation-safety** — `CPPRSWRCAM` applies at **execute**, not
-   commit-gated / flush-rolled-back (unlike parser register state and the metadata
-   frame), so a squashed CAM write leaves a stale entry. Acceptable for setup-time
-   programming (the patent treats CAM programming as setup); commit-gated CAM
-   programming is a tracked escalation.
+5. ~~**CAM-write speculation-safety** — `CPPRSWRCAM` applies at execute, not
+   commit-gated.~~ **✅ Closed by N3.** `CPPRSWRCAM` now buffers its `{index,key,target}`
+   in the I1 pending queue and applies to the CAM only on **commit**; a dependent CAM
+   lookup (`CPPRSRDCAM` / parse `OP_CAMNEXT`) interlocks at issue until every older
+   CPPRSWRCAM commits (no deadlock — CAM programming is setup-time). A squashed
+   speculative CAM write never reaches the CAM. `parser_wrap_tb` Sc.12 (flush → entry
+   absent; commit → present) + `a_camprog_on_commit`/`a_cam_lookup_interlock` SVAs; cosim
+   22/22 + in-core `*** PARSER CAM REDIRECT OK ***` still pass.
 6. ~~**Deferred custom-3 form** — the immediate-load move.~~ **✅ Closed by N2.**
    `CPPRSWRIMM` writes a p-register from an 11-bit split immediate (`Imm2[20:15]`,
    `Imm1[11:7]`), commit-gated on the same I1 pending-queue path as `CPPRSWR`. RTL:

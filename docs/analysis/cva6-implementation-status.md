@@ -18,7 +18,7 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 | **I2** | Metadata sink (commit-gated `meta_mem`) + in-core value-check via **sim-only backdoor** | ✅ | #22 | G1, G8 | `rtl/cva6_parser_wrap.sv`, `tb/parser_wrap_tb.sv`, `nix/cva6-parser/tb-backdoor.patch`, `tests/cva6-parser/parser_insn.S` | wrap-TB metadata scenario green (`parser-wrap-test`); in-core `prs.storeimm`→`meta_mem[4]=0xAB` observed via harness XMR watcher (`*** PARSER META OK ***`) in `cva6-parser-test` |
 | **I3** | custom-3 register readback (`prs.mv.x.p`) | ✅ | #23 | G4 | `rtl/parser_decode.sv` (CPPRSRD), `rtl/parser_pkg.sv` (`cpreg`/`rd_preg`), `rtl/cva6_parser_wrap.sv` (`read_preg`), `tests/cva6-parser/parser_insn.S` | in-core `prs.mv.x.p t2,p11` == `P_STOP_OKAY`, program-self-checked via `tohost` (exercises integer-RF WB + RAW forwarding, V3); wrap-TB Scenario 5. **No `cva6.sv`/patch change** — decoder already sets `rd`, `wt_valid[PARSER_WB]` already latches result |
 | **I4a** | End-of-node fetch redirect (node-index → byte PC) | ✅ | #24 | G3 | `rtl/cva6_parser_wrap.sv` (combinational `resolve`/`redirect_pc_calc`), `nix/cva6-parser/issue-ex.patch` (latch `pc_o` for `fu==PARSER`), `tb/parser_wrap_tb.sv`, `nix/cva6-parser/tb-backdoor.patch`, `tests/cva6-parser/parser_insn.S` | wrap-TB Scenario 6 (target = pc_i + node_delta*4); in-core next-node jump skips a poison store + lands on target (`*** PARSER REDIRECT OK ***`, tohost=0/4325 cyc). Needed same-cycle resolve + parser-PC threading (see notes) |
-| **I4b** | CAM programming (custom-3 CPPRSWR/CPPRSWRCAM/CPPRSRDCAM) + CAM-hit redirect | ✅ | #25 | G3, G4 | `rtl/parser_cam.sv` (clocked program port), `rtl/parser_decode.sv` (write/CAM decodes), `rtl/cva6_parser_wrap.sv` (`rs1_i`, `write_preg`, CAM program drive, lookup mux), `nix/cva6-parser/issue-ex.patch` (rs1 = `fu_data_i[0].operand_a` → FU; CAM program port; **branch/parser mux-exclusivity SVA**), `tb/parser_wrap_tb.sv` (Sc.7/8), `nix/cva6-parser/tb-backdoor.patch`, `tests/cva6-parser/parser_insn.S` | wrap-TB Sc.7 (program → CPPRSRDCAM readback == target) + Sc.8 (CAMNEXT hit → redirect to programmed node); in-core CPPRSRDCAM self-check (tohost) + `*** PARSER CAM REDIRECT OK ***`. Unblocks OP_CAMNEXT. CAM write is execute-time (speculation-safety deferred — see notes) |
+| **I4b** | CAM programming (custom-3 CPPRSWR/CPPRSWRCAM/CPPRSRDCAM) + CAM-hit redirect | ✅ | #25 | G3, G4 | `rtl/parser_cam.sv` (clocked program port), `rtl/parser_decode.sv` (write/CAM decodes), `rtl/cva6_parser_wrap.sv` (`rs1_i`, `write_preg`, CAM program drive, lookup mux), `nix/cva6-parser/issue-ex.patch` (rs1 = `fu_data_i[0].operand_a` → FU; CAM program port; **branch/parser mux-exclusivity SVA**), `tb/parser_wrap_tb.sv` (Sc.7/8), `nix/cva6-parser/tb-backdoor.patch`, `tests/cva6-parser/parser_insn.S` | wrap-TB Sc.7 (program → CPPRSRDCAM readback == target) + Sc.8 (CAMNEXT hit → redirect to programmed node); in-core CPPRSRDCAM self-check (tohost) + `*** PARSER CAM REDIRECT OK ***`. Unblocks OP_CAMNEXT. **CAM-write speculation-safety closed by N3**: CPPRSWRCAM is now commit-gated (buffered in the I1 queue, applied on commit) with a lookup interlock (`tb/parser_wrap_tb.sv` Sc.12) |
 | **I5** | All op classes + model-generated encodings + table-driven cosim over **real MMIO** | ✅ | #26 | G5, G9 (+ closes the I2 MMIO escalation) | `nix/cva6-parser-cosim.nix`, `scripts/cva6-parser-cosim.sh`, `verif/gen/gen_parser_rom.c` (`camprog.hex`), `nix/cva6-parser/mmio.patch` (SoC peripheral + xbar), `rtl/parser_pktbuf.sv` (write port), `rtl/cva6_parser_wrap.sv` (meta-read + parse-exit redirect + status), `toolchain/parser_mmio.h`, `tests/cva6-parser/cosim_main.S` | `cva6-parser-cosim` **15/15** — in-core packet→flow_keys equivalence vs the model, byte-for-byte + exit code, over real `sd`/`ld` MMIO |
 | V-tables | Directed V1–V11 (branch-shadow, hazards, interrupts, reset/X…) | 🔵 | #27–#30, PR-5 | G6, G7, G13 | test programs + `parser_wrap_tb.sv` | V1–V5/V8/V9/V11 green (branch-shadow, interlock, RAW, WAW, adjacency, redirect/exit, reset-X); V6/V7/V10 deferred (§3.1) |
 | Regression | Base-ISA regression + negative control + coverage in CI | 🔵 | N1 | G10, G11, G12 | `nix/parser-negative-control.nix`, `scripts/parser-negative-control.sh`, `tests/cva6-parser/negctl.S`, CI config | Negative control ✅ (N1: `parser-negative-control` — stock core traps the custom-0 word); base-ISA regression + 2nd config (N6), coverage (N7) still open |
@@ -30,7 +30,7 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 |--|--|--|
 | G1 no in-core value checking | I2 → I5 | ✅ (I5: full packet→flow_keys cosim over real MMIO, 22/22 vs the model; the I2 sim-only backdoor is superseded) |
 | **G2 speculation/flush state corruption** | **I1** | ✅ (fix merged + verified by `parser-wrap-test`; PR #21) |
-| G3 redirect untested in-core | I4a (redirect) / I4b (CAM) → I5 | ✅ (I4a: end-of-node redirect fires + steers fetch in-core; I4b: CAM programmed/read back from the integer side, CAMNEXT hit drives a real redirect, mux-exclusivity SVA. **I5 exercises the redirect + CAMNEXT-hit + parse-exit-return path over 22 real packets** (15 at I5, +7 Table-A edge rows at PR-4) — every graph walk jumps/exits correctly. Remaining *separate* escalation: CAM-write speculation-safety, see notes) |
+| G3 redirect untested in-core | I4a (redirect) / I4b (CAM) → I5 | ✅ (I4a: end-of-node redirect fires + steers fetch in-core; I4b: CAM programmed/read back from the integer side, CAMNEXT hit drives a real redirect, mux-exclusivity SVA. **I5 exercises the redirect + CAMNEXT-hit + parse-exit-return path over 22 real packets** (15 at I5, +7 Table-A edge rows at PR-4) — every graph walk jumps/exits correctly. CAM-write speculation-safety **closed by N3** — CPPRSWRCAM is commit-gated with a dependent-lookup interlock) |
 | G4 custom-3 untested | I3 / I4b | ✅ (read **and** write now merged: CPPRSRD register read — `read_preg` p-reg selector, PR #23; CPPRSWR register write + CPPRSWRCAM CAM program + CPPRSRDCAM CAM readback, all rs1-threaded from `ex_stage`, PR #25. In-core self-checks + wrap-TB Scenarios 5/7. The last custom-3 form — **CPPRSWRIMM immediate-load** — is now implemented (N2): `parser_decode` I=1 leg + split-imm extract, commit-gated on the CPPRSWR path, decode patch zeroes integer rs1/rd; wrap-TB Sc.11 + in-core directed row) |
 | G5 one op only | I5 | ✅ (every op class — load/store/storeimm/lensetmin/cmpib·neib·ord/cam/camnext/next/stp + custom-3 moves — exercised by the 22-case cosim + wrap-TB; model-generated program) |
 | G6 pipeline hazards | I3/I1 + V-rows | ✅ (RAW forwarding via the I3 self-check (V3); WAW last-writer-wins (V4) + parser-op adjacency to mul/CSR/branch with no WB/commit-port contention (V5) — PR-5, `parser_wrap_tb` Sc.9 + in-core `parser_insn.S`; back-to-back interlock is wrap-TB Sc.3 (V2)) |
@@ -58,8 +58,8 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 
 - **What's deferred lives in one place.** The single canonical deferral list is
   [cva6-verification-design.md §3.1](cva6-verification-design.md#31-canonical-deferral-list-single-source-of-truth)
-  (V6/V7/V10, CAM-write speculation-safety,
-  the immediate-load custom-3 form, the escalation layers, DMA feed, DFT/POST). The
+  (V6/V7/V10, the escalation layers, DMA feed, DFT/POST — CAM-write
+  speculation-safety and the immediate-load custom-3 form are now closed). The
   per-increment notes below add detail but do not re-enumerate it.
 - **I1 pending-queue depth `D`** = 4 (power-of-two ring; stall issue when full). Tune
   from observed issue→commit reorder distance.
@@ -154,12 +154,15 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
   The golden model has a **static** CAM (`program.c` const tables) and does not execute
   runtime `CPPRSWRCAM`, so the CAM-write path is **in-core self-checked** (CPPRSRDCAM
   readback via `tohost`, CAMNEXT redirect via the backdoor), not model-compared — full
-  packet→flow_keys equivalence stays with I5. **Deferred escalation:** the CAM write is
-  applied at **execute** (speculative, so a following lookup sees it immediately) and is
-  **not** commit-gated / rolled back on flush — a squashed CPPRSWRCAM would leave a stale
-  entry. Acceptable for setup-time programming (the patent treats CAM programming as
-  setup) and for the straight-line directed test; commit-gated CAM programming is a tracked
-  escalation, like the I2 sim-only backdoor.
+  packet→flow_keys equivalence stays with I5. **CAM-write speculation-safety — closed by
+  N3:** the CAM write is now commit-gated. CPPRSWRCAM buffers its `{index,key,target}` in
+  the I1 pending queue and applies to the CAM only on **commit** (like the metadata scatter),
+  so a squashed speculative CPPRSWRCAM never reaches the CAM. Since there is no CAM
+  speculative-forward path, a dependent lookup (CPPRSRDCAM / parse OP_CAMNEXT) **interlocks**
+  at issue until every older CPPRSWRCAM commits — no deadlock (the older commit never depends
+  on the stalled lookup; CAM programming is setup-time). Proven by `parser_wrap_tb` Sc.12 +
+  the `a_camprog_on_commit`/`a_cam_lookup_interlock` SVAs; cosim 22/22 and the in-core
+  CAMNEXT redirect still pass.
 - **V10 context-switch contract** — design decision precedes the test.
 - **Coverage closure target** — set with the corpus.
 - **I1 formal (follow-up):** the I1 SVA (`a_arch_committed`, `a_flush_rollback`) are
