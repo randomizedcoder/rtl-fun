@@ -18,6 +18,10 @@ in
 pkgs.writeShellApplication {
   name = "cva6-parser-test";
 
+  # SC2329: the shared lib's helpers are invoked from the test body (cross-file),
+  # which shellcheck reads as dead.
+  excludeShellChecks = [ "SC2329" ];
+
   runtimeInputs = [
     pkgs.verilator
     pkgs.gnumake
@@ -37,6 +41,7 @@ pkgs.writeShellApplication {
     export YAMLCPP="''${YAMLCPP:-${pkgs.yaml-cpp}}"
     export CVA6_WORK="''${CVA6_WORK:-$PWD/build/parser-core}"
     export REPO_ROOT="''${REPO_ROOT:-$PWD}"
-  '' + builtins.readFile ../scripts/cva6-baseline.sh
+  '' + builtins.readFile ../scripts/lib/common.sh
+     + builtins.readFile ../scripts/cva6-baseline.sh
      + builtins.readFile ../scripts/cva6-parser-test.sh;
 }

@@ -191,13 +191,9 @@ module parser_wrap_tb
     micro_op_t m; m = '0; m.rd_cam = 1'b1; return m;
   endfunction
 
-  int errors = 0;
-  task automatic check(input bit cond, input string msg);
-    if (!cond) begin
-      errors++;
-      $error("[parser_wrap_tb] CHECK FAILED: %s", msg);
-    end
-  endtask
+  // shared check primitive + tally (tb_checks / tb_fails) — same one
+  // parser_smoke_tb uses; drives its own verdict from tb_fails below.
+`include "tb_check.svh"
 
   // issue one op on the next posedge (assumes ready); deassert after.
   task automatic issue(input logic [TIDW-1:0] t);
@@ -439,10 +435,10 @@ module parser_wrap_tb
     @(posedge clk); #1;
 
     // ---- verdict ----
-    if (errors == 0)
+    if (tb_fails == 0)
       $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext + I5 MMIO meta read)");
     else
-      $fatal(1, "parser_wrap_tb: FAIL (%0d checks failed)", errors);
+      $fatal(1, "parser_wrap_tb: FAIL (%0d checks failed)", tb_fails);
     $finish;
   end
 

@@ -37,17 +37,28 @@ module parser_pktbuf
     if (INIT_FILE != "") $readmemh(INIT_FILE, mem);
   end
 
-  // MMIO write: scatter the enabled lanes (range-checked like the read path). The
-  // zero-init above still runs in sim; the write port overrides bytes as the
-  // preload stores land.
+  localparam int unsigned PKT_IDX_W = $clog2(PKT_MAX);
+
+  // Per-lane write index + in-range select, computed combinationally (range-checked
+  // like the read path) so the sequential write below stays free of blocking-assign
+  // locals — which both verible and svlint reject inside always_ff.
+  logic [PKT_IDX_W-1:0] wr_idx [0:7];
+  logic [7:0]           wr_hit;
+  always_comb begin
+    for (int k = 0; k < 8; k++) begin
+      logic [PKT_OFF_W:0] a;
+      a = {1'b0, wr_addr_i} + k[PKT_OFF_W:0];
+      wr_idx[k] = a[PKT_IDX_W-1:0];
+      wr_hit[k] = wr_be_i[k] && (a < PKT_MAX[PKT_OFF_W:0]);
+    end
+  end
+
+  // MMIO write: scatter the enabled lanes. The zero-init above still runs in sim;
+  // the write port overrides bytes as the preload stores land.
   always_ff @(posedge clk_i) begin
     if (wr_en_i) begin
-      for (int k = 0; k < 8; k++) begin
-        logic [PKT_OFF_W:0] a;
-        a = {1'b0, wr_addr_i} + k[PKT_OFF_W:0];
-        if (wr_be_i[k] && a < PKT_MAX[PKT_OFF_W:0])
-          mem[a[$clog2(PKT_MAX)-1:0]] <= wr_data_i[8*k +: 8];
-      end
+      for (int k = 0; k < 8; k++)
+        if (wr_hit[k]) mem[wr_idx[k]] <= wr_data_i[8*k +: 8];
     end
   end
 
@@ -58,7 +69,6 @@ module parser_pktbuf
   assign sub  = req_off_i[2:0];
 
   // 128-bit window (16 bytes) at base; win[0] is the byte at `base`.
-  localparam int unsigned PKT_IDX_W = $clog2(PKT_MAX);
   logic [7:0] win [0:15];
   always_comb begin
     for (int i = 0; i < 16; i++) begin

@@ -31,14 +31,22 @@
 #
 set -euo pipefail
 
+# Shared helpers (REPO_ROOT/MODEL/GCC + gen_vectors, rv_assemble, run_model, and
+# the suite driver). readFile-prepended by the Nix wrapper; sourced here when run
+# directly.
+if ! declare -F gen_vectors >/dev/null 2>&1; then
+  _lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
+  # shellcheck source=/dev/null
+  . "$_lib/common.sh"
+  # shellcheck source=/dev/null
+  . "$_lib/suite.sh"
+fi
+
 WORK="${CVA6_WORK:-$PWD/build/parser-core}"
-ROOT="${REPO_ROOT:-$PWD}"
 BIN="$WORK/cva6/work-ver/Variane_testharness"
-TESTDIR="$ROOT/tests/cva6-parser"
-MODEL="$ROOT/model/libparsermodel"
+TESTDIR="$REPO_ROOT/tests/cva6-parser"
 OUT="$WORK/parser-cosim"
 MAXCYC="${MAX_CYCLES:-200000}"
-GCC="${CV_SW_PREFIX:-riscv64-none-elf-}gcc"
 
 echo "== CVA6 parser in-core co-simulation (I5) =="
 if [ ! -x "$BIN" ]; then
@@ -50,10 +58,7 @@ mkdir -p "$OUT"
 
 # ---- 1. generate the vectors from the golden model (whole directed suite) ----
 echo "== generating vectors from the model =="
-cc -std=c11 -O2 -Wall -Wextra -I "$MODEL" \
-  "$ROOT/verif/gen/gen_parser_rom.c" "$MODEL/parser.c" "$MODEL/program.c" "$MODEL/encoding.c" \
-  -o "$OUT/gen_parser_rom"
-"$OUT/gen_parser_rom" "$OUT" --suite >/dev/null
+gen_vectors "$OUT" --suite >/dev/null
 
 # ---- 2. shared prog.S: the parse block (executable) + the CAM table (data) ----
 PROG_S="$OUT/prog.S"
@@ -108,42 +113,27 @@ gen_case_s() {
   } > "$out"
 }
 
-# ---- 3. per-case: build the ELF, run it, check tohost ----
-echo "=================================================="
-echo "parser in-core cosim (MMIO packet feed -> flow_keys readback)"
-echo "=================================================="
-fails=0
-ncase=0
-# manifest fields: name category expect_ok exp_code len
-while read -r name category _expect_ok exp_code _len; do
-  ncase=$((ncase + 1))
-  cdir="$OUT/cases/$name"
-  case_s="$OUT/case_$name.S"
-  elf="$OUT/cosim_$name.elf"
-  log="$OUT/run_$name.log"
+# ---- 3. per-case: build the ELF, run it, check tohost (via run_suite) ----
+# For each case: emit case.S, link cosim_main.S + prog.S + case.S, run on the
+# model; PASS iff SUCCESS banner AND rc0. On FAIL surface the tohost/last lines.
+cosim_case() {
+  local name="$1" cdir="$4"
+  local case_s="$OUT/case_$name.S" elf="$OUT/cosim_$name.elf" log="$OUT/run_$name.log"
   gen_case_s "$cdir" "$case_s"
-  "$GCC" -march=rv64gc -mabi=lp64d -nostdlib -nostartfiles -I "$TESTDIR" -I "$ROOT/toolchain" \
-    -T "$TESTDIR/link.ld" "$TESTDIR/cosim_main.S" "$PROG_S" "$case_s" -o "$elf"
-  set +e
-  "$BIN" "$elf" "+max-cycles=$MAXCYC" >"$log" 2>&1
-  rc=$?
-  set -e
-  if grep -q "\*\*\* SUCCESS \*\*\*" "$log" && [ "$rc" -eq 0 ]; then
-    result="PASS"
-  else
-    result="FAIL"
-    fails=$((fails + 1))
+  RV_INCLUDES=("$TESTDIR" "$REPO_ROOT/toolchain")
+  rv_assemble "$elf" "$TESTDIR/link.ld" "$TESTDIR/cosim_main.S" "$PROG_S" "$case_s"
+  run_model "$elf" "$log"
+  if model_success "$log" && [ "$MODEL_RC" -eq 0 ]; then
+    return 0
   fi
-  printf '  %-22s %-9s exp_code=%-5s  %s\n' "$name" "$category" "$exp_code" "$result"
-  if [ "$result" = "FAIL" ]; then
-    # surface the tohost value (fail code) + last lines for triage
-    grep -E "tohost|SUCCESS|FAIL|max-cycles" "$log" | sed 's/^/      /' | tail -4
-  fi
-done < "$OUT/cases.txt"
-echo "--------------------------------------------------"
-echo "parser cosim: $ncase cases, $fails failures"
-echo "=================================================="
-if [ "$fails" -eq 0 ]; then
+  # surface the tohost value (fail code) + last lines for triage
+  mapfile -t CASE_TRIAGE < <(grep -E "tohost|SUCCESS|FAIL|max-cycles" "$log" | sed 's/^/      /' | tail -4)
+  return 1
+}
+
+if run_suite "$OUT/cases.txt" "$OUT/cases" \
+    "parser in-core cosim (MMIO packet feed -> flow_keys readback)" \
+    "parser cosim" cosim_case; then
   echo "== PASS: in-core packet->flow_keys equivalence vs the golden model (I5) =="
   exit 0
 else

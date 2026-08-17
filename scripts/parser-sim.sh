@@ -17,13 +17,18 @@
 
 set -euo pipefail
 
-REPO="${REPO:-$PWD}"
-RTL="$REPO/rtl"
-TB="$REPO/tb"
-VERIF="$REPO/verif"
-MODEL="$REPO/model/libparsermodel"
+# Shared helpers (canonical paths, gen_vectors, PARSER_VFLAGS + the suite driver).
+# readFile-prepended by the Nix wrapper; sourced here when run directly.
+if ! declare -F gen_vectors >/dev/null 2>&1; then
+  _lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
+  # shellcheck source=/dev/null
+  . "$_lib/common.sh"
+  # shellcheck source=/dev/null
+  . "$_lib/suite.sh"
+fi
+
 MODE="${PARSER_MODE:-run}"
-BUILD="${PARSER_BUILD:-$REPO/build/parser}"
+BUILD="${PARSER_BUILD:-$REPO_ROOT/build/parser}"
 
 if [ ! -d "$RTL" ]; then
   echo "parser-sim: $RTL not found — run from the repo root" >&2
@@ -33,19 +38,14 @@ mkdir -p "$BUILD"
 
 # 1. generate the test vectors from the golden model (--suite emits the whole
 #    directed suite under $BUILD/cases/ plus the baseline case in $BUILD).
-cc -std=c11 -O2 -Wall -Wextra -I "$MODEL" \
-  "$VERIF/gen/gen_parser_rom.c" "$MODEL/parser.c" "$MODEL/program.c" "$MODEL/encoding.c" \
-  -o "$BUILD/gen_parser_rom"
-# suite + decode both run every directed case; decode also needs enc.hex per case.
+#    suite + decode both run every directed case (decode also needs enc.hex).
 if [ "$MODE" = "suite" ] || [ "$MODE" = "decode" ]; then
-  "$BUILD/gen_parser_rom" "$BUILD" --suite
+  gen_vectors "$BUILD" --suite
 else
-  "$BUILD/gen_parser_rom" "$BUILD"
+  gen_vectors "$BUILD"
 fi
 
-# 2. source list + common Verilator flags (bug-indicating lints stay fatal;
-#    UNUSEDPARAM/UNUSEDSIGNAL are waived: the package defines the full ISA
-#    vocabulary and datapath temporaries are intentionally wider than one use).
+# 2. source list + Verilator flags (PARSER_VFLAGS = the shared warning/assert set).
 srcs=(
   "$RTL/parser_pkg.sv"
   "$RTL/parser_pktbuf.sv"
@@ -56,9 +56,8 @@ srcs=(
   "$TB/parser_smoke_tb.sv"
 )
 common=(
-  -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-SYNCASYNCNET
-  --assert +define+PARSER_ASSERT
-  "-I$RTL" "-I$BUILD"
+  "${PARSER_VFLAGS[@]}"
+  "-I$RTL" "-I$TB" "-I$BUILD"
   --top-module parser_smoke_tb
 )
 
@@ -67,8 +66,8 @@ if [ "$MODE" = "lint" ]; then
   # also lint the CVA6 seam FU (not instantiated in the smoke test): the
   # in-pipeline unit + its handshake assertions must stay elaboration-clean.
   verilator --lint-only \
-    -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-SYNCASYNCNET --assert +define+PARSER_ASSERT \
-    "-I$RTL" "-I$BUILD" --top-module cva6_parser_wrap \
+    "${PARSER_VFLAGS[@]}" \
+    "-I$RTL" "-I$TB" "-I$BUILD" --top-module cva6_parser_wrap \
     "$RTL/parser_pkg.sv" "$RTL/parser_execute.sv" "$RTL/cva6_parser_wrap.sv"
   echo "parser-sim: lint clean (-Wall, bug-class lints fatal)"
   exit 0
@@ -92,37 +91,30 @@ esac
 ( cd "$BUILD" && rm -rf obj_dir && verilator "${vflags[@]}" "${common[@]}" "${srcs[@]}" )
 
 # 4. run. suite/decode = every directed case in its own dir; otherwise baseline.
-if [ "$MODE" = "suite" ] || [ "$MODE" = "decode" ]; then
-  echo "=================================================="
-  if [ "$MODE" = "decode" ]; then
-    echo "parser directed suite (decode path: 32-bit words -> parser_decode)"
-  else
-    echo "parser directed suite"
+# Per-case work for run_suite: symlink the shared vectors beside the per-case
+# packet/expected, run the (single) verilated binary in the case dir, PASS iff it
+# exits 0; on FAIL surface the run log (indented) via CASE_TRIAGE.
+sim_case() {
+  local cdir="$4"
+  ln -sf ../../program.hex ../../cam.hex ../../enc.hex "$cdir"/
+  if ( cd "$cdir" && "$BUILD/obj_dir/parser-sim" ) > "$cdir/run.log" 2>&1; then
+    return 0
   fi
-  echo "=================================================="
-  fails=0
-  ncase=0
-  # manifest fields: name category expect_ok exp_code len
-  # (expect_ok/len only used by gen's self-check; the runner needs name/cat/code)
-  while read -r name category _expect_ok exp_code _len; do
-    ncase=$((ncase + 1))
-    cdir="$BUILD/cases/$name"
-    # program + CAM (+enc for decode mode) are shared; link them beside vectors.
-    ln -sf ../../program.hex ../../cam.hex ../../enc.hex "$cdir"/
-    if ( cd "$cdir" && "$BUILD/obj_dir/parser-sim" ) > "$cdir/run.log" 2>&1; then
-      result="PASS"
-    else
-      result="FAIL"
-      fails=$((fails + 1))
-    fi
-    printf '  %-22s %-9s exp_code=%-4s  %s\n' "$name" "$category" "$exp_code" "$result"
-    [ "$result" = "FAIL" ] && sed 's/^/      /' "$cdir/run.log"
-  done < "$BUILD/cases.txt"
-  echo "--------------------------------------------------"
-  echo "parser suite: $ncase cases, $fails failures"
-  echo "=================================================="
-  [ "$fails" -eq 0 ] || exit 1
-  exit 0
+  mapfile -t CASE_TRIAGE < <(sed 's/^/      /' "$cdir/run.log")
+  return 1
+}
+
+if [ "$MODE" = "suite" ] || [ "$MODE" = "decode" ]; then
+  if [ "$MODE" = "decode" ]; then
+    title="parser directed suite (decode path: 32-bit words -> parser_decode)"
+  else
+    title="parser directed suite"
+  fi
+  if run_suite "$BUILD/cases.txt" "$BUILD/cases" "$title" "parser suite" sim_case; then
+    exit 0
+  else
+    exit 1
+  fi
 fi
 
 ( cd "$BUILD" && ./obj_dir/parser-sim )
