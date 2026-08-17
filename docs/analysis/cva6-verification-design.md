@@ -174,6 +174,15 @@ flow_keys that `memcmp`-equals the model's — the first true in-core co-simulat
 >   in-core self-check clean — more robust than fighting Verilator XMR at sim-end.
 >
 > Tracking: `cva6-implementation-status.md` (I2 row + notes).
+>
+> > **✅ ESCALATION CLOSED by I5 (this PR).** Option A is now built — a real SoC AXI
+> > slave at `ariane_soc::ParserBase` (`nix/cva6-parser/mmio.patch`): `axi2mem` bridges
+> > `sd`/`ld` into the FU's `parser_pktbuf` write port and the commit-gated `meta_mem`
+> > read port (ports threaded `ariane`→`cva6`→`ex_stage`→FU), plus ParseLen / exit-PC /
+> > status registers; `toolchain/parser_mmio.h` documents the map. The I5 cosim feeds
+> > every packet in and reads flow_keys back over the real bus — no backdoor. The
+> > sim-only XMR watcher survives only for the pre-I5 `cva6-parser-test` markers. Full
+> > design + the `axi2mem` registered-read gotcha: `docs/analysis/cva6-parser-mmio.md`.
 
 ### I3 — custom-3 readback (fixes G4) — the cheapest oracle
 
@@ -299,6 +308,24 @@ can't make the test pass on the wrong instruction. `gen_parser_rom.c` already em
 
 **Exit check:** every op class routes decode→`fu_op`→FU correctly, each self-checked.
 
+> **As implemented (this PR).** The `cva6-parser-cosim` app (`scripts/
+> cva6-parser-cosim.sh` + `nix/cva6-parser-cosim.nix`) is the table-driven in-core
+> co-sim. `gen_parser_rom` emits the parse program (`enc.hex`) **and** the packed
+> CAM-programming words (`camprog.hex`); the fixed driver (`tests/cva6-parser/
+> cosim_main.S`) is linked per case with a generated `prog.S` (parse block + CAM
+> table) and `case.S` (packet + expected flow_keys/code). Per case it `sd`s the packet
+> over **real MMIO** (the I5 SoC peripheral — see the I2 escalation-closed banner and
+> `cva6-parser-mmio.md`), sets `ParseLen` + an exit-landing PC, programs the CAM
+> (CPPRSWR + CPPRSWRCAM), jumps into the contiguous custom-0 block, and the FU walks
+> the graph (node-index→byte-PC redirects; a **subroutine-return redirect** to the
+> landing PC on parse exit), then `ld`s the committed flow_keys + latched exit status
+> back and compares to the model. **Result: 15/15, flow_keys byte-for-byte + exit code
+> equal to the model** across positive/negative/boundary/corner — closing G5 (all op
+> classes exercised) and G9 (program + CAM are model-generated, no hand `.word`s). One
+> non-obvious integration bug is documented in the status tracker + MMIO doc: a
+> peripheral hung off `axi2mem` must present **registered** read data (1-cycle latency),
+> else the combinational `addr_o = cons_addr` next-beat advance returns `mem[addr+8]`.
+
 ## 2. Verification design — table-driven
 
 ### 2.1 The oracle and the generator
@@ -368,6 +395,11 @@ rows below that the current set lacks. ✅ = row exists today, ➕ = to add.
 | 21 | packet **> buffer** | BND | fail-safe | ➕ bound enforced |
 | 22 | 1-byte / unaligned start | COR | per model | ➕ aligner corner |
 
+> **Status.** Rows **01–15 run in-core over real MMIO** in `cva6-parser-cosim`
+> (15/15, flow_keys + exit bit-exact vs the model). Rows **16–22 (➕) remain a tracked
+> follow-up** — they need new packet builders in `gen_parser_rom.c`; once added there
+> they flow into the cosim automatically (one generator). Not built by I5; not "done".
+
 ### 2.4 Table B — instruction/op cases (fixes G5)
 
 One row per op class, each self-checked via custom-3 readback (I3) or the metadata
@@ -383,6 +415,15 @@ frame (I2). Encodings generated from `encoding.c` (I5).
 | `next` / `stp` | end-of-node → redirect/exit | — | redirect PC / exit |
 | custom-3 moves | read/write p-reg == expected | `rd`+forwarding | integer `rd` |
 
+> **Status.** Every op class in this table is **exercised in-core** — the 15 cosim
+> packets walk graphs that use load/store/storeimm/lensetmin/cmpib·neib·cmpord/cam/
+> camnext/next/stp, and the custom-3 moves drive CAM programming + readback each run;
+> the positive behaviour is model-checked end-to-end via flow_keys + exit code.
+> **Deferred (tracked):** the dedicated *per-op negative/boundary* rows (e.g. an
+> isolated "store past frame → assert fires", "lensetmin min>remaining", "load past
+> parse_len") as standalone directed cases — the negative behaviour is today covered
+> only where the corpus packets happen to hit it, not one row per op.
+
 ### 2.5 Table C — pipeline/integration cases (fixes G2/G3/G6/G7)
 
 These are the *in-core-only* rows — the interactions the standalone unit cannot
@@ -397,8 +438,8 @@ have. Each is a directed program plus a property.
 | V5 | parser op adjacent to load/store/branch/CSR/mul | COR | no WB/commit-port contention |
 | V6 | **timer/external interrupt** mid-parse | COR | clean; resumes or restarts correctly (**G7**) |
 | V7 | preceding **faulting** instr squashes parser op | COR | no state corruption (**G2/G7**) |
-| V8 | **end-of-node redirect** taken | POS | fetch resumes at target PC (**G3**) |
-| V9 | parse-**exit** redirect (not trap) | POS | redirects per contract (**G7**) |
+| V8 | **end-of-node redirect** taken | POS | fetch resumes at target PC (**G3**) — ✅ I4a + I5 (every cosim walk jumps mid-graph) |
+| V9 | parse-**exit** redirect (not trap) | POS | redirects per contract (**G7**) — ✅ I5: on exit the FU steers fetch to a program-provided landing PC ("subroutine return"); all 15 cosim cases return + read back |
 | V10 | **context switch** save/restore of parser regs | COR | state preserved (Risk R2 — needs design) |
 | V11 | **reset** then first op | BND | defined state, no X (**G13**) |
 
@@ -442,15 +483,15 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
 
 | Gap (from eval) | Closed by | Proven by |
 |--|--|--|
-| G1 no value checking | I2 (+I3) | Tables A/B in-core co-sim |
-| G2 speculation/flush | **I1** | V1 + formal property |
-| G3 redirect untested | I4 | V8/V9 |
-| G4 custom-3 untested | I3 | Table B custom-3 rows, V3 |
-| G5 one op only | I5 | Table B |
-| G6 hazards | I3/I1 | V2–V5 |
-| G7 interrupts/ctx-switch | I1 (+design) | V6/V7/V10 |
-| G8 metadata sink | I2 | Table A/B observability |
-| G9 hand-encoded | I5 | encodings diffed vs `encoding.c` |
+| G1 no value checking | I2 → **I5** | ✅ Table A in-core cosim over real MMIO (15/15) |
+| G2 speculation/flush | **I1** | ✅ `parser-wrap-test` (V1 + rollback SVA) |
+| G3 redirect untested | I4 → **I5** | ✅ V8/V9 realized (every cosim walk jumps + exit-returns) |
+| G4 custom-3 untested | I3 | ✅ Table B custom-3 rows, V3 |
+| G5 one op only | **I5** | ✅ all op classes in the cosim + wrap-TB |
+| G6 hazards | I3/I1 | 🔵 RAW forwarding proven; full V2–V5 later |
+| G7 interrupts/ctx-switch | I1 (+design) | 🔵 V9 exit-redirect done; V6/V7/V10 later |
+| G8 metadata sink | I2 → **I5** | ✅ commit-gated frame, MMIO-visible, cosim-checked |
+| G9 hand-encoded | **I5** | ✅ program + CAM model-generated (`enc.hex`/`camprog.hex`) |
 | G10 single config | — | §2.7 config matrix (build superscalar/no-cvxif) |
 | G11 no negative control | — | §2.7 CI baseline-trap assertion |
 | G12 no coverage | — | §2.6.5 functional + toggle coverage |

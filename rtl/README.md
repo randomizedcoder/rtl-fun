@@ -7,6 +7,7 @@ that matches the golden C model byte-for-byte.
 ```
 parser_pkg.sv        types, params, ROM word layout, extract_subreg / bswap_n
 parser_pktbuf.sv     packet buffer + 128-bit read window + byte aligner
+                     + a clocked 64-bit write port (MMIO packet preload, I5)
 parser_cam.sv        behavioural CAM (20-bit key -> 32-bit target); $readmemh-loadable
                      + a clocked program/delete port (custom-3 CPPRSWRCAM, I4b)
 parser_execute.sv    the parser functional unit — a hardware exec_one +
@@ -19,7 +20,10 @@ parser_asserts.svh   toggleable assertion macros (PRS_ASSERT / PRS_ASSERT_I):
                      real SVA under +define+PARSER_ASSERT / +FORMAL, else nothing
 parser_decode.sv     32-bit Phase-3 word -> micro_op_t (the CVA6 decode path;
                      RTL twin of model encoding.c / isa/parser-opcodes.yaml)
-cva6_parser_wrap.sv  the in-pipeline FU as it attaches to CVA6 (interface fidelity)
+cva6_parser_wrap.sv  the in-pipeline FU as it attaches to CVA6 (interface fidelity):
+                     commit-gated state + flow_keys frame (I1/I2), custom-3 readback
+                     + CAM program (I3/I4b), end-of-node & parse-exit fetch redirect,
+                     and MMIO meta-read / ParseLen / exit-PC / status ports (I5)
 gen/gen_parser_rom.c host generator: model -> program/CAM/packet/expected/enc vectors
                      (baseline + the directed suite under build/parser/cases/)
 formal/              SymbiYosys harness + .sby proving parser_execute safety

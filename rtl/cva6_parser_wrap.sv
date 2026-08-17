@@ -69,6 +69,7 @@ module cva6_parser_wrap
     input  logic [VLEN-1:0]          pc_i,             // PC of this instruction
     input  logic [63:0]              rs1_i,            // integer rs1 operand (custom-3)
     input  logic [15:0]              parse_len_i,      // PktLen.ParseLen
+    input  logic [VLEN-1:0]          parse_exit_pc_i,  // byte PC to resume at on parse exit (I5)
     output logic                     parser_ready_o,   // unit can accept
 
     // ---- commit notification (COMMIT_STAGE) : make parser state commit-visible ----
@@ -102,7 +103,22 @@ module cva6_parser_wrap
     output logic                     cam_prog_valid_o,  // 1 = write, 0 = delete (D bit)
     output logic [3:0]               cam_prog_share_o,
     output logic [15:0]              cam_prog_match_o,
-    output logic [31:0]              cam_prog_target_o
+    output logic [31:0]              cam_prog_target_o,
+
+    // ---- metadata frame read port (MMIO flow_keys readback, I5) ----
+    // The SoC MMIO metadata peripheral reads the committed flow_keys so a bare-metal
+    // program can `ld` the result and compare it to the model (closes the deferred MMIO
+    // escalation; replaces the I2/I4 sim-only backdoor XMR reads). 64-bit beat: 8
+    // little-endian bytes from an 8-aligned offset (byte k = meta_rd_addr_i + k).
+    input  logic [META_OFF_W-1:0]    meta_rd_addr_i,
+    output logic [63:0]              meta_rd_data_o,
+
+    // ---- latched parse-exit status (MMIO readback, I5) ----
+    // parse_exit_o/parse_code_o are valid only the cycle the parser exits; the cosim
+    // reads the result later, so latch it: [32] = an exit was seen, [31:0] = the signed
+    // ParserExitCode. Lets negative/boundary cases distinguish a real failure from a
+    // coincidentally-matching partial flow_keys.
+    output logic [63:0]              parse_status_o
 );
 
   // ---- persistent parser machine state (the p-registers live here, in the unit) --
@@ -241,6 +257,24 @@ module cva6_parser_wrap
   localparam int unsigned META_IDX_W = $clog2(META_MAX);
   logic [7:0] meta_mem [0:META_MAX-1];
 
+  // latched parse-exit status for MMIO readback (I5)
+  logic               exit_seen_q;
+  logic signed [31:0] exit_code_q;
+  assign parse_status_o = {31'b0, exit_seen_q, exit_code_q};
+
+  // MMIO flow_keys readback (I5): combinational 64-bit read, range-checked per lane.
+  // Reads the COMMITTED frame (meta_mem is only written on commit), so an `ld` after
+  // the parse program retires observes exactly the architectural flow_keys.
+  always_comb begin
+    meta_rd_data_o = 64'h0;
+    for (int k = 0; k < 8; k++) begin
+      logic [META_OFF_W:0] a;
+      a = {1'b0, meta_rd_addr_i} + k[META_OFF_W:0];
+      if (a < META_MAX[META_OFF_W:0])
+        meta_rd_data_o[8*k +: 8] = meta_mem[a[META_IDX_W-1:0]];
+    end
+  end
+
   logic accept;
   assign accept = parser_valid_i & parser_ready_o & ~flush_i;
   wire accept_state   = accept & is_parse;    // a parse op (advances node, may redirect)
@@ -296,6 +330,8 @@ module cva6_parser_wrap
       pend_tail_q       <= '0;
       for (int unsigned i = 0; i < PEND_DEPTH; i++) pend_q[i] <= '0;
       for (int unsigned i = 0; i < META_MAX; i++) meta_mem[i] <= 8'h0;
+      exit_seen_q       <= 1'b0;
+      exit_code_q       <= '0;
       parser_valid_o    <= 1'b0;
       parser_trans_id_o <= '0;
       parser_result_o   <= '0;
@@ -322,6 +358,15 @@ module cva6_parser_wrap
         end
         // CPPRSWRCAM (op_wr_cam): retires with no state advance / no rd; the CAM
         // write is driven combinationally on cam_prog_* (accept_wrcam) this cycle.
+      end
+
+      // latch the parse-exit status for MMIO readback (I5): the exiting op is an
+      // accepted parse op whose st_n.done just latched (same cycle parse_exit_o pulses).
+      // Gated on the exit EVENT (not the redirect), so status is captured even when no
+      // landing PC was set (an inline parse program that falls through on exit).
+      if (parse_exited) begin
+        exit_seen_q <= 1'b1;
+        exit_code_q <= st_n.code;
       end
 
       // ---- pending-queue bookkeeping: enqueue on accept, apply head on commit -----
@@ -377,10 +422,29 @@ module cva6_parser_wrap
   // off accept_state. Only the FETCH steer is speculative here — parser register state
   // (st_q/st_arch_q) and the metadata frame stay commit-gated (I1), just like a real
   // branch resolves (steers) at execute but retires at commit.
-  assign resolve_branch_o = accept_state & ~st_n.done &
-                            (st_n.next_pc != (st_q.next_pc + 1'b1));
-  assign redirect_pc_o    = redirect_pc_calc;             // node index -> byte PC (I4)
-  assign parse_exit_o     = accept_state & st_n.done;     // parser exited (okay/fail)
+  // A parse op steers fetch when either (a) it jumps to a non-fall-through node (I4),
+  // or (b) it EXITS the parser (I5): once st_q.done latches, no further parse op can
+  // issue (a_ready_low_when_done stalls the pipe forever), so on exit the FU must
+  // redirect the frontend to a program-provided landing PC (parse_exit_pc_i) — the
+  // "parser subroutine return" that lets a full in-core graph walk resume the caller
+  // (e.g. to `ld` the committed flow_keys over MMIO). Exit takes priority over the
+  // node-delta jump (an exiting op has no meaningful next node).
+  wire redirect_jump = accept_state & ~st_n.done &
+                       (st_n.next_pc != (st_q.next_pc + 1'b1));
+  wire parse_exited  = accept_state &  st_n.done;             // parser reached STP/exit
+  // Steer fetch back to the caller ONLY if a landing PC was provided (I5). A parser
+  // program that runs INLINE in the instruction stream (e.g. the directed
+  // parser_insn.S) leaves parse_exit_pc_i at its reset 0 and simply falls through to
+  // the next instruction on exit — no redirect. A program that jumped into a SEPARATE
+  // parse block (the cosim) sets parse_exit_pc_i first, so exit returns to it (else the
+  // pipe would stall on the block's next custom-0 word). PC 0 is the reset vector /
+  // boot ROM, never a valid landing target, so 0 == "unset" is unambiguous.
+  wire have_exit_pc  = (parse_exit_pc_i != '0);
+  wire redirect_exit = parse_exited & have_exit_pc;          // exit -> caller landing (I5)
+  assign resolve_branch_o = redirect_jump | redirect_exit;
+  assign redirect_pc_o    = redirect_exit ? parse_exit_pc_i   // exit -> caller landing (I5)
+                                          : redirect_pc_calc;  // node index -> byte PC (I4)
+  assign parse_exit_o     = parse_exited;                      // parser exited (okay/fail)
   assign parse_code_o     = st_n.code;
   // resolved_branch_o payload is rebuilt in the in-core patch's redirect mux from
   // {resolve_branch_o, redirect_pc_o, pc_i}; this port is left unbound here.
@@ -403,8 +467,12 @@ module cva6_parser_wrap
   `PRS_ASSERT(a_arch_committed, clk_i, rst_ni, !$stable(st_arch_q) |-> $past(pend_commit))
   // SPECULATION SAFETY (G2): after a flush the speculative state == committed state
   `PRS_ASSERT(a_flush_rollback, clk_i, rst_ni, $past(flush_i) |-> (st_q == st_arch_q))
-  // REDIRECT (I4/G3): a fetch redirect and a parse-exit never co-assert in one retire
-  `PRS_ASSERT(a_redirect_xor_exit, clk_i, rst_ni, !(resolve_branch_o & parse_exit_o))
+  // REDIRECT (I5): a parse exit WITH a programmed landing PC steers fetch back to the
+  // caller (else the pipe would stall on the block's next parse op); an inline program
+  // with no landing PC falls through instead. A node jump vs an exit-redirect are
+  // mutually exclusive (an exiting op has no next node) — so never both.
+  `PRS_ASSERT(a_exit_redirects, clk_i, rst_ni, (parse_exit_o & have_exit_pc) |-> resolve_branch_o)
+  `PRS_ASSERT(a_jump_xor_exit, clk_i, rst_ni, !(redirect_jump & redirect_exit))
   // REDIRECT (I4/G3): a redirect strobe is combinational — it co-asserts with the
   // accepted parse op it steers on (same-cycle resolve contract, like branch_unit)
   `PRS_ASSERT(a_redirect_after_state, clk_i, rst_ni, resolve_branch_o |-> accept_state)

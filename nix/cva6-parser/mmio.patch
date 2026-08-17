@@ -1,0 +1,305 @@
+diff --git a/core/cva6.sv b/core/cva6.sv
+index df939ad..70e3b79 100644
+--- a/core/cva6.sv
++++ b/core/cva6.sv
+@@ -327,7 +327,17 @@ module cva6
+     // noc request, can be AXI or OpenPiton - SUBSYSTEM
+     output noc_req_t noc_req_o,
+     // noc response, can be AXI or OpenPiton - SUBSYSTEM
+-    input noc_resp_t noc_resp_i
++    input noc_resp_t noc_resp_i,
++    // parser MMIO (I5): packet-buffer write + ParseLen + flow_keys read (SoC → parser FU)
++    input  logic                              parser_pkt_wr_en_i,
++    input  logic [parser_pkg::PKT_OFF_W-1:0]  parser_pkt_wr_addr_i,
++    input  logic [7:0]                        parser_pkt_wr_be_i,
++    input  logic [63:0]                       parser_pkt_wr_data_i,
++    input  logic [15:0]                       parser_parse_len_i,
++    input  logic [CVA6Cfg.VLEN-1:0]           parser_exit_pc_i,
++    input  logic [parser_pkg::META_OFF_W-1:0] parser_meta_rd_addr_i,
++    output logic [63:0]                       parser_meta_rd_data_o,
++    output logic [63:0]                       parser_status_o
+ );
+ 
+   localparam type interrupts_t = struct packed {
+@@ -1035,6 +1045,16 @@ module cva6
+       // commit notification for parser state (I1): commit_ack[0] + its trans_id
+       .parser_commit_i         (commit_ack[0]),
+       .parser_commit_trans_id_i(commit_instr_id_commit[0].trans_id),
++      // parser MMIO (I5): packet-buffer write + ParseLen + flow_keys read
++      .parser_pkt_wr_en_i      (parser_pkt_wr_en_i),
++      .parser_pkt_wr_addr_i    (parser_pkt_wr_addr_i),
++      .parser_pkt_wr_be_i      (parser_pkt_wr_be_i),
++      .parser_pkt_wr_data_i    (parser_pkt_wr_data_i),
++      .parser_parse_len_i      (parser_parse_len_i),
++      .parser_exit_pc_i        (parser_exit_pc_i),
++      .parser_meta_rd_addr_i   (parser_meta_rd_addr_i),
++      .parser_meta_rd_data_o   (parser_meta_rd_data_o),
++      .parser_status_o         (parser_status_o),
+       // Accelerator
+       .acc_valid_i             (acc_valid_acc_ex),
+       // Performance counters
+diff --git a/core/ex_stage.sv b/core/ex_stage.sv
+index 5619a38..2b8d430 100644
+--- a/core/ex_stage.sv
++++ b/core/ex_stage.sv
+@@ -177,6 +177,16 @@ module ex_stage
+     input logic parser_commit_i,
+     // PARSER committing trans_id (commit port 0) - COMMIT_STAGE
+     input logic [CVA6Cfg.TRANS_ID_BITS-1:0] parser_commit_trans_id_i,
++    // PARSER MMIO (I5): packet-buffer write + ParseLen + flow_keys read - SoC
++    input  logic                              parser_pkt_wr_en_i,
++    input  logic [parser_pkg::PKT_OFF_W-1:0]  parser_pkt_wr_addr_i,
++    input  logic [7:0]                        parser_pkt_wr_be_i,
++    input  logic [63:0]                       parser_pkt_wr_data_i,
++    input  logic [15:0]                       parser_parse_len_i,
++    input  logic [CVA6Cfg.VLEN-1:0]           parser_exit_pc_i,
++    input  logic [parser_pkg::META_OFF_W-1:0] parser_meta_rd_addr_i,
++    output logic [63:0]                       parser_meta_rd_data_o,
++    output logic [63:0]                       parser_status_o,
+     // accelerate port result is valid - ACC_DISPATCHER
+     input logic acc_valid_i,
+     // Enable virtual memory translation - CSR_REGFILE
+@@ -698,8 +708,15 @@ module ex_stage
+         .illegal_o(parser_dec_illegal)
+     );
+ 
+-    // in-core packet window + CAM (empty-backed for the slice)
++    // in-core packet window + CAM. The packet buffer is filled through the SoC MMIO
++    // write port (I5): a bare-metal program `sd`s the packet in before running the
++    // parse program. The read window feeds the extract datapath as before.
+     parser_pktbuf u_parser_pktbuf (
++        .clk_i,
++        .wr_en_i  (parser_pkt_wr_en_i),
++        .wr_addr_i(parser_pkt_wr_addr_i),
++        .wr_be_i  (parser_pkt_wr_be_i),
++        .wr_data_i(parser_pkt_wr_data_i),
+         .req_off_i(parser_pkt_off),
+         .win_be_o (parser_pkt_win_be)
+     );
+@@ -734,7 +751,8 @@ module ex_stage
+         .trans_id_i       (fu_data_i[0].trans_id),
+         .pc_i             (pc_i),
+         .rs1_i            (fu_data_i[0].operand_a),    // integer rs1 (custom-3 moves, I4b)
+-        .parse_len_i      (16'(parser_pkg::PKT_MAX)),  // provisional; real ParseLen via pkt buffer (Phase 8)
++        .parse_len_i      (parser_parse_len_i),        // PktLen.ParseLen via SoC MMIO (I5)
++        .parse_exit_pc_i  (parser_exit_pc_i),          // caller landing PC on parse exit (I5)
+         .parser_ready_o   (parser_ready_o),
+         .parser_valid_o   (parser_valid_o),
+         .parser_trans_id_o(parser_trans_id_o),
+@@ -756,7 +774,10 @@ module ex_stage
+         .cam_prog_valid_o (parser_cam_prog_valid),
+         .cam_prog_share_o (parser_cam_prog_share),
+         .cam_prog_match_o (parser_cam_prog_match),
+-        .cam_prog_target_o(parser_cam_prog_target)
++        .cam_prog_target_o(parser_cam_prog_target),
++        .meta_rd_addr_i   (parser_meta_rd_addr_i),   // MMIO flow_keys readback (I5)
++        .meta_rd_data_o   (parser_meta_rd_data_o),
++        .parse_status_o   (parser_status_o)          // latched exit status (I5)
+     );
+     // the parser drives no CPU exception (exits redirect via resolved_branch_o)
+     assign parser_exception_o = '0;
+diff --git a/corev_apu/src/ariane.sv b/corev_apu/src/ariane.sv
+index 866c6d6..4fb8dc3 100644
+--- a/corev_apu/src/ariane.sv
++++ b/corev_apu/src/ariane.sv
+@@ -63,7 +63,17 @@ module ariane import ariane_pkg::*; #(
+   output rvfi_probes_t rvfi_probes_o,
+   // memory side
+   output noc_req_t                     noc_req_o,
+-  input  noc_resp_t                    noc_resp_i
++  input  noc_resp_t                    noc_resp_i,
++  // parser MMIO (I5): packet-buffer write + ParseLen + flow_keys read (SoC → parser FU)
++  input  logic                              parser_pkt_wr_en_i,
++  input  logic [parser_pkg::PKT_OFF_W-1:0]  parser_pkt_wr_addr_i,
++  input  logic [7:0]                        parser_pkt_wr_be_i,
++  input  logic [63:0]                       parser_pkt_wr_data_i,
++  input  logic [15:0]                       parser_parse_len_i,
++  input  logic [CVA6Cfg.VLEN-1:0]           parser_exit_pc_i,
++  input  logic [parser_pkg::META_OFF_W-1:0] parser_meta_rd_addr_i,
++  output logic [63:0]                       parser_meta_rd_data_o,
++  output logic [63:0]                       parser_status_o
+ );
+ 
+   cvxif_req_t  cvxif_req;
+@@ -105,7 +115,17 @@ module ariane import ariane_pkg::*; #(
+     .cvxif_req_o          ( cvxif_req                 ),
+     .cvxif_resp_i         ( cvxif_resp                ),
+     .noc_req_o            ( noc_req_o                 ),
+-    .noc_resp_i           ( noc_resp_i                )
++    .noc_resp_i           ( noc_resp_i                ),
++    // parser MMIO (I5)
++    .parser_pkt_wr_en_i   ( parser_pkt_wr_en_i        ),
++    .parser_pkt_wr_addr_i ( parser_pkt_wr_addr_i      ),
++    .parser_pkt_wr_be_i   ( parser_pkt_wr_be_i        ),
++    .parser_pkt_wr_data_i ( parser_pkt_wr_data_i      ),
++    .parser_parse_len_i   ( parser_parse_len_i        ),
++    .parser_exit_pc_i     ( parser_exit_pc_i          ),
++    .parser_meta_rd_addr_i( parser_meta_rd_addr_i     ),
++    .parser_meta_rd_data_o( parser_meta_rd_data_o     ),
++    .parser_status_o      ( parser_status_o           )
+   );
+ 
+   if (CVA6Cfg.CvxifEn) begin : gen_example_coprocessor
+diff --git a/corev_apu/tb/ariane_soc_pkg.sv b/corev_apu/tb/ariane_soc_pkg.sv
+index d20b6a6..a86a993 100644
+--- a/corev_apu/tb/ariane_soc_pkg.sv
++++ b/corev_apu/tb/ariane_soc_pkg.sv
+@@ -29,7 +29,8 @@ package ariane_soc;
+     PLIC     = 6,
+     CLINT    = 7,
+     ROM      = 8,
+-    Debug    = 9
++    Parser   = 9,   // parser MMIO: packet-buffer write + ParseLen + flow_keys read (I5)
++    Debug    = 10
+   } axi_slaves_t;
+ 
+   localparam NB_PERIPHERALS = Debug + 1;
+@@ -44,6 +45,7 @@ package ariane_soc;
+   localparam logic[63:0] SPILength      = 64'h800000;
+   localparam logic[63:0] EthernetLength = 64'h10000;
+   localparam logic[63:0] GPIOLength     = 64'h1000;
++  localparam logic[63:0] ParserLength   = 64'h1000;   // parser MMIO window (I5)
+ `ifdef NEXYS_VIDEO
+   localparam logic[63:0] DRAMLength     = 64'h20000000; // 512MByte of DDR on Nexys video board
+ `else
+@@ -63,6 +65,7 @@ package ariane_soc;
+     SPIBase      = 64'h2000_0000,
+     EthernetBase = 64'h3000_0000,
+     GPIOBase     = 64'h4000_0000,
++    ParserBase   = 64'h5000_0000,   // parser MMIO (I5): free gap between GPIO and DRAM
+     DRAMBase     = 64'h8000_0000
+   } soc_bus_start_t;
+ 
+diff --git a/corev_apu/tb/ariane_testharness.sv b/corev_apu/tb/ariane_testharness.sv
+index 12c38a0..15d3f21 100644
+--- a/corev_apu/tb/ariane_testharness.sv
++++ b/corev_apu/tb/ariane_testharness.sv
+@@ -368,6 +368,101 @@ module ariane_testharness #(
+     .rdata_o    ( rom_rdata )
+   );
+ 
++  // ---------------
++  // Parser MMIO (I5) — closes the deferred packet-feed / flow_keys-readback escalation
++  // ---------------
++  // A real SoC slave at ariane_soc::ParserBase (0x5000_0000) so a bare-metal program
++  // can `sd` the packet bytes into the parser FU's packet buffer, program ParseLen, and
++  // `ld` the committed flow_keys back out — the substrate the table-driven cosim needs
++  // (docs/analysis/cva6-verification-design.md §1). axi2mem turns the AXI slave port
++  // into a simple req/we/addr/be/wdata + rdata port (same adapter as the bootrom/DRAM);
++  // a small decode routes it to the write/read ports threaded down into the parser FU.
++  //
++  //   window offset (within ParserBase + 0x0000..0x0FFF):
++  //     0x000..0x0FF   packet buffer   (write; byte offset = offset, 64-bit sd + strb)
++  //     0x100          ParseLen        (write; low 16 bits = PktLen.ParseLen)
++  //     0x200..0x23F   flow_keys frame (read;  meta offset = offset - 0x200, 64-bit ld)
++  logic                         parser_mmio_req, parser_mmio_we;
++  logic [AXI_ADDRESS_WIDTH-1:0] parser_mmio_addr;
++  logic [AXI_DATA_WIDTH/8-1:0]  parser_mmio_be;
++  logic [AXI_DATA_WIDTH-1:0]    parser_mmio_wdata;
++  logic [AXI_DATA_WIDTH-1:0]    parser_mmio_rdata;
++
++  axi2mem #(
++    .AXI_ID_WIDTH   ( ariane_axi_soc::IdWidthSlave ),
++    .AXI_ADDR_WIDTH ( AXI_ADDRESS_WIDTH            ),
++    .AXI_DATA_WIDTH ( AXI_DATA_WIDTH               ),
++    .AXI_USER_WIDTH ( AXI_USER_WIDTH               )
++  ) i_parser_axi2mem (
++    .clk_i  ( clk_i                      ),
++    .rst_ni ( ndmreset_n                 ),
++    .slave  ( master[ariane_soc::Parser] ),
++    .req_o  ( parser_mmio_req            ),
++    .we_o   ( parser_mmio_we             ),
++    .addr_o ( parser_mmio_addr           ),
++    .be_o   ( parser_mmio_be             ),
++    .user_o (                            ),
++    .data_o ( parser_mmio_wdata          ),
++    .user_i ( '0                         ),
++    .data_i ( parser_mmio_rdata          )
++  );
++
++  // window offset (ParserBase is 4KB-aligned ⇒ the low 12 bits ARE the offset)
++  logic [11:0] parser_off;
++  assign parser_off = parser_mmio_addr[11:0];
++
++  // decode: packet write / ParseLen write / metadata read
++  logic                             parser_pkt_wr_en;
++  logic [parser_pkg::PKT_OFF_W-1:0] parser_pkt_wr_addr;
++  logic [7:0]                       parser_pkt_wr_be;
++  logic [63:0]                      parser_pkt_wr_data;
++  logic [15:0]                      parser_parse_len_q;
++  logic [63:0]                      parser_exit_pc_q;
++  logic [parser_pkg::META_OFF_W-1:0] parser_meta_rd_addr;
++  logic [63:0]                      parser_meta_rd_data;
++  logic [63:0]                      parser_status;
++
++  wire parser_wr_pkt  = parser_mmio_req &  parser_mmio_we & (parser_off <  12'h100);
++  wire parser_wr_plen = parser_mmio_req &  parser_mmio_we & (parser_off == 12'h100);
++  wire parser_wr_expc = parser_mmio_req &  parser_mmio_we & (parser_off == 12'h108);
++
++  assign parser_pkt_wr_en   = parser_wr_pkt;
++  assign parser_pkt_wr_addr = parser_off[parser_pkg::PKT_OFF_W-1:0];
++  assign parser_pkt_wr_be   = parser_mmio_be;
++  assign parser_pkt_wr_data = parser_mmio_wdata;
++  assign parser_meta_rd_addr = (parser_off - 12'h200) < 12'(parser_pkg::META_MAX)
++                             ? (parser_off - 12'h200) : '0;
++  // read decode: 0x100 => latched exit status, 0x200.. => flow_keys, else 0.
++  // REGISTERED (synchronous-memory semantics): axi2mem expects a 1-cycle-latency
++  // memory. In its READ state it combinationally advances addr_o to the NEXT beat
++  // address the moment r_ready is high (axi2mem.sv ~line 193: `addr_o = cons_addr`),
++  // so a COMBINATIONAL data_i re-settles to mem[ar_addr + 8] and a single `ld` returns
++  // the wrong word. The bootrom/DRAM avoid this by using registered SRAMs; we do the
++  // same here — register rdata so the beat's data tracks the address presented in IDLE
++  // (ar_addr), immune to that same-cycle reassignment.
++  logic [63:0] parser_mmio_rdata_d, parser_mmio_rdata_q;
++  assign parser_mmio_rdata_d = (parser_off == 12'h100) ? parser_status
++                             : (parser_off >= 12'h200)  ? parser_meta_rd_data
++                             : 64'h0;
++  assign parser_mmio_rdata = parser_mmio_rdata_q;
++
++  always_ff @(posedge clk_i or negedge ndmreset_n) begin
++    if (!ndmreset_n) begin
++      // ParseLen defaults to the whole packet buffer — an unconfigured run parses the
++      // full window (matching the pre-I5 `parse_len_i = PKT_MAX` tie-off). A program
++      // that never writes 0x100 (e.g. the inline directed parser_insn.S) therefore does
++      // NOT see a 0-length packet (which would exit on op 0 and then deadlock the next
++      // inline custom-0 op via a_ready_low_when_done); the cosim overwrites it per case.
++      parser_parse_len_q  <= 16'(parser_pkg::PKT_MAX);
++      parser_exit_pc_q    <= '0;
++      parser_mmio_rdata_q <= '0;
++    end else begin
++      if (parser_wr_plen) parser_parse_len_q <= parser_mmio_wdata[15:0];
++      if (parser_wr_expc) parser_exit_pc_q   <= parser_mmio_wdata;
++      parser_mmio_rdata_q <= parser_mmio_rdata_d;   // 1-cycle read latency
++    end
++  end
++
+   // ------------------------------
+   // GPIO
+   // ------------------------------
+@@ -505,6 +584,7 @@ module ariane_testharness #(
+     '{ idx: ariane_soc::SPI,      start_addr: ariane_soc::SPIBase,      end_addr: ariane_soc::SPIBase + ariane_soc::SPILength           },
+     '{ idx: ariane_soc::Ethernet, start_addr: ariane_soc::EthernetBase, end_addr: ariane_soc::EthernetBase + ariane_soc::EthernetLength },
+     '{ idx: ariane_soc::GPIO,     start_addr: ariane_soc::GPIOBase,     end_addr: ariane_soc::GPIOBase + ariane_soc::GPIOLength         },
++    '{ idx: ariane_soc::Parser,   start_addr: ariane_soc::ParserBase,   end_addr: ariane_soc::ParserBase + ariane_soc::ParserLength     },
+     '{ idx: ariane_soc::DRAM,     start_addr: ariane_soc::DRAMBase,     end_addr: ariane_soc::DRAMBase + ariane_soc::DRAMLength         }
+   };
+ 
+@@ -649,7 +729,17 @@ module ariane_testharness #(
+     .debug_req_i          ( debug_req_core      ),
+ `endif
+     .noc_req_o            ( axi_ariane_req      ),
+-    .noc_resp_i           ( axi_ariane_resp     )
++    .noc_resp_i           ( axi_ariane_resp     ),
++    // parser MMIO (I5): packet-buffer write + ParseLen + flow_keys read
++    .parser_pkt_wr_en_i   ( parser_pkt_wr_en    ),
++    .parser_pkt_wr_addr_i ( parser_pkt_wr_addr  ),
++    .parser_pkt_wr_be_i   ( parser_pkt_wr_be    ),
++    .parser_pkt_wr_data_i ( parser_pkt_wr_data  ),
++    .parser_parse_len_i   ( parser_parse_len_q  ),
++    .parser_exit_pc_i     ( parser_exit_pc_q    ),
++    .parser_meta_rd_addr_i( parser_meta_rd_addr ),
++    .parser_meta_rd_data_o( parser_meta_rd_data ),
++    .parser_status_o      ( parser_status       )
+   );
+ 
+   `AXI_ASSIGN_FROM_REQ(slave[0], axi_ariane_req)

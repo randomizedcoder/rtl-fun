@@ -66,9 +66,12 @@ complete; phases are now being built in order.
   writeback port, and can redirect fetch via `resolved_branch_o`. The patched core
   builds (`nix run .#cva6-parser`) with no baseline regression, and a bare-metal
   custom-0 program **issues, executes, and retires in-core**
-  (`nix run .#cva6-parser-test` → fesvr `tohost` PASS). Remaining: generate
-  `parser_pkg` from `isa/`; the packet-data feed + CAM programming (Phase 8)
-  ([`docs/analysis/cva6-integration.md`](docs/analysis/cva6-integration.md) §8).
+  (`nix run .#cva6-parser-test` → fesvr `tohost` PASS). The **packet-data feed + CAM
+  programming are now real** (I5): a SoC AXI MMIO peripheral (`nix/cva6-parser/
+  mmio.patch`) bridges `sd`/`ld` into the FU's `parser_pktbuf` write port + commit-gated
+  flow_keys frame, and the CAM is programmed at runtime from the integer side — so a
+  program parses a packet end-to-end in-core. Remaining: generate `parser_pkg` from
+  `isa/`.
 - 🔵 **Phase 6 (in progress) — Verification:** the verification foundation is in
   place across all four techniques, every target green from the flake:
   **toggleable design assertions** (`rtl/parser_asserts.svh`, on in every sim,
@@ -84,11 +87,15 @@ complete; phases are now being built in order.
   hardened increment by increment against a [status tracker](docs/analysis/cva6-implementation-status.md):
   **I1** speculation-safe commit-visible parser state, **I2** commit-gated metadata
   sink (first in-core value-check), **I3** custom-3 register readback, **I4a**
-  end-of-node fetch redirect (node-index→byte-PC), and **I4b** CAM programming from the
+  end-of-node fetch redirect (node-index→byte-PC), **I4b** CAM programming from the
   integer side (custom-3 `CPPRSWR`/`CPPRSWRCAM`/`CPPRSRDCAM`, rs1 threaded from
-  `ex_stage`) with a CAM-hit `CAMNEXT` driving a real fetch redirect — all green in-core
-  via `nix run .#cva6-parser-test`. Remaining: the full RTL↔model corpus co-simulation
-  (cocotb + DPI-C) and coverage sign-off.
+  `ex_stage`) with a CAM-hit `CAMNEXT` driving a real fetch redirect, and **I5** the
+  full **in-core packet→flow_keys co-simulation over real MMIO** — a SoC AXI peripheral
+  bridges `sd`/`ld` to the FU's packet buffer + flow_keys frame, and all 15 corpus
+  packets parse in-core and match the model **byte-for-byte + exit code**
+  (`nix run .#cva6-parser-cosim`, 15/15). All increments green in-core
+  (`nix run .#cva6-parser-test`). Remaining: the directed V-table hazard/interrupt rows,
+  base-ISA regression, and coverage sign-off.
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)); the
 remaining source dirs (`tb/`, `fpga/`) are skeletons until their phase lands

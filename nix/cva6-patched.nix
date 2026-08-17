@@ -22,6 +22,12 @@
 #        tb-backdoor.patch — I2 sim-only observability: an XMR watcher in the
 #                         testharness that prints a grep-able marker when the parser
 #                         FU's commit-gated metadata frame lands (no MMIO; deferred).
+#        mmio.patch     — I5 real MMIO: a SoC AXI slave at ariane_soc::ParserBase
+#                         (0x5000_0000) that `sd`s the packet into the FU's packet
+#                         buffer, sets ParseLen, and `ld`s the committed flow_keys
+#                         back out (axi2mem + decode; ports threaded ariane→cva6→
+#                         ex_stage→parser_pktbuf/u_parser_fu). Closes the deferred
+#                         packet-feed / readback escalation the backdoor stood in for.
 #      (docs/analysis/cva6-integration.md §3–§5/§8; cva6-verification-design.md §1.)
 #
 { pkgs, cva6-src, parserRtl }:
@@ -30,7 +36,7 @@ pkgs.runCommand "cva6-parser-src"
 {
   nativeBuildInputs = [ pkgs.git ];
   # the patches applied, in order — bump this list as further stages land.
-  patches = [ ./cva6-parser/decode.patch ./cva6-parser/issue-ex.patch ./cva6-parser/tb-backdoor.patch ];
+  patches = [ ./cva6-parser/decode.patch ./cva6-parser/issue-ex.patch ./cva6-parser/tb-backdoor.patch ./cva6-parser/mmio.patch ];
 }
 ''
   cp -r --no-preserve=mode,ownership ${cva6-src} "$out"

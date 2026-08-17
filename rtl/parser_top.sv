@@ -72,7 +72,10 @@ module parser_top
   // ---- leaf units ----
   logic [PKT_OFF_W-1:0] mem_off;
   logic [63:0]          mem_win_be;
-  parser_pktbuf #(.INIT_FILE(PKT_FILE)) u_pktbuf (.req_off_i(mem_off), .win_be_o(mem_win_be));
+  // packet comes from $readmemh(PKT_FILE); the MMIO write port is unused here.
+  parser_pktbuf #(.INIT_FILE(PKT_FILE)) u_pktbuf (
+      .clk_i, .wr_en_i(1'b0), .wr_addr_i('0), .wr_be_i('0), .wr_data_i('0),
+      .req_off_i(mem_off), .win_be_o(mem_win_be));
 
   logic [3:0]  cam_share;
   logic [15:0] cam_match;
