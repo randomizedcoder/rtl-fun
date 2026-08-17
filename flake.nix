@@ -62,6 +62,13 @@
           cva6-src = cva6-parser-src;
         };
 
+        # Build the patched model + run the table-driven in-core co-simulation
+        # (I5): packet -> flow_keys equivalence vs the golden model, over real MMIO.
+        cva6-parser-cosim = import ./nix/cva6-parser-cosim.nix {
+          inherit pkgs;
+          cva6-src = cva6-parser-src;
+        };
+
         # Pinned xdp2 source (for the proto_audit packet corpus, Phase 2).
         xdp2-src = import ./nix/xdp2.nix { inherit pkgs; };
 
@@ -89,6 +96,7 @@
           cva6-baseline = cva6-baseline;
           cva6-parser = cva6-parser;
           cva6-parser-test = cva6-parser-test;
+          cva6-parser-cosim = cva6-parser-cosim;
           # The pinned xdp2 source (packet corpus): `nix build .#xdp2-src`.
           xdp2-src = xdp2-src;
           # Golden-model runners as packages too.
@@ -126,6 +134,13 @@
         apps.cva6-parser-test = {
           type = "app";
           program = "${cva6-parser-test}/bin/cva6-parser-test";
+        };
+
+        # Build the patched model and run the table-driven in-core co-simulation:
+        # `nix run .#cva6-parser-cosim`.
+        apps.cva6-parser-cosim = {
+          type = "app";
+          program = "${cva6-parser-cosim}/bin/cva6-parser-cosim";
         };
 
         # Run the golden-model tests: `nix run .#model-test`.

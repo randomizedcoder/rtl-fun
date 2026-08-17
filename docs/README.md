@@ -55,9 +55,9 @@ SystemVerilog ([`rtl/`](../rtl/README.md)) as a hardware `pm_run`, and **runs th
 vertical slice in Verilator producing a `flow_keys` that matches the golden model
 byte-for-byte** (`nix run .#parser-sim`). Lint-clean under `-Wall`, with four
 Verilator targets at different debug levels (run / trace / debug / lint). The FU
-also exists at CVA6-interface fidelity (`cva6_parser_wrap.sv`). Remaining for
-Phase 5: the 32-bit-word decoder (`parser_decode`) and the in-core CVA6
-decode/issue/EX patch ([`analysis/cva6-integration.md`](analysis/cva6-integration.md) §8).
+also runs in-core in CVA6: the decode/issue/EX/retire patch is complete, the
+32-bit-word decoder (`parser_decode`) is proven vs the model, and a packet now
+parses end-to-end in the pipeline over real MMIO ([`analysis/cva6-integration.md`](analysis/cva6-integration.md) §8).
 Phase 6 in progress — the verification *foundation* is in place across all four
 techniques, every target green from the flake: (1) **toggleable design assertions**
 (`rtl/parser_asserts.svh`) compiled into every sim and vanishing from synthesis;
@@ -70,8 +70,11 @@ model (`nix run .#parser-sim-suite`); and (4) **static analysis + fuzzing** —
 verible + svlint on the RTL (`nix run .#parser-analyze`), cppcheck + gcc
 `-fanalyzer` + clang-tidy + ASan/UBSan on the model (`nix run .#model-analyze`),
 and libFuzzer + ASan/UBSan on random packets (`nix run .#model-fuzz`).
-**Next:** finish the in-core CVA6 patch, then the full RTL↔model corpus
-co-simulation (cocotb + DPI-C) and coverage sign-off.
+The in-core FU is now hardened through increments **I1–I5**: the full **in-core
+packet→flow_keys co-simulation over real MMIO** parses all 15 corpus packets in the
+CVA6 pipeline and matches the model byte-for-byte + exit code
+(`nix run .#cva6-parser-cosim`, 15/15). **Next:** the directed V-table
+hazard/interrupt rows, base-ISA regression, and coverage sign-off.
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 
@@ -95,10 +98,11 @@ counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 - **[analysis/cva6-implementation-status.md](analysis/cva6-implementation-status.md)**
   — the **live progress tracker** for executing that design (increments I1–I5, gap
   burn-down G1–G14, verification-target snapshot). Updated per PR. I1
-  (speculation-safety, commit-visible parser state) is done; I2 adds a commit-gated
-  metadata sink value-checked in-core via a deliberate sim-only backdoor (real MMIO
-  peripheral is a tracked, deferred escalation); I3 adds custom-3 register readback
-  (`prs.mv.x.p`), value-checked in-core by a program-driven self-check.
+  (speculation-safety, commit-visible parser state), I2 (commit-gated metadata sink),
+  I3 (custom-3 register readback), I4 (end-of-node + CAM-hit fetch redirect), and
+  **I5** (all op classes + model-generated encodings + the table-driven in-core
+  packet→flow_keys cosim over **real MMIO** — which closes the I2 sim-only-backdoor
+  escalation) are all done and green in-core.
 - **[analysis/patent-conformance.md](analysis/patent-conformance.md)** — how the
   design compares to US Patent 12,461,885, and the prioritized corrections applied to
   follow Herbert's model closely.

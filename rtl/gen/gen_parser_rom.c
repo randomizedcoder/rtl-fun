@@ -300,6 +300,20 @@ int main(int argc, char **argv)
     }
     fclose(fp);
 
+    /* ---- camprog.hex: the same entries as Accum words for runtime CAM programming
+     * via custom-3 (CPPRSWR then CPPRSWRCAM) in the in-core cosim. The FU takes
+     * key = Accum>>32 (= {share<<16 | match}) and target = Accum[31:0], so the word
+     * is (share<<48)|(match<<32)|target. Index = line number (0..nrows-1). ---- */
+    fp = fopen(path(dir, "camprog.hex", buf, sizeof buf), "w");
+    if (!fp) { perror("camprog.hex"); return 1; }
+    for (int i = 0; i < nrows; i++) {
+        uint64_t w = ((uint64_t)(rows[i].share & 0xF) << 48)
+                   | ((uint64_t)(rows[i].match & 0xFFFF) << 32)
+                   | ((uint64_t)(uint32_t)rows[i].target);
+        fprintf(fp, "%016llx\n", (unsigned long long)w);
+    }
+    fclose(fp);
+
     /* ---- baseline case (eth/ipv4/tcp) into out_dir for the default smoke run ---- */
     pkt base = {0};
     c_ipv4_tcp(&base);

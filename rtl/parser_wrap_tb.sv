@@ -69,6 +69,9 @@ module parser_wrap_tb
   logic [3:0]      cam_prog_share;
   logic [15:0]     cam_prog_match;
   logic [31:0]     cam_prog_target;
+  logic [META_OFF_W-1:0] meta_rd_addr;   // MMIO flow_keys readback (I5)
+  logic [63:0]     meta_rd_data;
+  logic [63:0]     parse_status;         // latched exit status (I5)
 
   cva6_parser_wrap #(
       .VLEN         (64),
@@ -83,6 +86,7 @@ module parser_wrap_tb
       .pc_i             (64'h8000_0000),
       .rs1_i            (rs1),
       .parse_len_i      (16'(PKT_MAX)),
+      .parse_exit_pc_i  (64'h8000_1000),   // exit landing PC (I5)
       .parser_ready_o   (ready),
       .commit_i         (commit),
       .commit_trans_id_i(commit_tid),
@@ -106,7 +110,10 @@ module parser_wrap_tb
       .cam_prog_valid_o (cam_prog_valid),
       .cam_prog_share_o (cam_prog_share),
       .cam_prog_match_o (cam_prog_match),
-      .cam_prog_target_o(cam_prog_target)
+      .cam_prog_target_o(cam_prog_target),
+      .meta_rd_addr_i   (meta_rd_addr),   // MMIO flow_keys readback (I5)
+      .meta_rd_data_o   (meta_rd_data),
+      .parse_status_o   (parse_status)
   );
 
   // real CAM, so a CPPRSWRCAM program is observable by a later CPPRSRDCAM lookup (I4b)
@@ -210,7 +217,7 @@ module parser_wrap_tb
   initial begin
     // ---- reset ----
     rst_ni = 1'b0; flush = 1'b0; valid = 1'b0; commit = 1'b0;
-    uop = '0; tid = '0; commit_tid = '0; rs1 = '0;
+    uop = '0; tid = '0; commit_tid = '0; rs1 = '0; meta_rd_addr = '0;
     repeat (3) @(posedge clk);
     #1 rst_ni = 1'b1;
     @(posedge clk); #1;
@@ -298,6 +305,10 @@ module parser_wrap_tb
     @(posedge clk); #1; commit = 1'b0;
     check(dut.meta_mem[4] == 8'hAB, "COMMIT: metadata byte should land in the frame");
     check(dut.pend_cnt_q == 0,      "queue should pop after the store commits");
+    // I5: the MMIO flow_keys read port sees the same committed byte (combinational).
+    // 64-bit beat from offset 0: byte 4 sits in lane 4 (bits [39:32]).
+    meta_rd_addr = 9'd0; #1;
+    check(meta_rd_data[39:32] == 8'hAB, "MMIO meta read port should return the committed byte");
     @(posedge clk); #1;
 
     // a second store, then FLUSH before it commits => it must be discarded
@@ -429,7 +440,7 @@ module parser_wrap_tb
 
     // ---- verdict ----
     if (errors == 0)
-      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext)");
+      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext + I5 MMIO meta read)");
     else
       $fatal(1, "parser_wrap_tb: FAIL (%0d checks failed)", errors);
     $finish;

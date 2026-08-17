@@ -206,6 +206,30 @@ deferred escalation (the golden model's CAM is static, so the write path is in-c
 self-checked, not model-compared — full equivalence comes with I5). See the
 [status tracker](analysis/cva6-implementation-status.md).
 
+Increment **I5** (all op classes + model-generated encodings + the table-driven in-core
+cosim — gaps G5/G9) delivers the **first true packet→flow_keys equivalence check inside
+the CVA6 pipeline**, and closes the I2 sim-only-backdoor escalation by building the real
+thing. A SoC AXI MMIO peripheral (`nix/cva6-parser/mmio.patch`, at
+`ariane_soc::ParserBase`) bridges bus `sd`/`ld` — via `axi2mem` — into the FU's
+`parser_pktbuf` write port and its commit-gated flow_keys frame, plus `ParseLen` /
+exit-PC / status registers (ports threaded `ariane`→`cva6`→`ex_stage`→FU; map in
+[`toolchain/parser_mmio.h`](../toolchain/parser_mmio.h), design in
+[analysis/cva6-parser-mmio.md](analysis/cva6-parser-mmio.md)). The `cva6-parser-cosim`
+app generates every vector from the golden model (`gen_parser_rom` → `enc.hex` parse
+program + `camprog.hex` CAM words + per-case packet/expected), then for each of the 15
+corpus packets: `sd`s the packet in, sets `ParseLen` + an exit-landing PC, programs the
+CAM at runtime, jumps into the contiguous custom-0 block, lets the FU walk the graph
+(end-of-node redirects, and a **subroutine-return redirect** to the landing PC on parse
+exit), and `ld`s the committed flow_keys + exit status back to compare against the model.
+**Result: 15/15 — flow_keys byte-for-byte and exit code equal to the model** across
+positive/negative/boundary/corner (`nix run .#cva6-parser-cosim`). One integration bug is
+worth recording (a testability lesson): a peripheral hung off `axi2mem` **must present
+registered read data** — `axi2mem` combinationally advances `addr_o` to the next beat the
+moment `r_ready` is high, so a combinational read returns `mem[addr+8]` and every `ld`
+came back shifted by one 64-bit word; registering the read response (1-cycle latency,
+like the bootrom/DRAM SRAMs) fixed it. See the
+[status tracker](analysis/cva6-implementation-status.md).
+
 ## References
 
 cocotb, Verilator; Phase 2 model/corpus;

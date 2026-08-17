@@ -7,13 +7,25 @@
 // 8-aligned offset always contains the ≤8 bytes a load needs, no straddle).
 //
 // `mem` is written by the testbench via a hierarchical $readmemh in simulation;
-// in the real core it is filled by the packet DMA / preload path (Phase 8).
+// in the real core it is filled through the write port below — driven by the SoC
+// MMIO packet-buffer peripheral, so a bare-metal program `sd`s the packet in (I5;
+// closes the deferred MMIO escalation). The combinational read window is unchanged.
 
 module parser_pktbuf
   import parser_pkg::*;
 #(
     parameter string INIT_FILE = ""            // sim: packet bytes ($readmemh)
 ) (
+    input  logic                 clk_i,
+    // ---- 64-bit write port (MMIO packet preload, I5) ----
+    // Mirrors the SoC axi2mem beat: an 8-byte-aligned base + per-lane byte enables,
+    // so a bare-metal `sd` scatters up to 8 packet bytes in one transaction. Byte k
+    // (wr_be_i[k]) is wr_data_i[8*k +: 8] and lands at packet offset wr_addr_i + k.
+    input  logic                 wr_en_i,      // write strobe (one AXI beat)
+    input  logic [PKT_OFF_W-1:0] wr_addr_i,    // 8-byte-aligned base offset
+    input  logic [7:0]           wr_be_i,      // per-byte write enables
+    input  logic [63:0]          wr_data_i,    // 8 bytes, little-endian
+    // ---- read window (extract datapath) ----
     input  logic [PKT_OFF_W-1:0] req_off_i,   // absolute byte offset
     output logic [63:0]          win_be_o     // 8 bytes at req_off, big-endian (req_off = MSB)
 );
@@ -23,6 +35,20 @@ module parser_pktbuf
   initial begin
     for (int i = 0; i < PKT_MAX; i++) mem[i] = 8'h0;
     if (INIT_FILE != "") $readmemh(INIT_FILE, mem);
+  end
+
+  // MMIO write: scatter the enabled lanes (range-checked like the read path). The
+  // zero-init above still runs in sim; the write port overrides bytes as the
+  // preload stores land.
+  always_ff @(posedge clk_i) begin
+    if (wr_en_i) begin
+      for (int k = 0; k < 8; k++) begin
+        logic [PKT_OFF_W:0] a;
+        a = {1'b0, wr_addr_i} + k[PKT_OFF_W:0];
+        if (wr_be_i[k] && a < PKT_MAX[PKT_OFF_W:0])
+          mem[a[$clog2(PKT_MAX)-1:0]] <= wr_data_i[8*k +: 8];
+      end
+    end
   end
 
   // 8-byte-aligned base + 3-bit sub-offset within the 16-byte window
