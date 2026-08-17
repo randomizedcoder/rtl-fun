@@ -14,10 +14,14 @@
 
 set -euo pipefail
 
-REPO="${REPO:-$PWD}"
-RTL="$REPO/rtl"
-TB="$REPO/tb"
-BUILD="${PARSER_BUILD:-$REPO/build/parser-wrap}"
+# Shared helpers (canonical paths + PARSER_VFLAGS). readFile-prepended by the Nix
+# wrapper; sourced here when run directly.
+if ! declare -F gen_vectors >/dev/null 2>&1; then
+  # shellcheck source=/dev/null
+  . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+fi
+
+BUILD="${PARSER_BUILD:-$REPO_ROOT/build/parser-wrap}"
 
 if [ ! -d "$RTL" ]; then
   echo "parser-wrap-test: $RTL not found — run from the repo root" >&2
@@ -36,9 +40,8 @@ srcs=(
 
 echo "== verilating cva6_parser_wrap testbench (assertions on) =="
 ( cd "$BUILD" && rm -rf obj_dir && verilator --binary -O3 -o parser-wrap-test \
-    -Wall -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM -Wno-SYNCASYNCNET \
-    --assert +define+PARSER_ASSERT \
-    "-I$RTL" --top-module parser_wrap_tb \
+    "${PARSER_VFLAGS[@]}" \
+    "-I$RTL" "-I$TB" --top-module parser_wrap_tb \
     "${srcs[@]}" )
 
 echo "== running =="

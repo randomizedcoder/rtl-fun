@@ -30,9 +30,16 @@ let
            else if mode == "lint" then "parser-lint"
            else "parser-sim-${mode}";
     inherit runtimeInputs;
+    # SC2329: the shared lib's helpers + the per-case callback are invoked
+    # indirectly (run_suite dispatch / cross-file), which shellcheck reads as dead.
+    excludeShellChecks = [ "SC2329" ];
+    # Prepend the shared lib (common.sh + suite.sh) ahead of the body — same
+    # concatenation model as cva6-baseline.sh, so no runtime path lookup.
     text = ''
       export PARSER_MODE="${mode}"
-    '' + builtins.readFile ../scripts/parser-sim.sh;
+    '' + builtins.readFile ../scripts/lib/common.sh
+       + builtins.readFile ../scripts/lib/suite.sh
+       + builtins.readFile ../scripts/parser-sim.sh;
   };
 
   # Formal proof of parser_execute (SymbiYosys + yosys + z3). Combinational DUT,
@@ -50,7 +57,9 @@ let
   parser-wrap-test = pkgs.writeShellApplication {
     name = "parser-wrap-test";
     inherit runtimeInputs;   # verilator + gcc + make + coreutils
-    text = builtins.readFile ../scripts/parser-wrap-test.sh;
+    excludeShellChecks = [ "SC2329" ];  # shared-lib helpers invoked cross-file
+    text = builtins.readFile ../scripts/lib/common.sh
+         + builtins.readFile ../scripts/parser-wrap-test.sh;
   };
 
   # Static analysis: two more SV linters beyond Verilator -Wall (parser-lint).

@@ -19,6 +19,10 @@ in
 pkgs.writeShellApplication {
   name = "cva6-parser-cosim";
 
+  # SC2329: the shared lib's helpers + the per-case callback are invoked
+  # indirectly (run_suite dispatch / cross-file), which shellcheck reads as dead.
+  excludeShellChecks = [ "SC2329" ];
+
   runtimeInputs = [
     pkgs.verilator
     pkgs.gnumake
@@ -39,6 +43,8 @@ pkgs.writeShellApplication {
     export YAMLCPP="''${YAMLCPP:-${pkgs.yaml-cpp}}"
     export CVA6_WORK="''${CVA6_WORK:-$PWD/build/parser-core}"
     export REPO_ROOT="''${REPO_ROOT:-$PWD}"
-  '' + builtins.readFile ../scripts/cva6-baseline.sh
+  '' + builtins.readFile ../scripts/lib/common.sh
+     + builtins.readFile ../scripts/lib/suite.sh
+     + builtins.readFile ../scripts/cva6-baseline.sh
      + builtins.readFile ../scripts/cva6-parser-cosim.sh;
 }

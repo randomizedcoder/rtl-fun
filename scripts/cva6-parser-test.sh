@@ -23,10 +23,16 @@
 #
 set -euo pipefail
 
+# Shared helpers (REPO_ROOT/GCC + rv_assemble, run_model). readFile-prepended by
+# the Nix wrapper; sourced here when run directly.
+if ! declare -F gen_vectors >/dev/null 2>&1; then
+  # shellcheck source=/dev/null
+  . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/common.sh"
+fi
+
 WORK="${CVA6_WORK:-$PWD/build/parser-core}"
-ROOT="${REPO_ROOT:-$PWD}"
 BIN="$WORK/cva6/work-ver/Variane_testharness"
-TESTDIR="$ROOT/tests/cva6-parser"
+TESTDIR="$REPO_ROOT/tests/cva6-parser"
 OUT="$WORK/parser-test"
 MAXCYC="${MAX_CYCLES:-200000}"
 
@@ -41,18 +47,15 @@ if [ ! -x "$BIN" ]; then
 fi
 
 mkdir -p "$OUT"
-GCC="${CV_SW_PREFIX:-riscv64-none-elf-}gcc"
 echo "== assembling ELF with $GCC =="
-"$GCC" -march=rv64gc -mabi=lp64d -nostdlib -nostartfiles \
-  -T "$TESTDIR/link.ld" "$TESTDIR/parser_insn.S" -o "$OUT/parser_insn.elf"
+RV_INCLUDES=("$TESTDIR")   # so parser_insn.S can #include "htif.S"
+rv_assemble "$OUT/parser_insn.elf" "$TESTDIR/link.ld" "$TESTDIR/parser_insn.S"
 
 echo "== running on the patched model (max $MAXCYC cycles) =="
 LOG="$OUT/parser_insn.log"
 # The harness returns nonzero on tohost failure; +max-cycles bounds a hang.
-set +e
-"$BIN" "$OUT/parser_insn.elf" "+max-cycles=$MAXCYC" >"$LOG" 2>&1
-rc=$?
-set -e
+run_model "$OUT/parser_insn.elf" "$LOG"
+rc=$MODEL_RC
 cat "$LOG"
 
 # Two independent PASS conditions:
@@ -72,7 +75,7 @@ cat "$LOG"
 #      (meta[9]==0xDD). (Plus the I4b CPPRSRDCAM readback self-check is folded into the
 #      SUCCESS/tohost gate above: a wrong CAM readback writes a nonzero tohost => FAIL.)
 ok=1
-if ! grep -q "\*\*\* SUCCESS \*\*\*" "$LOG" || [ "$rc" -ne 0 ]; then
+if ! model_success "$LOG" || [ "$rc" -ne 0 ]; then
   echo "== FAIL: model did not report SUCCESS (rc=$rc) ==" >&2
   ok=0
 fi

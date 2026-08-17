@@ -10,16 +10,13 @@
 // from params.hex, not compiled in — so a SINGLE build runs every suite case,
 // each in its own directory with its own packet/expected/params.hex.
 
-// A tiny test macro: assert + tally, so one run reports every mismatch.
-`define CHECK(cond, msg) \
-  do begin \
-    checks++; \
-    assert (cond) else begin fails++; $error("CHECK failed: %s", msg); end \
-  end while (0)
-
 module parser_smoke_tb
   import parser_pkg::*;
 ;
+
+  // shared check primitive + tally (tb_checks / tb_fails), so one run reports
+  // every mismatch — same primitive parser_wrap_tb uses.
+`include "tb_check.svh"
 
   // per-packet params, read at runtime from params.hex:
   //   [0] = PKT_LEN, [1] = META_LEN, [2] = EXP_CODE (32-bit two's complement)
@@ -65,9 +62,6 @@ module parser_smoke_tb
   // expected metadata bytes (the model's flow_keys image)
   logic [7:0] exp_mem [0:META_MAX-1];
 
-  int checks = 0;
-  int fails  = 0;
-
   // waveform dump — enabled only in the trace/debug Verilator targets
   // (nix run .#parser-sim-trace / .#parser-sim-debug), which pass +define+DUMP.
 `ifdef DUMP
@@ -100,28 +94,28 @@ module parser_smoke_tb
         int cyc;
         cyc = 0;
         while (!done && cyc < 5000) begin @(posedge clk); cyc++; end
-        `CHECK(done, "parser reached done");
+        check(done, "parser reached done");
       end
     join
 
     // exit code matches the model
-    `CHECK(code == EXP_CODE, "exit code == model exit code");
+    check(code == EXP_CODE, "exit code == model exit code");
 
     // metadata (flow_keys) matches the model, byte for byte
     for (int b = 0; b < META_LEN; b++) begin
       meta_raddr = b[META_OFF_W-1:0];
       #1;   // settle combinational read
-      `CHECK(meta_rdata == exp_mem[b],
-             $sformatf("meta[%0d]=%02x exp=%02x", b, meta_rdata, exp_mem[b]));
+      check(meta_rdata == exp_mem[b],
+            $sformatf("meta[%0d]=%02x exp=%02x", b, meta_rdata, exp_mem[b]));
     end
 
     $display("--------------------------------------------------");
     $display("parser smoke: exit code = %0d (expected %0d)", code, EXP_CODE);
-    $display("parser smoke: %0d checks, %0d failures", checks, fails);
-    if (fails == 0) $display("parser smoke: PASS");
-    else            $display("parser smoke: FAIL");
+    $display("parser smoke: %0d checks, %0d failures", tb_checks, tb_fails);
+    if (tb_fails == 0) $display("parser smoke: PASS");
+    else               $display("parser smoke: FAIL");
     $display("--------------------------------------------------");
-    if (fails != 0) $fatal(1, "smoke test failed");
+    if (tb_fails != 0) $fatal(1, "smoke test failed");
     $finish;
   end
 

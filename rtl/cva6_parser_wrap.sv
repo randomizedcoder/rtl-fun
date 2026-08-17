@@ -206,7 +206,7 @@ module cva6_parser_wrap
       5'd1:    read_preg = {{(64-2*PKT_OFF_W){1'b0}}, s.cur_len, s.cur_off}; // p1  CurHdr*
       5'd2:    read_preg = {{(64-2*PKT_OFF_W){1'b0}}, s.dat_len, s.dat_off}; // p2  DataHdr*
       5'd11:   read_preg = {{32{s.next[31]}}, s.next};             // p11 Next
-      5'd13:   read_preg = {s.loop, s.databound};                  // p13 DataBndLoop {Loop,DataBound}
+      5'd13:   read_preg = {s.loop, s.databound};                  // p13 DataBndLoop
       5'd14:   read_preg = {{32{s.code[31]}}, s.code};             // p14 ParserExitCode
       5'd15:   read_preg = s.accum;                                 // p15 Accum
       5'd16:   read_preg = s.flags;                                 // p16 Flags
@@ -455,12 +455,14 @@ module cva6_parser_wrap
 `include "parser_asserts.svh"
   // once the parser has exited, it stops accepting PARSE work — but custom-3 reads
   // and CAM programming are still serviced (e.g. read ParserExitCode after the exit)
-  `PRS_ASSERT(a_ready_low_when_done, clk_i, rst_ni, (st_q.done & ~(op_rd | op_wr_cam)) |-> !parser_ready_o)
+  `PRS_ASSERT(a_ready_low_when_done, clk_i, rst_ni,
+              (st_q.done & ~(op_rd | op_wr_cam)) |-> !parser_ready_o)
   // a writeback only follows an accepted issue the previous cycle
   `PRS_ASSERT(a_valid_after_accept, clk_i, rst_ni, parser_valid_o |-> $past(accept))
   // integer rd is written ONLY by a custom-3 read (CPPRSRD/CPPRSRDCAM); parse ops
   // and CPPRSWR/CPPRSWRCAM never write rd
-  `PRS_ASSERT(a_we_iff_rd, clk_i, rst_ni, parser_we_o |-> $past(accept & (uop_i.rd_preg | uop_i.rd_cam)))
+  `PRS_ASSERT(a_we_iff_rd, clk_i, rst_ni,
+              parser_we_o |-> $past(accept & (uop_i.rd_preg | uop_i.rd_cam)))
   // CAM programming pulses only for an accepted CPPRSWRCAM (I4b)
   `PRS_ASSERT(a_camprog_iff_wrcam, clk_i, rst_ni, cam_prog_en_o |-> (accept & uop_i.wr_cam))
   // SPECULATION SAFETY (G2): the architectural state only ever advances on a commit
