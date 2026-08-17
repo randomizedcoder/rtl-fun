@@ -175,7 +175,7 @@ flow_keys that `memcmp`-equals the model's — the first true in-core co-simulat
 >
 > Tracking: `cva6-implementation-status.md` (I2 row + notes).
 >
-> > **✅ ESCALATION CLOSED by I5 (this PR).** Option A is now built — a real SoC AXI
+> > **✅ ESCALATION CLOSED by I5 (PR #26).** Option A is now built — a real SoC AXI
 > > slave at `ariane_soc::ParserBase` (`nix/cva6-parser/mmio.patch`): `axi2mem` bridges
 > > `sd`/`ld` into the FU's `parser_pktbuf` write port and the commit-gated `meta_mem`
 > > read port (ports threaded `ariane`→`cva6`→`ex_stage`→FU), plus ParseLen / exit-PC /
@@ -308,7 +308,7 @@ can't make the test pass on the wrong instruction. `gen_parser_rom.c` already em
 
 **Exit check:** every op class routes decode→`fu_op`→FU correctly, each self-checked.
 
-> **As implemented (this PR).** The `cva6-parser-cosim` app (`scripts/
+> **As implemented (PR #26).** The `cva6-parser-cosim` app (`scripts/
 > cva6-parser-cosim.sh` + `nix/cva6-parser-cosim.nix`) is the table-driven in-core
 > co-sim. `gen_parser_rom` emits the parse program (`enc.hex`) **and** the packed
 > CAM-programming words (`camprog.hex`); the fixed driver (`tests/cva6-parser/
@@ -398,7 +398,8 @@ rows below that the current set lacks. ✅ = row exists today, ➕ = to add.
 > **Status.** Rows **01–15 run in-core over real MMIO** in `cva6-parser-cosim`
 > (15/15, flow_keys + exit bit-exact vs the model). Rows **16–22 (➕) remain a tracked
 > follow-up** — they need new packet builders in `gen_parser_rom.c`; once added there
-> they flow into the cosim automatically (one generator). Not built by I5; not "done".
+> they flow into the cosim automatically (one generator). Not built by I5; not "done"
+> (canonical deferral list §3.1, item 1).
 
 ### 2.4 Table B — instruction/op cases (fixes G5)
 
@@ -422,7 +423,8 @@ frame (I2). Encodings generated from `encoding.c` (I5).
 > **Deferred (tracked):** the dedicated *per-op negative/boundary* rows (e.g. an
 > isolated "store past frame → assert fires", "lensetmin min>remaining", "load past
 > parse_len") as standalone directed cases — the negative behaviour is today covered
-> only where the corpus packets happen to hit it, not one row per op.
+> only where the corpus packets happen to hit it, not one row per op (canonical
+> deferral list §3.1, item 2).
 
 ### 2.5 Table C — pipeline/integration cases (fixes G2/G3/G6/G7)
 
@@ -486,10 +488,10 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
 | G1 no value checking | I2 → **I5** | ✅ Table A in-core cosim over real MMIO (15/15) |
 | G2 speculation/flush | **I1** | ✅ `parser-wrap-test` (V1 + rollback SVA) |
 | G3 redirect untested | I4 → **I5** | ✅ V8/V9 realized (every cosim walk jumps + exit-returns) |
-| G4 custom-3 untested | I3 | ✅ Table B custom-3 rows, V3 |
+| G4 custom-3 untested | I3 / I4b | ✅ custom-3 read (I3) + write/CAM-program/readback (I4b); Table B custom-3 rows, V3 |
 | G5 one op only | **I5** | ✅ all op classes in the cosim + wrap-TB |
 | G6 hazards | I3/I1 | 🔵 RAW forwarding proven; full V2–V5 later |
-| G7 interrupts/ctx-switch | I1 (+design) | 🔵 V9 exit-redirect done; V6/V7/V10 later |
+| G7 interrupts/ctx-switch | I5 (+design) | 🔵 V9 parse-exit redirect done (I5); V6/V7/V10 deferred (§3.1) |
 | G8 metadata sink | I2 → **I5** | ✅ commit-gated frame, MMIO-visible, cosim-checked |
 | G9 hand-encoded | **I5** | ✅ program + CAM model-generated (`enc.hex`/`camprog.hex`) |
 | G10 single config | — | §2.7 config matrix (build superscalar/no-cvxif) |
@@ -497,6 +499,51 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
 | G12 no coverage | — | §2.6.5 functional + toggle coverage |
 | G13 X-prop/reset | I2 | V11 + Verilator `--x-assign` pass |
 | G14 timing/physical | Phase 8 | synthesis + STA (§5 tapeout exit bar) |
+
+### 3.1 Canonical deferral list (single source of truth)
+
+> Everything the I1–I5 arc **did not** close, in one place. The status tracker and
+> the original [gap register](cva6-test-evaluation.md) point *here* rather than each
+> keeping their own (drifting) copy. "Planned PR-N" refers to the follow-on
+> verification-refactor sequence; the rest are Phase-7/8 escalations.
+
+1. **Table A rows 16–22** — edge packets: ipv4 `ihl=15` (max options), `ihl=0`
+   (illegal), max/deep VLAN stack, ext-hdr/TLV `len=0` (loop-guard), packet == 256 B
+   (buffer exact), packet > buffer, 1-byte/unaligned start. Need new packet builders
+   in `gen_parser_rom.c`; once added they flow into **both** the standalone suite and
+   the cosim (one generator). *Planned PR-4.*
+2. **Table B per-op negative/boundary rows** — dedicated directed cases: store past
+   frame (assert fires), `lensetmin` min > remaining, load past `parse_len`, CAM
+   miss → miss-target. Today covered only where a corpus packet happens to hit the
+   path, not one row per op. *Planned PR-5.*
+3. **V-table V4 / V5 / V11** — WAW on the parser reg file (V4); parser op adjacent to
+   load/store/branch/CSR/mul, no WB/commit-port contention (V5); reset → first op is
+   X-free / defined state (V11, closes **G13**). *Planned PR-5.*
+4. **V-table V6 / V7 / V10** — interrupt mid-parse (V6) and faulting-instruction
+   squash (V7) need interrupt/exception plumbing; context-switch save/restore (V10)
+   needs the parser-state ABI decision first (§6). Deferred **beyond** this refactor.
+5. **CAM-write speculation-safety** — `CPPRSWRCAM` applies at **execute**, not
+   commit-gated / flush-rolled-back (unlike parser register state and the metadata
+   frame), so a squashed CAM write leaves a stale entry. Acceptable for setup-time
+   programming (the patent treats CAM programming as setup); commit-gated CAM
+   programming is a tracked escalation.
+6. **Deferred custom-3 form** — the immediate-load move. (Register write + CAM
+   program + CAM readback merged in I4b, PR #25; register read in I3, PR #23.)
+7. **Escalation layers (§2.6/§2.7)** — constrained-random `riscv-dv`, extended-Spike
+   lock-step, base-ISA regression + negative control + coverage closure
+   (**G10/G11/G12**). Phase 7+.
+8. **Real DMA packet feed** — the I5 MMIO peripheral is **test-grade** (CPU/fesvr
+   fills the buffer); the DMA feed + runtime CAM programming from the wire are Phase 8.
+9. **DFT / POST (§4)** — scan/ATPG/MBIST + power-on self-test ROM: a Phase-8 silicon
+   concern (**G14**).
+
+> **On G9 / "no hand `.word`s".** Model-generated encodings (no hand-written opcode
+> constants) hold for the **cosim** path: `gen_parser_rom` emits `enc.hex` +
+> `camprog.hex` and the driver assembles them verbatim. The directed
+> `tests/cva6-parser/parser_insn.S` **remains hand-encoded on purpose** — it is the
+> low-level bring-up test for I2/I3/I4 (metadata sink, custom-3 readback, redirect)
+> that predates the generator-fed cosim, and each `.word` there is a deliberate
+> directed stimulus, not a coverage gap. Stated once here; the tracker points back.
 
 ## 4. Manufacturing test & on-chip self-test (DFT)
 

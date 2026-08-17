@@ -106,17 +106,20 @@ form, the array/counter/TLV-loop encoder+execution, and tunnel protocols
 ## Repo map
 
 ```
-docs/          Design documentation (start here)
+docs/          Design documentation (start here; testing map: docs/testing-overview.md)
 model/         Golden C reference model            (Phase 2)
 isa/           Machine-readable encoding tables     (Phase 3)
-rtl/           SystemVerilog parser unit            (Phase 5)
-tb/            cocotb / Verilator testbench         (Phase 6)
-corpus/        Packet corpus (incl. malformed)      (Phase 2)
-toolchain/     .insn macros, intrinsics, sim patches (Phase 7)
+rtl/           SystemVerilog parser unit + testbenches (Phase 5/6)
+tests/         In-core CVA6 test programs (parser_insn.S, cosim_main.S) (Phase 5/6)
+scripts/       Bodies of the `nix run .#<app>` runners (readFile'd into nix)
+tools/         Reusable dev utilities (pm-trace, bitgen)
+tb/            cocotb / Verilator testbench skeleton (being filled — Phase 6)
+corpus/        Packet corpus skeleton (incl. malformed) (Phase 2)
+toolchain/     .insn macros, intrinsics, MMIO map      (Phase 7)
 fpga/          Board build + block design           (Phase 8)
 bench/         Benchmark harness + results          (Phase 9)
 flake.nix      Nix flake — reproducible dev environment (`nix develop`)
-nix/           Modular Nix files (tool groups, dev shell)
+nix/           Modular Nix files (tool groups, dev shell, CVA6 patches)
 LICENSE        Public domain (Unlicense)
 ```
 
@@ -138,6 +141,7 @@ See **[docs/nix.md](docs/nix.md)** for the layout and how to extend it.
 |-----|----------------|
 | [docs/README.md](docs/README.md) | Index + reading order + phase status |
 | [docs/00-overview.md](docs/00-overview.md) | **The whole-project design doc — start here** |
+| [docs/testing-overview.md](docs/testing-overview.md) | **How the parser is tested** — the four test layers + which `nix run` runs each |
 | [Phase 0 — Scope & stack](docs/phase-0-scope-and-stack.md) | Goals, core selection, first vertical slice |
 | [Phase 1 — ISA spec](docs/phase-1-isa-spec.md) | Parser registers & instruction semantics |
 | [Phase 2 — Reference model](docs/phase-2-reference-model.md) | Golden C model + packet corpus |

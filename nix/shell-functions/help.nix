@@ -11,7 +11,7 @@
 
     Docs / references
       pdftotext / pdftoppm / pdfimages   patent PDF extraction (poppler)
-      python3 docs/analysis/bitgen.py    regenerate the ASCII bit diagrams
+      python3 tools/bitgen/bitgen.py     regenerate the ASCII bit diagrams
       ./docs/references/fetch-references.sh   re-download reference material
 
     RTL / simulation (Phase 5/6)

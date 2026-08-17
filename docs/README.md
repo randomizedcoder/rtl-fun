@@ -103,6 +103,12 @@ counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
   **I5** (all op classes + model-generated encodings + the table-driven in-core
   packet→flow_keys cosim over **real MMIO** — which closes the I2 sim-only-backdoor
   escalation) are all done and green in-core.
+- **[analysis/cva6-parser-mmio.md](analysis/cva6-parser-mmio.md)** — the I5 SoC AXI
+  MMIO parser peripheral: the address map (packet buffer, flow_keys frame, ParseLen /
+  exit-PC / status registers), how `sd`/`ld` bridge through `axi2mem` into the FU, the
+  gated parse-exit fetch redirect, and the **registered-read** gotcha (`axi2mem`
+  advances the beat address combinationally, so a peripheral must present 1-cycle read
+  data or every `ld` returns the next word).
 - **[analysis/patent-conformance.md](analysis/patent-conformance.md)** — how the
   design compares to US Patent 12,461,885, and the prioritized corrections applied to
   follow Herbert's model closely.
@@ -114,6 +120,11 @@ counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 
 ## Supporting docs
 
+- **[testing-overview.md](testing-overview.md)** — **start here for "how is the parser
+  tested?"** The one-stop map of the four test layers (golden-model unit/fuzz,
+  standalone RTL-vs-model suite, in-core directed, in-core cosim-vs-model + formal),
+  which `nix run .#<app>` runs each, where each lives, and how one generator feeds
+  both the standalone suite and the cosim.
 - **[nix.md](nix.md)** — the Nix dev environment (`nix develop`), its layout, and how to extend it.
 - **[environment.md](environment.md)** — pinned tool versions (the Phase 0 reproducibility snapshot).
 - **[glossary.md](glossary.md)** — terms (parse graph, cursor, TLV, CAM, custom0-3, IPC, XDP2/PANDA…).

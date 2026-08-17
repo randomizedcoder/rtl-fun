@@ -23,7 +23,7 @@ nix run .#pm-trace
 nix run .#pm-trace -- path/to/some.pcap
 ```
 
-Or build it directly (from the repo root):
+Or build it directly (from the repo root, for pm-trace):
 
 ```sh
 gcc -std=c11 -O2 -I model/libparsermodel \
@@ -44,3 +44,14 @@ exit code = -4   cur.off=34
 ```
 
 Exit status is 0 when the parse ends in `P_STOP_OKAY`, else 1.
+
+## bitgen/ — patent bit-diagram generator
+
+Regenerates the RFC-style ASCII bit-field diagrams in
+[`docs/analysis/patent-encodings-recovered.md`](../docs/analysis/patent-encodings-recovered.md)
+from the verified field tables encoded in the script — so the diagrams can never
+drift by hand-editing. It prints to stdout; paste the output into the doc.
+
+```sh
+python3 tools/bitgen/bitgen.py     # from the repo root (python3 from `nix develop`)
+```
