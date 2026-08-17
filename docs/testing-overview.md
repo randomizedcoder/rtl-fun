@@ -61,7 +61,7 @@ exit code against the model's generated vectors.
 | Command | What it proves |
 |---------|----------------|
 | `nix run .#parser-sim` | smoke test: the vertical slice produces the model's flow_keys (fast, `-O3`) |
-| `nix run .#parser-sim-suite` | the directed 15-case suite (pos/neg/boundary/corner) vs the model |
+| `nix run .#parser-sim-suite` | the directed 22-case suite (pos/neg/boundary/corner) vs the model |
 | `nix run .#parser-sim-decode` | same suite, but sourced through `parser_decode.sv` (32-bit words) — proves the RTL decoder == the model's `encoding.c` |
 | `nix run .#parser-sim-trace` / `-debug` | + VCD waveform / `-O0 -ggdb` for gdb |
 | `nix run .#parser-lint` | `--lint-only -Wall` (fast strict lint, no build) |
@@ -95,7 +95,7 @@ peripheral instead of a Verilator scaffold.
 
 | Command | What it proves |
 |---------|----------------|
-| `nix run .#cva6-parser-cosim` | for every suite packet: `sd` the packet into the FU packet buffer over MMIO, program the CAM, run the parse graph in-core, `ld` the committed flow_keys back, compare to the model — **15/15, byte-for-byte + exit code** |
+| `nix run .#cva6-parser-cosim` | for every suite packet: `sd` the packet into the FU packet buffer over MMIO, program the CAM, run the parse graph in-core, `ld` the committed flow_keys back, compare to the model — **22/22, byte-for-byte + exit code** |
 | `nix run .#parser-formal` | SymbiYosys 1-step BMC: `parser_execute` never writes metadata out of bounds and always exits with a valid code, for *all* inputs |
 
 Lives in `tests/cva6-parser/cosim_main.S` (the fixed driver, linked per-case with the

@@ -319,7 +319,7 @@ can't make the test pass on the wrong instruction. `gen_parser_rom.c` already em
 > (CPPRSWR + CPPRSWRCAM), jumps into the contiguous custom-0 block, and the FU walks
 > the graph (node-index→byte-PC redirects; a **subroutine-return redirect** to the
 > landing PC on parse exit), then `ld`s the committed flow_keys + latched exit status
-> back and compares to the model. **Result: 15/15, flow_keys byte-for-byte + exit code
+> back and compares to the model. **Result: 22/22, flow_keys byte-for-byte + exit code
 > equal to the model** across positive/negative/boundary/corner — closing G5 (all op
 > classes exercised) and G9 (program + CAM are model-generated, no hand `.word`s). One
 > non-obvious integration bug is documented in the status tracker + MMIO doc: a
@@ -387,19 +387,25 @@ rows below that the current set lacks. ✅ = row exists today, ➕ = to add.
 | 13 | ipv4 truncated | BND | fail | ✅ no over-read |
 | 14 | empty packet | COR | fail | ✅ liveness (no hang) |
 | 15 | eth-only, no L3 | COR | fail | ✅ |
-| 16 | ipv4 **ihl=15** (max options) | BND | OK/fail per model | ➕ max header walk |
-| 17 | ipv4 **ihl=0** (illegal) | NEG | fail | ➕ zero-length trap |
-| 18 | **max VLAN stack** (to buffer edge) | COR | per model | ➕ deep loop + buffer bound |
-| 19 | **ext-hdr len=0** / TLV len=0 | COR | fail/loop-guard | ➕ liveness (Risk R4) |
-| 20 | packet == **256 B** (buffer exact) | BND | per model | ➕ pktbuf boundary |
-| 21 | packet **> buffer** | BND | fail-safe | ➕ bound enforced |
-| 22 | 1-byte / unaligned start | COR | per model | ➕ aligner corner |
+| 16 | ipv4 **ihl=15** (max options) | BND | OK (`-4`) | ✅ full 60-B header walk |
+| 17 | ipv4 **ihl=0** (illegal) | NEG | fail (`-14` LENGTH) | ✅ min-length trap |
+| 18 | **deep VLAN stack** (40 tags) | COR | fail (`-24` MAX_NODES) | ✅ node-count / deep-loop guard |
+| 19 | **ext-hdr len=0** chain (HBH) | COR | OK (`-4`) | ✅ liveness — len=0 ext advances 8 B (Risk R4) |
+| 20 | packet == **256 B** (buffer exact) | BND | OK (`-4`) | ✅ pktbuf boundary |
+| 21 | packet **> buffer** (264 B) | BND | OK (`-4`) | ✅ bytes ≥256 read 0; parse bounded (fail-safe) |
+| 22 | 1-byte packet | COR | fail (`-14` LENGTH) | ✅ short-packet / aligner corner |
 
-> **Status.** Rows **01–15 run in-core over real MMIO** in `cva6-parser-cosim`
-> (15/15, flow_keys + exit bit-exact vs the model). Rows **16–22 (➕) remain a tracked
-> follow-up** — they need new packet builders in `gen_parser_rom.c`; once added there
-> they flow into the cosim automatically (one generator). Not built by I5; not "done"
-> (canonical deferral list §3.1, item 1).
+> **Status.** Rows **01–22 run in-core over real MMIO** in `cva6-parser-cosim`
+> (22/22, flow_keys + exit bit-exact vs the model) and in the standalone RTL suite
+> (`parser-sim-suite`, 22/22). Rows 16–22 were added by PR-4 as new packet builders
+> in `verif/gen/gen_parser_rom.c`; because one generator feeds both consumers, adding
+> them there closed the row in both suites at once. The generator self-checks every
+> case against the model (fails the build on OK/fail disagreement), so the expected
+> column above is the model's own verdict. The 264-B row exceeds the 256-B `pktbuf`;
+> the standalone TB `$readmemh`'s a buffer-sized `pktbuf.hex` (bytes ≥256 dropped)
+> while the cosim feeds the full `packet.hex` over MMIO with hardware dropping writes
+> past the buffer — both see the same bound, and `ParseLen` still carries the true
+> length. Table A is complete; no Table-A rows remain in the deferral list (§3.1).
 
 ### 2.4 Table B — instruction/op cases (fixes G5)
 
@@ -441,7 +447,7 @@ have. Each is a directed program plus a property.
 | V6 | **timer/external interrupt** mid-parse | COR | clean; resumes or restarts correctly (**G7**) |
 | V7 | preceding **faulting** instr squashes parser op | COR | no state corruption (**G2/G7**) |
 | V8 | **end-of-node redirect** taken | POS | fetch resumes at target PC (**G3**) — ✅ I4a + I5 (every cosim walk jumps mid-graph) |
-| V9 | parse-**exit** redirect (not trap) | POS | redirects per contract (**G7**) — ✅ I5: on exit the FU steers fetch to a program-provided landing PC ("subroutine return"); all 15 cosim cases return + read back |
+| V9 | parse-**exit** redirect (not trap) | POS | redirects per contract (**G7**) — ✅ I5: on exit the FU steers fetch to a program-provided landing PC ("subroutine return"); all 22 cosim cases return + read back |
 | V10 | **context switch** save/restore of parser regs | COR | state preserved (Risk R2 — needs design) |
 | V11 | **reset** then first op | BND | defined state, no X (**G13**) |
 
@@ -485,7 +491,7 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
 
 | Gap (from eval) | Closed by | Proven by |
 |--|--|--|
-| G1 no value checking | I2 → **I5** | ✅ Table A in-core cosim over real MMIO (15/15) |
+| G1 no value checking | I2 → **I5** | ✅ Table A in-core cosim over real MMIO (22/22) |
 | G2 speculation/flush | **I1** | ✅ `parser-wrap-test` (V1 + rollback SVA) |
 | G3 redirect untested | I4 → **I5** | ✅ V8/V9 realized (every cosim walk jumps + exit-returns) |
 | G4 custom-3 untested | I3 / I4b | ✅ custom-3 read (I3) + write/CAM-program/readback (I4b); Table B custom-3 rows, V3 |
@@ -507,11 +513,11 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
 > keeping their own (drifting) copy. "Planned PR-N" refers to the follow-on
 > verification-refactor sequence; the rest are Phase-7/8 escalations.
 
-1. **Table A rows 16–22** — edge packets: ipv4 `ihl=15` (max options), `ihl=0`
-   (illegal), max/deep VLAN stack, ext-hdr/TLV `len=0` (loop-guard), packet == 256 B
-   (buffer exact), packet > buffer, 1-byte/unaligned start. Need new packet builders
-   in `gen_parser_rom.c`; once added they flow into **both** the standalone suite and
-   the cosim (one generator). *Planned PR-4.*
+1. ~~**Table A rows 16–22** — edge packets: ipv4 `ihl=15`, `ihl=0`, deep VLAN stack,
+   ext-hdr `len=0`, packet == 256 B, packet > buffer, 1-byte.~~ **✅ Closed by PR-4.**
+   Added as packet builders in `verif/gen/gen_parser_rom.c`; they flow into **both**
+   the standalone suite and the cosim (one generator), now **22/22** in each, with the
+   model self-check gating the expected OK/fail. See §2.3 Table A.
 2. **Table B per-op negative/boundary rows** — dedicated directed cases: store past
    frame (assert fires), `lensetmin` min > remaining, load past `parse_len`, CAM
    miss → miss-target. Today covered only where a corpus packet happens to hit the

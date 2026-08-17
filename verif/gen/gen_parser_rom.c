@@ -34,6 +34,14 @@
 #include <stdint.h>
 #include <sys/stat.h>
 
+/* the RTL packet buffer size (rtl/parser_pkg.sv PKT_MAX). The standalone
+ * testbench $readmemh's the packet straight into this fixed-size buffer, and
+ * Verilator aborts on an over-long file, so its image (pktbuf.hex) is capped
+ * here. ParseLen (params PKT_LEN) still carries the true length, so a
+ * "packet > buffer" case is modelled as bytes >= PKT_MAX reading back 0 — the
+ * same bound the cosim gets from the hardware dropping MMIO writes past PKT_MAX. */
+#define PKT_BUF_MAX  256
+
 /* EtherTypes (mirrors the anonymous enum in program.c, which isn't exported). */
 #define ETH_P_IP     0x0800
 #define ETH_P_IPV6   0x86DD
@@ -183,6 +191,51 @@ static void c_trunc_ipv4(pkt *p)        { eth(p, ETH_P_IP); p8(p, 0x45); p8(p, 0
 static void c_empty(pkt *p)             { (void)p; }
 static void c_eth_only(pkt *p)          { eth(p, ETH_P_IP); }   /* ethertype IPv4 but no L3 */
 
+/* IPv4 header with an explicit IHL nibble. When ihl>5 the options area is zero-
+ * padded so the on-wire header length matches the field (ihl*4 bytes); when ihl<5
+ * the fixed 20 bytes are emitted but the (illegal) small IHL stays in the field so
+ * the LENCUR min-length trap fires. */
+static void ipv4_ihl(pkt *p, unsigned ihl, unsigned proto, unsigned total_len)
+{
+    unsigned start = p->n;
+    p8(p, 0x40 | (ihl & 0xF)); p8(p, 0x00); p16(p, total_len); p16(p, 0x0000);
+    p16(p, 0x4000); p8(p, 0x40); p8(p, proto); p16(p, 0x0000);
+    p8(p,10); p8(p,0); p8(p,0); p8(p,1);                            /* src 10.0.0.1 */
+    p8(p,10); p8(p,0); p8(p,0); p8(p,2);                            /* dst 10.0.0.2 */
+    while (p->n - start < ihl * 4u) p8(p, 0x00);                    /* IPv4 options */
+}
+/* pad `p` with zero bytes up to `target` total length (after the parsed headers). */
+static void pad_to(pkt *p, unsigned target) { while (p->n < target) p8(p, 0x00); }
+
+/* Row 16: ipv4 IHL=15 (60-byte header, max options) — the full header is walked. */
+static void c_ipv4_ihl15(pkt *p)  { eth(p, ETH_P_IP); ipv4_ihl(p, 15, 6, 80); tcp(p); }
+/* Row 17: ipv4 IHL=0 (illegal) — the LENCUR min-length trap fails the parse. */
+static void c_ipv4_ihl0(pkt *p)   { eth(p, ETH_P_IP); ipv4_ihl(p, 0,  6, 40); tcp(p); }
+/* Row 18: a deep VLAN stack — 40 stacked C-VLAN tags exceed MAX_NODES (32) and
+ * trip the node-count guard, all within the 256-byte buffer (deep-loop bound). */
+static void c_vlan_deep(pkt *p)
+{
+    eth(p, ETH_P_8021AD);
+    for (int i = 0; i < 40; i++) vlan(p, ETH_P_8021Q);
+    vlan(p, ETH_P_IP); ipv4(p, 0x45, 6, 40); tcp(p);
+}
+/* Row 19: a chain of len=0 IPv6 hop-by-hop ext headers — each ExtLen=0 advances
+ * the minimum 8 bytes and the chain terminates cleanly (liveness, Risk R4). */
+static void c_ip6ext_len0(pkt *p)
+{
+    eth(p, ETH_P_IPV6); ipv6(p, 0 /*HBH*/);
+    for (int i = 0; i < 3; i++) ip6ext(p, 0 /*HBH*/, 0);   /* len=0 ext headers */
+    ip6ext(p, 6 /*TCP*/, 0); tcp(p);
+}
+/* Row 20: a valid frame padded to exactly PKT_MAX (256 B) — buffer-exact boundary. */
+static void c_pkt_256(pkt *p)  { eth(p, ETH_P_IP); ipv4(p, 0x45, 6, 40); tcp(p); pad_to(p, 256); }
+/* Row 21: a valid frame padded past the 256-byte buffer — bytes >=256 are never
+ * parsed, so the parse stays bounded and still matches the model (fail-safe). */
+static void c_pkt_over(pkt *p)  { eth(p, ETH_P_IP); ipv4(p, 0x45, 6, 40); tcp(p); pad_to(p, 264); }
+/* Row 22: a 1-byte packet — the first header load runs off ParseLen and fails
+ * (length trap); exercises the short-packet / aligner corner. */
+static void c_pkt_1byte(pkt *p) { p8(p, 0x00); }
+
 static const struct testcase suite[] = {
     { "01-eth-ipv4-tcp",       POS, 1, c_ipv4_tcp        },
     { "02-eth-ipv4-udp",       POS, 1, c_ipv4_udp        },
@@ -199,6 +252,13 @@ static const struct testcase suite[] = {
     { "13-ipv4-truncated",     BND, 0, c_trunc_ipv4      },
     { "14-empty-packet",       COR, 0, c_empty           },
     { "15-eth-only-no-l3",     COR, 0, c_eth_only        },
+    { "16-ipv4-ihl15",         BND, 1, c_ipv4_ihl15      },
+    { "17-ipv4-ihl0",          NEG, 0, c_ipv4_ihl0       },
+    { "18-vlan-deep",          COR, 0, c_vlan_deep       },
+    { "19-ip6ext-len0",        COR, 1, c_ip6ext_len0     },
+    { "20-pkt-256",            BND, 1, c_pkt_256         },
+    { "21-pkt-over-buffer",    BND, 1, c_pkt_over        },
+    { "22-pkt-1byte",          COR, 0, c_pkt_1byte       },
 };
 #define NSUITE ((int)(sizeof(suite)/sizeof(suite[0])))
 
@@ -213,6 +273,16 @@ static int emit_case(const char *dir, const instr *prog, size_t nprog,
     fp = fopen(path(dir, "packet.hex", buf, sizeof buf), "w");
     if (!fp) { perror(buf); return -1; }
     for (unsigned i = 0; i < p->n; i++) fprintf(fp, "%02x\n", p->b[i]);
+    fclose(fp);
+
+    /* buffer-sized image for the standalone TB, which $readmemh's it straight into
+     * the PKT_MAX-byte pktbuf (Verilator aborts on an over-long file). The cosim
+     * feeds the full packet.hex over MMIO instead, with writes past the buffer
+     * dropped in hardware — so both see the same bounded buffer. */
+    fp = fopen(path(dir, "pktbuf.hex", buf, sizeof buf), "w");
+    if (!fp) { perror(buf); return -1; }
+    unsigned cap = (p->n < PKT_BUF_MAX) ? p->n : PKT_BUF_MAX;
+    for (unsigned i = 0; i < cap; i++) fprintf(fp, "%02x\n", p->b[i]);
     fclose(fp);
 
     pstate ps;

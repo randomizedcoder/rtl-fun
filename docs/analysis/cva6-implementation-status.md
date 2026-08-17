@@ -28,14 +28,14 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 
 | Gap | Owner | State |
 |--|--|--|
-| G1 no in-core value checking | I2 → I5 | ✅ (I5: full packet→flow_keys cosim over real MMIO, 15/15 vs the model; the I2 sim-only backdoor is superseded) |
+| G1 no in-core value checking | I2 → I5 | ✅ (I5: full packet→flow_keys cosim over real MMIO, 22/22 vs the model; the I2 sim-only backdoor is superseded) |
 | **G2 speculation/flush state corruption** | **I1** | ✅ (fix merged + verified by `parser-wrap-test`; PR #21) |
-| G3 redirect untested in-core | I4a (redirect) / I4b (CAM) → I5 | ✅ (I4a: end-of-node redirect fires + steers fetch in-core; I4b: CAM programmed/read back from the integer side, CAMNEXT hit drives a real redirect, mux-exclusivity SVA. **I5 exercises the redirect + CAMNEXT-hit + parse-exit-return path over 15 real packets** — every graph walk jumps/exits correctly. Remaining *separate* escalation: CAM-write speculation-safety, see notes) |
+| G3 redirect untested in-core | I4a (redirect) / I4b (CAM) → I5 | ✅ (I4a: end-of-node redirect fires + steers fetch in-core; I4b: CAM programmed/read back from the integer side, CAMNEXT hit drives a real redirect, mux-exclusivity SVA. **I5 exercises the redirect + CAMNEXT-hit + parse-exit-return path over 22 real packets** (15 at I5, +7 Table-A edge rows at PR-4) — every graph walk jumps/exits correctly. Remaining *separate* escalation: CAM-write speculation-safety, see notes) |
 | G4 custom-3 untested | I3 / I4b | ✅ (read **and** write now merged: CPPRSRD register read — `read_preg` p-reg selector, PR #23; CPPRSWR register write + CPPRSWRCAM CAM program + CPPRSRDCAM CAM readback, all rs1-threaded from `ex_stage`, PR #25. In-core self-checks + wrap-TB Scenarios 5/7. Remaining custom-3 form — immediate-load move — is in the canonical deferral list §3.1) |
-| G5 one op only | I5 | ✅ (every op class — load/store/storeimm/lensetmin/cmpib·neib·ord/cam/camnext/next/stp + custom-3 moves — exercised by the 15-case cosim + wrap-TB; model-generated program) |
+| G5 one op only | I5 | ✅ (every op class — load/store/storeimm/lensetmin/cmpib·neib·ord/cam/camnext/next/stp + custom-3 moves — exercised by the 22-case cosim + wrap-TB; model-generated program) |
 | G6 pipeline hazards | I3/I1 + V-tables | 🔵 (RAW forwarding on parser `rd` exercised by the I3 self-check; full hazard V-table later) |
-| G7 interrupts/exceptions/ctx-switch | I5 (parse-exit) / V-tables (+ ctx-switch design) | 🔵 (V9 parse-**exit** redirect realized in I5 — on exit the FU steers fetch to a program-provided landing PC, exercised by all 15 cosim cases; V6 interrupt-mid-parse, V7 faulting-squash, V10 context-switch remain deferred — canonical deferral list §3.1) |
-| G8 metadata sink undefined | I2 → I5 | ✅ (commit-gated `meta_mem` frame in `cva6_parser_wrap`; software-visible over MMIO from I5; proven by `parser-wrap-test` + the 15-case cosim) |
+| G7 interrupts/exceptions/ctx-switch | I5 (parse-exit) / V-tables (+ ctx-switch design) | 🔵 (V9 parse-**exit** redirect realized in I5 — on exit the FU steers fetch to a program-provided landing PC, exercised by all 22 cosim cases; V6 interrupt-mid-parse, V7 faulting-squash, V10 context-switch remain deferred — canonical deferral list §3.1) |
+| G8 metadata sink undefined | I2 → I5 | ✅ (commit-gated `meta_mem` frame in `cva6_parser_wrap`; software-visible over MMIO from I5; proven by `parser-wrap-test` + the 22-case cosim) |
 | G9 hand-encoded | I5 | ✅ (the parse program + CAM table are emitted by the golden model — `gen_parser_rom` `enc.hex`/`camprog.hex` — and assembled verbatim; no hand `.word`s in the cosim) |
 | G10 single config | Regression | ⬜ |
 | G11 no negative control | Regression | ⬜ |
@@ -50,15 +50,15 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 | `nix run .#cva6-parser-test` | in-core smoke/liveness + **I2 metadata value-check** + **I3 custom-3 readback self-check** + **I4a end-of-node redirect** + **I4b CAM program/readback + CAM-hit redirect** | ✅ SUCCESS (tohost=0, 4325 cyc) + META OK (meta[4]=ab) + REDIRECT OK (poison meta[5] skipped, meta[6]=cc) + CAM REDIRECT OK (CAMNEXT hit, poison meta[8] skipped, meta[9]=dd; redirect_pc=0x80000076 from node 8); I3 + I4b CPPRSRDCAM readback self-checks green |
 | `nix run .#parser-wrap-test` | I1 rollback/commit/backpressure + I2 metadata (Sc.4) + **I3 custom-3 readback** (Sc.5) + **I4a redirect target** (Sc.6) + **I4b CAM program/readback** (Sc.7) + **CAMNEXT-hit redirect** (Sc.8) + **I5 MMIO meta read**, assertion-based | ✅ PASS |
 | `nix run .#parser-lint` | lints the parser unit incl. `cva6_parser_wrap` | ✅ clean |
-| `nix run .#parser-sim-suite` | standalone unit vs model (unaffected by in-core work) | ✅ 15/15 |
+| `nix run .#parser-sim-suite` | standalone unit vs model (unaffected by in-core work) | ✅ 22/22 (Table A complete after PR-4) |
 | `nix run .#parser-formal` | standalone `parser_execute` safety (combinational) | ✅ PASS |
-| `nix run .#cva6-parser-cosim` | **table-driven in-core packet→flow_keys value-check vs the model, over real MMIO** | ✅ **15/15** (positive/negative/boundary/corner; flow_keys byte-for-byte + exit code) |
+| `nix run .#cva6-parser-cosim` | **table-driven in-core packet→flow_keys value-check vs the model, over real MMIO** | ✅ **22/22** (positive/negative/boundary/corner; flow_keys byte-for-byte + exit code; Table A rows 16–22 added by PR-4) |
 
 ## Notes / open decisions (from the plan)
 
 - **What's deferred lives in one place.** The single canonical deferral list is
   [cva6-verification-design.md §3.1](cva6-verification-design.md#31-canonical-deferral-list-single-source-of-truth)
-  (Table A 16–22, Table-B negatives, V4/V5/V6/V7/V10/V11, CAM-write speculation-safety,
+  (Table-B negatives, V4/V5/V6/V7/V10/V11, CAM-write speculation-safety,
   the immediate-load custom-3 form, the escalation layers, DMA feed, DFT/POST). The
   per-increment notes below add detail but do not re-enumerate it.
 - **I1 pending-queue depth `D`** = 4 (power-of-two ring; stall issue when full). Tune

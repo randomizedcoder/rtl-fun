@@ -16,7 +16,7 @@ Update (this increment): **`parser_decode.sv` is done and verified.** It turns a
 `isa/parser-opcodes.yaml`, same bit positions. It is proven by a **decode
 co-simulation**: `nix run .#parser-sim-decode` sources the *entire* directed
 suite's program from the 32-bit words (`enc.hex`, emitted by the generator via
-`pm_encode`) decoded through `parser_decode`, and every one of the 15 cases
+`pm_encode`) decoded through `parser_decode`, and every one of the 22 cases
 produces a `flow_keys` and exit code byte-identical to the model — i.e. the
 decoder is behaviourally equivalent to the model's decoded-instruction table over
 the whole suite. (One faithful model fix rode along: `PSTP` now round-trips

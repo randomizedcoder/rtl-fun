@@ -91,11 +91,12 @@ complete; phases are now being built in order.
   integer side (custom-3 `CPPRSWR`/`CPPRSWRCAM`/`CPPRSRDCAM`, rs1 threaded from
   `ex_stage`) with a CAM-hit `CAMNEXT` driving a real fetch redirect, and **I5** the
   full **in-core packet→flow_keys co-simulation over real MMIO** — a SoC AXI peripheral
-  bridges `sd`/`ld` to the FU's packet buffer + flow_keys frame, and all 15 corpus
+  bridges `sd`/`ld` to the FU's packet buffer + flow_keys frame, and all 22 corpus
   packets parse in-core and match the model **byte-for-byte + exit code**
-  (`nix run .#cva6-parser-cosim`, 15/15). All increments green in-core
-  (`nix run .#cva6-parser-test`). Remaining: the directed V-table hazard/interrupt rows,
-  base-ISA regression, and coverage sign-off.
+  (`nix run .#cva6-parser-cosim`, 22/22 — the full Table A, incl. the ihl=15/ihl=0,
+  deep-VLAN, len=0-ext, and 256-B/over-buffer edge rows added by PR-4). All increments
+  green in-core (`nix run .#cva6-parser-test`). Remaining: the directed V-table
+  hazard/interrupt rows, base-ISA regression, and coverage sign-off.
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its
 testbenches in [`tb/`](tb/README.md) and the vector generator + formal harness in

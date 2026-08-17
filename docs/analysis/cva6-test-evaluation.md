@@ -29,7 +29,7 @@ bugs and must not be treated as interchangeable:
 
 | Surface | What runs | Reference | Maturity |
 |--|--|--|--|
-| **Standalone parser unit** | `parser_execute`/`parser_top` in Verilator | the golden C model, **bit-exact** | **Strong** — directed suite (15 packets), decode co-sim, design assertions, a SymbiYosys formal proof, model fuzzing. `parser-sim{,-suite,-decode}`, `parser-formal`. |
+| **Standalone parser unit** | `parser_execute`/`parser_top` in Verilator | the golden C model, **bit-exact** | **Strong** — directed suite (22 packets), decode co-sim, design assertions, a SymbiYosys formal proof, model fuzzing. `parser-sim{,-suite,-decode}`, `parser-formal`. |
 | **In-core integration** | the parser FU inside the full CVA6 pipeline (`Variane_testharness`) | *none yet* — a liveness/smoke check only | **Thin** — one directed program (`cva6-parser-test`), 4 identical custom-0 loads, no value checking. |
 
 The standalone surface proves the **datapath computes the right `flow_keys`** on
