@@ -399,23 +399,42 @@ module parser_wrap_tb
     commit = 1'b1; commit_tid = 3'd0; @(posedge clk); #1; commit = 1'b0;
     check(dut.st_q.accum == 64'h0001_0800_0000_00CD, "CPPRSWR: Accum should hold {key,target}");
 
-    // (b) CPPRSWRCAM index=rs1(0), cpreg=p15: program CAM[0].
+    // (b) CPPRSWRCAM index=rs1(0), cpreg=p15: BUFFER the CAM program (commit-gated, N3).
+    // The strobe must NOT fire at execute; it enqueues and marks a CAM write pending.
     rs1 = 64'd0;
     uop = wrcam_op(5'd15, 1'b0); tid = 3'd1; valid = 1'b1;
     #1;
-    check(cam_prog_en,                       "CPPRSWRCAM: program strobe should assert");
+    check(!cam_prog_en, "CPPRSWRCAM: must NOT program the CAM at execute (commit-gated)");
+    @(posedge clk); #1; valid = 1'b0;        // enqueued
+    check(dut.pend_cnt_q     == 1, "CPPRSWRCAM: enqueued, awaiting commit");
+    check(dut.cam_pend_cnt_q == 1, "CPPRSWRCAM: a CAM write is pending");
+
+    // a dependent CAM lookup must INTERLOCK while the program is uncommitted.
+    rs1 = 64'h0000_0000_0001_0800;
+    uop = rdcam_op(); valid = 1'b1;
+    #1;
+    check(!ready, "CPPRSRDCAM: must interlock behind an uncommitted CAM write");
+    valid = 1'b0; uop = '0; #1;
+
+    // COMMIT the CAM write: the buffered program applies to the CAM on this commit and
+    // releases the interlock.
+    commit = 1'b1; commit_tid = 3'd1;
+    #1;
+    check(cam_prog_en,                       "CPPRSWRCAM: program strobe asserts on COMMIT");
     check(cam_prog_index == '0,              "CPPRSWRCAM: index should be rs1 (0)");
     check(cam_prog_valid,                    "CPPRSWRCAM: write, not delete");
     check(cam_prog_share  == 4'd1,           "CPPRSWRCAM: share = key[19:16]");
     check(cam_prog_match  == 16'h0800,       "CPPRSWRCAM: match = key[15:0]");
     check(cam_prog_target == 32'h0000_00CD,  "CPPRSWRCAM: target = p[cpreg][31:0]");
-    @(posedge clk); #1; valid = 1'b0;        // CAM entry latches on this edge
+    @(posedge clk); #1; commit = 1'b0;       // CAM entry latches on this edge
+    check(dut.cam_pend_cnt_q == 0, "CPPRSWRCAM: no CAM write pending after commit");
     @(posedge clk); #1;
 
-    // (c) CPPRSRDCAM: lookup key {share=1,match=0x0800}=0x00010800 -> target 0xCD.
+    // (c) CPPRSRDCAM: interlock released, lookup {share=1,match=0x0800} -> target 0xCD.
     rs1 = 64'h0000_0000_0001_0800;
     uop = rdcam_op(); tid = 3'd2; valid = 1'b1;
     #1;
+    check(ready,                      "CPPRSRDCAM: interlock released after the write commits");
     check(cam_hit,                    "CPPRSRDCAM: programmed entry should hit");
     check(cam_target == 32'h0000_00CD, "CPPRSRDCAM: lookup returns programmed target");
     @(posedge clk); #1; valid = 1'b0;        // accept edge: rd result registered
@@ -437,10 +456,11 @@ module parser_wrap_tb
     uop = wrpreg_op(5'd15); tid = 3'd3; valid = 1'b1;
     @(posedge clk); #1; valid = 1'b0;
     commit = 1'b1; commit_tid = 3'd3; @(posedge clk); #1; commit = 1'b0;
-    // (b) program CAM[1].
+    // (b) program CAM[1] — buffer then COMMIT (N3: the entry applies on commit).
     rs1 = 64'd1;
     uop = wrcam_op(5'd15, 1'b0); tid = 3'd4; valid = 1'b1;
     @(posedge clk); #1; valid = 1'b0;
+    commit = 1'b1; commit_tid = 3'd4; @(posedge clk); #1; commit = 1'b0;  // CAM[1] programmed
     @(posedge clk); #1;
     // (c) reload Accum low16 = match 0x0006 (Accum is the CAMNEXT key source).
     rs1 = 64'h0000_0000_0000_0006;
@@ -554,9 +574,56 @@ module parser_wrap_tb
     check(result == 64'h0000_0000_0000_01DC, "IMM: readback returns the committed immediate");
     @(posedge clk); #1;
 
+    // ================================================================
+    // Scenario 12 — N3: CAM-write speculation safety (rollback vs commit).
+    // ================================================================
+    // A CPPRSWRCAM buffers its program in the pending queue; a flush before commit
+    // discards it, so the CAM entry never appears (a lookup misses). Committing instead
+    // programs the CAM and makes the entry visible. Uses a fresh entry: index 2,
+    // key {share=3, match=0x0009}, target 0x77.
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    @(posedge clk); #1;
+    // stage {key,target} into Accum (p15), commit it.
+    rs1 = 64'h0003_0009_0000_0077;
+    uop = wrpreg_op(5'd15); tid = 3'd0; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    commit = 1'b1; commit_tid = 3'd0; @(posedge clk); #1; commit = 1'b0;
+    // (a) SPECULATIVE CAM program at index 2 — then FLUSH before commit.
+    rs1 = 64'd2;
+    uop = wrcam_op(5'd15, 1'b0); tid = 3'd1; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    check(dut.cam_pend_cnt_q == 1, "CAM-RB: speculative CAM write is pending");
+    check(!cam_prog_en,            "CAM-RB: not programmed before commit");
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    check(dut.cam_pend_cnt_q == 0, "CAM-RB: flush discards the pending CAM write");
+    @(posedge clk); #1;
+    // lookup must MISS — the squashed program never reached the CAM.
+    rs1 = 64'h0000_0000_0003_0009;
+    uop = rdcam_op(); tid = 3'd2; valid = 1'b1;
+    #1;
+    check(!cam_hit, "CAM-RB: a flushed CAM write leaves NO entry (lookup misses)");
+    @(posedge clk); #1; valid = 1'b0;
+    check(result == 64'hFFFF_FFFF_FFFF_FFFF, "CAM-RB: a miss returns all-ones");
+    @(posedge clk); #1;
+    // (b) program the SAME entry again and COMMIT -> now visible.
+    rs1 = 64'd2;
+    uop = wrcam_op(5'd15, 1'b0); tid = 3'd3; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    commit = 1'b1; commit_tid = 3'd3;
+    #1; check(cam_prog_en, "CAM-RB: a committed CAM write programs the CAM");
+    @(posedge clk); #1; commit = 1'b0;
+    @(posedge clk); #1;
+    rs1 = 64'h0000_0000_0003_0009;
+    uop = rdcam_op(); tid = 3'd4; valid = 1'b1;
+    #1;
+    check(cam_hit,                      "CAM-RB: the committed entry now hits");
+    check(cam_target == 32'h0000_0077, "CAM-RB: lookup returns the committed target");
+    @(posedge clk); #1; valid = 1'b0;
+    @(posedge clk); #1;
+
     // ---- verdict ----
     if (tb_fails == 0)
-      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext + I5 MMIO meta read + V4 WAW + V11 reset/X + store-bound + CPPRSWRIMM)");
+      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext + I5 MMIO meta read + V4 WAW + V11 reset/X + store-bound + CPPRSWRIMM + CAM commit-gate/rollback)");
     else
       $fatal(1, "parser_wrap_tb: FAIL (%0d checks failed)", tb_fails);
     $finish;

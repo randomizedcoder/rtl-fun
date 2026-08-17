@@ -193,8 +193,10 @@ cases where a partial `flow_keys` could coincide.
 - **Single in-flight, no concurrency:** the peripheral assumes the CPU is quiescent
   w.r.t. the parser while a parse runs (it drives the parse itself). No arbitration
   between MMIO packet writes and an in-progress parse — the cosim orders them.
-- **CAM write speculation-safety** remains the I4b deferred escalation (CAM writes
-  apply at execute, not commit-gated). Unchanged by I5.
+- **CAM write speculation-safety** is closed by N3: CPPRSWRCAM is commit-gated
+  (buffered in the I1 pending queue, applied on commit) with a dependent-lookup
+  interlock. Unchanged by I5; the FU-side program port timing moved from execute to
+  commit, transparent to this peripheral.
 - **Not synthesis/Phase-8 final:** this is a testharness peripheral for
   co-simulation. A real FPGA packet-DMA path (Phase 8) may replace the bridge with a
   DMA engine, but the FU-side write/read ports are the stable seam.
