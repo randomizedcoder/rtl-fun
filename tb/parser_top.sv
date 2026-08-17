@@ -162,4 +162,26 @@ module parser_top
   `PRS_ASSERT(a_decode_legal, clk_i, rst_ni,
       (!USE_DECODE) || (!busy_o) || (!dec_illegal))
 
+  // ---- functional coverage (N7, gap G12; +define+PARSER_COVER) ----------------
+  // The op-CLASS × exit-outcome axis (§2.6.5): each executable parser op class the
+  // datapath dispatches, and each parse-exit outcome. Exercised by the model-generated
+  // 22-case smoke suite (one $readmemh program driven per packet); the pipeline-EVENT
+  // bins (accept/commit/flush/redirect) are covered at the FU level (cva6_parser_wrap).
+  // An op is "executed" this cycle iff the sequencer is running (busy_o).
+  `PRS_COVER(c_op_load,      clk_i, rst_ni, busy_o & (op.op == OP_LOAD))
+  `PRS_COVER(c_op_lencur,    clk_i, rst_ni, busy_o & (op.op == OP_LENCUR))
+  `PRS_COVER(c_op_cmpib,     clk_i, rst_ni, busy_o & (op.op == OP_CMPIB))
+  `PRS_COVER(c_op_cmpineb,   clk_i, rst_ni, busy_o & (op.op == OP_CMPINEB))
+  `PRS_COVER(c_op_cmpord,    clk_i, rst_ni, busy_o & (op.op == OP_CMPORD))
+  `PRS_COVER(c_op_cam,       clk_i, rst_ni, busy_o & (op.op == OP_CAM))
+  `PRS_COVER(c_op_camnext,   clk_i, rst_ni, busy_o & (op.op == OP_CAMNEXT))
+  `PRS_COVER(c_op_store,     clk_i, rst_ni, busy_o & (op.op == OP_STORE))
+  `PRS_COVER(c_op_storeimm,  clk_i, rst_ni, busy_o & (op.op == OP_STOREIMM))
+  `PRS_COVER(c_op_nextnode,  clk_i, rst_ni, busy_o & (op.op == OP_NEXTNODE))
+  `PRS_COVER(c_op_setcode,   clk_i, rst_ni, busy_o & (op.op == OP_SETCODE))
+  `PRS_COVER(c_op_stp,       clk_i, rst_ni, busy_o & (op.op == OP_STP))
+  // exit outcomes: a normal OK exit vs a hard-fail exit (code <= P_STOP_FAIL).
+  `PRS_COVER(c_exit_okay,    clk_i, rst_ni, st_n.done &  is_ok_code(st_n.code))
+  `PRS_COVER(c_exit_fail,    clk_i, rst_ni, st_n.done & (st_n.code <= P_STOP_FAIL))
+
 endmodule : parser_top

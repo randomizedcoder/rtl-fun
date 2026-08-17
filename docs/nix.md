@@ -69,6 +69,7 @@ scripts/
   parser-analyze.sh           # verible + svlint SV static analysis (Phase 6)
   parser-formal.sh            # sv2v + SymbiYosys formal proof runner (Phase 6)
   parser-wrap-test.sh         # cva6_parser_wrap commit/flush state testbench (I1/G2)
+  parser-coverage.sh          # Verilator line/toggle + functional cover-point closure (G12, N7)
 ```
 
 ## Runnable apps (`nix run .#<name>`)
@@ -99,6 +100,7 @@ One `writeShellApplication` per runner; each puts its tools on `PATH` via
 | `parser-analyze` | extra SV lint: verible + svlint | 6 |
 | `parser-formal` | sv2v + SymbiYosys proof of `parser_execute` safety | 6 |
 | `parser-wrap-test` | `cva6_parser_wrap` commit/flush state testbench (I1/G2) | 5 |
+| `parser-coverage` | Verilator line/toggle + functional cover-point closure (G12); gates on 100% of the §2.6.5 cross-product bins | 6 |
 
 ### CVA6: unpatched vs patched, layered for caching
 

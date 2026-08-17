@@ -621,9 +621,89 @@ module parser_wrap_tb
     @(posedge clk); #1; valid = 1'b0;
     @(posedge clk); #1;
 
+    // ================================================================
+    // Scenario 13 — N7 functional-coverage closure: exercise the FU pipeline
+    // events the earlier scenarios leave uncovered — full-queue backpressure, the
+    // CAM dependent-lookup interlock, and a real parser EXIT + caller redirect —
+    // so every §2.6.5 cross-product bin (rtl/cva6_parser_wrap.sv c_*) is hit.
+    // These are self-validating (the same events the cover points sample are
+    // asserted here), not coverage-only no-ops.
+    // ================================================================
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    @(posedge clk); #1;
+    check(dut.pend_cnt_q == 0, "COV: queue empty entering scenario 13");
+
+    // (0) OP-CLASS sweep: accept one of every parse op class the model-generated smoke
+    // program does not emit, so the merged op-class bins reach 100%. Each op is flushed
+    // away after (we only need it ACCEPTED once — accept_state ticks c_op_<class>; its
+    // datapath result is irrelevant here and is proven elsewhere). share 9 / MISS_STOP
+    // keep the CAM ops a clean unprogrammed miss.
+    begin
+      opcode_e sweep [8];
+      sweep = '{OP_LENCUR, OP_CMPIB, OP_CMPINEB, OP_CMPORD,
+                OP_CAM, OP_SETCODE, OP_STORE, OP_STP};
+      foreach (sweep[i]) begin
+        uop = '0; uop.op = sweep[i];
+        uop.share = 4'd9; uop.miss = MISS_STOP; uop.sz = 2'd2; uop.pos = 4'd3; uop.s = 1'b1;
+        tid = 3'd0; valid = 1'b1;
+        @(posedge clk); #1; valid = 1'b0;                 // <- c_op_<class> samples
+        flush = 1'b1; @(posedge clk); #1; flush = 1'b0;   // reset state for the next class
+        @(posedge clk); #1;
+      end
+    end
+    check(dut.pend_cnt_q == 0, "COV: op-class sweep left the queue drained");
+
+    // (a) BACKPRESSURE while the pending queue is FULL: hold a fresh parse op valid
+    // against a full queue across a clock so c_bp_full (valid & pend_full) samples.
+    for (int unsigned i = 0; i < 4; i++) issue(3'(i));   // fill to PEND_DEPTH, no commit
+    check(dut.pend_cnt_q == 4, "COV: queue full (backpressure)");
+    uop = load_op(); tid = 3'd0; valid = 1'b1;           // a 5th op, rejected while full
+    @(posedge clk); #1;                                  // <- c_bp_full samples here
+    check(!ready, "COV: ready low while the queue is full (op not accepted)");
+    valid = 1'b0;
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;      // drain
+    @(posedge clk); #1;
+
+    // (b) CAM dependent-lookup INTERLOCK: a lookup that follows a still-uncommitted
+    // CPPRSWRCAM must stall at issue (c_interlock). Stage p15, commit it, program the
+    // CAM speculatively (no commit), then drive a dependent rdcam while it is pending.
+    rs1 = 64'h0003_0009_0000_0077;
+    uop = wrpreg_op(5'd15); tid = 3'd0; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    commit = 1'b1; commit_tid = 3'd0; @(posedge clk); #1; commit = 1'b0;
+    rs1 = 64'd4;
+    uop = wrcam_op(5'd15, 1'b0); tid = 3'd1; valid = 1'b1;   // CAM write pending, NOT committed
+    @(posedge clk); #1; valid = 1'b0;
+    check(dut.cam_pend_cnt_q == 1, "COV: CAM write pending for the interlock");
+    rs1 = 64'h0000_0000_0003_0009;
+    uop = rdcam_op(); tid = 3'd2; valid = 1'b1;              // dependent lookup while pending
+    @(posedge clk); #1;                                     // <- c_interlock samples here
+    check(!ready, "COV: dependent CAM lookup stalls while an older CPPRSWRCAM is uncommitted");
+    valid = 1'b0;
+    commit = 1'b1; commit_tid = 3'd1; @(posedge clk); #1; commit = 1'b0;   // release
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    @(posedge clk); #1;
+
+    // (c) a real parser EXIT + caller REDIRECT: an OP_CAMNEXT whose key is NOT
+    // programmed misses; with miss=MISS_STOP the datapath ends the parse (f_fail ->
+    // done). With parse_exit_pc_i != 0 the FU steers fetch back to the caller landing
+    // PC — c_parse_exit + c_redirect_exit (a jump and an exit are mutually exclusive,
+    // so redirect_jump stays low: a_jump_xor_exit still holds).
+    uop = '0; uop.op = OP_CAMNEXT; uop.miss = MISS_STOP;    // miss => f_fail => exit
+    uop.share = 4'd9; uop.sz = 2'd2; uop.pos = 4'd3; uop.s = 1'b1;  // share 9: unprogrammed
+    tid = 3'd0; valid = 1'b1;
+    #1;
+    check(!cam_hit,             "COV: the exit lookup key is unprogrammed (miss)");
+    check(dut.parse_exit_o,     "COV: an OP_CAMNEXT miss with MISS_STOP exits the parser");
+    check(dut.resolve_branch_o, "COV: an exit with a landing PC redirects the frontend");
+    check(dut.redirect_pc_o == 64'h8000_1000, "COV: exit redirect targets the caller landing PC");
+    @(posedge clk); #1; valid = 1'b0;                       // <- c_parse_exit/c_redirect_exit sampled
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;         // clear the done state
+    @(posedge clk); #1;
+
     // ---- verdict ----
     if (tb_fails == 0)
-      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext + I5 MMIO meta read + V4 WAW + V11 reset/X + store-bound + CPPRSWRIMM + CAM commit-gate/rollback)");
+      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext + I5 MMIO meta read + V4 WAW + V11 reset/X + store-bound + CPPRSWRIMM + CAM commit-gate/rollback + COV backpressure/interlock/exit-redirect)");
     else
       $fatal(1, "parser_wrap_tb: FAIL (%0d checks failed)", tb_fails);
     $finish;

@@ -529,4 +529,50 @@ module cva6_parser_wrap
   // accepted parse op it steers on (same-cycle resolve contract, like branch_unit)
   `PRS_ASSERT(a_redirect_after_state, clk_i, rst_ni, resolve_branch_o |-> accept_state)
 
+  // ---- functional coverage (N7, gap G12; +define+PARSER_COVER) ----------------
+  // The V-table pipeline-event axis (§2.6.5): each op CATEGORY accepted, each commit/
+  // flush/backpressure/redirect/exit event, and the key speculation crosses. Exercised
+  // by parser_wrap_tb; op-CLASS × exit-code bins are covered at the parser_execute
+  // datapath level (see parser_execute.sv). Reset-gated; `verilator_coverage` reports
+  // the hit count per bin and the coverage app gates on all bins hit >= 1.
+  // -- op-category accepts --
+  `PRS_COVER(c_accept_parse,     clk_i, rst_ni, accept_state)
+  `PRS_COVER(c_accept_wrpreg,    clk_i, rst_ni, accept & uop_i.wr_preg)      // CPPRSWR
+  `PRS_COVER(c_accept_wrpregimm, clk_i, rst_ni, accept & uop_i.wr_preg_imm)  // CPPRSWRIMM
+  `PRS_COVER(c_accept_wrcam,     clk_i, rst_ni, accept_wrcam)                // CPPRSWRCAM
+  `PRS_COVER(c_accept_rdpreg,    clk_i, rst_ni, accept & uop_i.rd_preg)      // CPPRSRD
+  `PRS_COVER(c_accept_rdcam,     clk_i, rst_ni, accept & uop_i.rd_cam)       // CPPRSRDCAM
+  // -- commit / writeback events --
+  `PRS_COVER(c_commit,           clk_i, rst_ni, pend_commit)                // buffered op commits
+  `PRS_COVER(c_commit_cam,       clk_i, rst_ni, commit_cam)                 // CAM write commits
+  `PRS_COVER(c_wb_rd,            clk_i, rst_ni, parser_we_o)                // integer rd writeback
+  // -- flush / speculation-safety events --
+  `PRS_COVER(c_flush,            clk_i, rst_ni, flush_i)                    // a flush arrives
+  `PRS_COVER(c_flush_pending,    clk_i, rst_ni, flush_i & ~pend_empty)      // flush w/ real work
+  `PRS_COVER(c_parse_then_flush, clk_i, rst_ni, accept_state ##1 flush_i)   // in-flight squash
+  // -- backpressure / interlock stalls --
+  `PRS_COVER(c_bp_full,          clk_i, rst_ni, parser_valid_i & ~st_q.done & ~op_rd & pend_full)
+  `PRS_COVER(c_interlock,        clk_i, rst_ni, parser_valid_i & lu_interlock)
+  // -- redirects / exit --
+  `PRS_COVER(c_redirect_jump,    clk_i, rst_ni, redirect_jump)             // node-delta jump (I4a)
+  `PRS_COVER(c_redirect_exit,    clk_i, rst_ni, redirect_exit)             // exit->landing (I5)
+  `PRS_COVER(c_camnext_hit,      clk_i, rst_ni,
+             accept_state & (uop_i.op == OP_CAMNEXT) & cam_hit_i)          // CAMNEXT hit (I4b)
+  `PRS_COVER(c_parse_exit,       clk_i, rst_ni, parse_exited)              // parser exit
+  // -- op-CLASS bins (shared names with parser_top: merged coverage is the UNION, so a
+  //    class the model-generated smoke program never emits is still closed when the
+  //    wrap-TB drives it directly). "executed" == accepted as a parse op this cycle.
+  `PRS_COVER(c_op_load,     clk_i, rst_ni, accept_state & (uop_i.op == OP_LOAD))
+  `PRS_COVER(c_op_lencur,   clk_i, rst_ni, accept_state & (uop_i.op == OP_LENCUR))
+  `PRS_COVER(c_op_cmpib,    clk_i, rst_ni, accept_state & (uop_i.op == OP_CMPIB))
+  `PRS_COVER(c_op_cmpineb,  clk_i, rst_ni, accept_state & (uop_i.op == OP_CMPINEB))
+  `PRS_COVER(c_op_cmpord,   clk_i, rst_ni, accept_state & (uop_i.op == OP_CMPORD))
+  `PRS_COVER(c_op_cam,      clk_i, rst_ni, accept_state & (uop_i.op == OP_CAM))
+  `PRS_COVER(c_op_camnext,  clk_i, rst_ni, accept_state & (uop_i.op == OP_CAMNEXT))
+  `PRS_COVER(c_op_store,    clk_i, rst_ni, accept_state & (uop_i.op == OP_STORE))
+  `PRS_COVER(c_op_storeimm, clk_i, rst_ni, accept_state & (uop_i.op == OP_STOREIMM))
+  `PRS_COVER(c_op_nextnode, clk_i, rst_ni, accept_state & (uop_i.op == OP_NEXTNODE))
+  `PRS_COVER(c_op_setcode,  clk_i, rst_ni, accept_state & (uop_i.op == OP_SETCODE))
+  `PRS_COVER(c_op_stp,      clk_i, rst_ni, accept_state & (uop_i.op == OP_STP))
+
 endmodule : cva6_parser_wrap

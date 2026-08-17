@@ -68,6 +68,19 @@ let
     runtimeInputs = [ pkgs.verible pkgs.svlint pkgs.coreutils ];
     text = builtins.readFile ../scripts/parser-analyze.sh;
   };
+
+  # Coverage (N7, G12): build the smoke suite + wrap-TB under Verilator line/toggle/
+  # user coverage, run them, merge with verilator_coverage, and gate on 100% of the
+  # functional cover points (§2.6.5 V-table cross-product). findutils for the .dat
+  # collection; verilator_coverage ships inside pkgs.verilator.
+  parser-coverage = pkgs.writeShellApplication {
+    name = "parser-coverage";
+    runtimeInputs = runtimeInputs ++ [ pkgs.findutils ];
+    excludeShellChecks = [ "SC2329" ];  # shared-lib helpers + case callback invoked cross-file
+    text = builtins.readFile ../scripts/lib/common.sh
+         + builtins.readFile ../scripts/lib/suite.sh
+         + builtins.readFile ../scripts/parser-coverage.sh;
+  };
 in
 {
   parser-sim        = mkSim "run";
@@ -76,5 +89,5 @@ in
   parser-sim-trace  = mkSim "trace";
   parser-sim-debug  = mkSim "debug";
   parser-lint       = mkSim "lint";
-  inherit parser-formal parser-analyze parser-wrap-test;
+  inherit parser-formal parser-analyze parser-wrap-test parser-coverage;
 }

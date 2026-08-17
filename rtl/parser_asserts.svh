@@ -40,4 +40,17 @@
   `define PRS_ASSUME_I(COND)
 `endif
 
+// Functional coverage points (N7, gap G12). Independent of the assertion flag:
+// enabled by `PARSER_COVER` (set by the coverage build) so the normal sim/synth
+// builds pay nothing. Expands to a concurrent `cover property`, which Verilator's
+// `--coverage-user` collects and `verilator_coverage` aggregates into the report.
+// Reset-gated like the assertions so it never samples X out of reset.
+`ifdef PARSER_COVER
+  `define PRS_COVER(NAME, CLK, RSTN, PROP)                        \
+    NAME: cover property (@(posedge (CLK)) disable iff (!(RSTN)) \
+      (PROP));
+`else
+  `define PRS_COVER(NAME, CLK, RSTN, PROP)
+`endif
+
 `endif // PARSER_ASSERTS_SVH
