@@ -178,10 +178,14 @@ concrete test/fix that would. Severity is the tapeout cost if it escaped.
   CvxifEn off, accelerator on) that are unexercised. **Fix:** build+test a small
   matrix of configs, especially a superscalar one.
 
-- **G11 — No negative control in CI.** *Sev: low.* We *claim* the stock core traps
-  on these words but don't assert it. A regression that turned `custom-0` into a
-  silent NOP would still "pass" the current test. **Fix:** a CI assertion that the
-  **baseline** model fails/traps on the same ELF.
+- **G11 — No negative control in CI.** *Sev: low.* ✅ **Negative control closed (N1).**
+  `nix run .#parser-negative-control` builds the **stock** (unpatched) model and runs
+  `tests/cva6-parser/negctl.S`: the identical custom-0 word the patched core executes
+  traps illegal-instruction (mcause=2) on the base RV64GC decoder; the handler writes
+  tohost=1 → fesvr SUCCESS, so a regression turning `custom-0` into a silent NOP would
+  make *this* app fail. The base-ISA regression on the *patched* core (riscv-tests
+  green — the `NrWbPorts`/pipeline change didn't break RV64GC) is the remaining half,
+  tracked as N6.
 
 - **G12 — No coverage measurement.** *Sev: medium.* Nothing measures functional or
   code/toggle coverage of the in-core FU, so "how much is tested" is unknown and

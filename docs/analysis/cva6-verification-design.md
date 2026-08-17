@@ -493,7 +493,12 @@ Directed tables are the floor. Layered on top, in adoption order:
 ### 2.7 CI gate
 
 Per push: Tables A/B/C directed + the base-ISA regression + the negative control
-(assert the **stock** core traps on the parser ELF — fixes G11). Nightly: a bounded
+(assert the **stock** core traps on the parser ELF — fixes G11). The negative
+control is now a runnable app (`nix run .#parser-negative-control`, **N1**): it
+builds the *stock* (unpatched) model and runs `tests/cva6-parser/negctl.S` — the
+same custom-0 word the patched core executes traps illegal-instruction (mcause=2)
+on the stock decoder, whose handler writes tohost=1 → fesvr SUCCESS, so the pass IS
+the assertion. The base-ISA regression half of the gate lands in N6. Nightly: a bounded
 `riscv-dv` + lock-step campaign and the fuzz budget. **Fail on** any value
 mismatch, any watchdog timeout, any coverage regression, or a base-ISA regression.
 
@@ -511,7 +516,7 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
 | G8 metadata sink | I2 → **I5** | ✅ commit-gated frame, MMIO-visible, cosim-checked |
 | G9 hand-encoded | **I5** | ✅ program + CAM model-generated (`enc.hex`/`camprog.hex`) |
 | G10 single config | — | §2.7 config matrix (build superscalar/no-cvxif) |
-| G11 no negative control | — | §2.7 CI baseline-trap assertion |
+| G11 no negative control | **N1** (negative control) | 🔵 `parser-negative-control` asserts the **stock** core traps the custom-0 word (illegal-instruction, mcause=2 → fesvr SUCCESS); base-ISA regression half deferred to N6 |
 | G12 no coverage | — | §2.6.5 functional + toggle coverage |
 | G13 X-prop/reset | I2 + V11 | ✅ V11 reset X-freedom (`parser_wrap_tb` Sc.0, `$isunknown`-free spec/arch state + first-op) — PR-5 |
 | G14 timing/physical | Phase 8 | synthesis + STA (§5 tapeout exit bar) |
@@ -549,7 +554,9 @@ mismatch, any watchdog timeout, any coverage regression, or a base-ISA regressio
    program + CAM readback merged in I4b, PR #25; register read in I3, PR #23.)
 7. **Escalation layers (§2.6/§2.7)** — constrained-random `riscv-dv`, extended-Spike
    lock-step, base-ISA regression + negative control + coverage closure
-   (**G10/G11/G12**). Phase 7+.
+   (**G10/G11/G12**). **Negative control ✅ closed by N1** (`parser-negative-control`
+   — the stock core traps the custom-0 word). Base-ISA regression + 2nd config
+   (N6, G10/G11), coverage (N7, G12); `riscv-dv` + Spike lock-step stay Phase 7+.
 8. **Real DMA packet feed** — the I5 MMIO peripheral is **test-grade** (CPU/fesvr
    fills the buffer); the DMA feed + runtime CAM programming from the wire are Phase 8.
 9. **DFT / POST (§4)** — scan/ATPG/MBIST + power-on self-test ROM: a Phase-8 silicon

@@ -42,6 +42,7 @@ nix/
   cva6-baseline.nix           # cva6-baseline / cva6-parser builders (writeShellApplication)
   cva6-parser-test.nix        # cva6-parser-test: build patched model + run in-core custom-0 test
   cva6-parser-cosim.nix       # cva6-parser-cosim: table-driven in-core packet→flow_keys vs model (I5)
+  parser-negative-control.nix # parser-negative-control: STOCK model must trap the custom-0 word (G11, N1)
   xdp2.nix                    # pinned xdp2 source (packet corpus, Phase 2)
   model.nix                   # golden-model apps: model-test, model-analyze, model-fuzz, pm-trace
   rtl.nix                     # parser-unit sim/lint/analyze/formal apps (Phase 5/6)
@@ -52,6 +53,7 @@ scripts/
   cva6-baseline.sh            # body of the cva6-baseline app (Phase 0 sim baseline)
   cva6-parser-test.sh         # in-core custom-0 directed test (assemble ELF + run) (Phase 5)
   cva6-parser-cosim.sh        # table-driven in-core packet→flow_keys co-sim vs model (Phase 6, I5)
+  parser-negative-control.sh  # negative control: assemble negctl.S, run on STOCK model, assert trap (G11, N1)
   model-test.sh, pm-trace.sh  # bodies of the golden-model apps (Phase 2)
   model-analyze.sh            # cppcheck + gcc -fanalyzer + clang-tidy + ASan/UBSan (Phase 6)
   model-fuzz.sh               # libFuzzer + ASan/UBSan harness runner (Phase 6)
@@ -72,6 +74,7 @@ One `writeShellApplication` per runner; each puts its tools on `PATH` via
 | `cva6-parser` | build the **parser-patched** CVA6 Verilator model (compare vs baseline) | 5 |
 | `cva6-parser-test` | build patched model + run the in-core custom-0 directed test | 5 |
 | `cva6-parser-cosim` | table-driven in-core packet→flow_keys co-sim vs the model (22/22) | 6 |
+| `parser-negative-control` | negative control (G11): the **stock** core must trap the custom-0 parser word (illegal-instruction) | 6 |
 | `model-test` | golden-model unit + corpus tests | 2 |
 | `model-analyze` | cppcheck + gcc `-fanalyzer` + clang-tidy + ASan/UBSan run | 6 |
 | `model-fuzz` | libFuzzer + ASan/UBSan on random packets (`FUZZ_SECONDS=`) | 6 |
