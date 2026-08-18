@@ -75,7 +75,13 @@ packet→flow_keys co-simulation over real MMIO** parses all 22 corpus packets i
 CVA6 pipeline and matches the model byte-for-byte + exit code
 (`nix run .#cva6-parser-cosim`, 22/22). A **negative control** now guards the
 extension: the *stock* core traps the identical custom-0 word as illegal
-(`nix run .#parser-negative-control`, G11). **Next:** the directed V-table
+(`nix run .#parser-negative-control`, G11). The base-ISA transparency guarantee is
+now checked by a **per-instruction RVFI-vs-Spike lock-step**: an extended Spike
+steps beside the core and the scoreboard compares every retired RV64GC
+instruction's `insn` / `rd` / `pc` / mode / CSRs against it
+(`nix run .#cva6-parser-tandem`, 287/287, 0 mismatches) — a strictly stronger G11
+than a program self-check, and the base on which parser-op lock-step will build.
+**Next:** the directed V-table
 interrupt row (V6; V7 faulting-squash done in N4), base-ISA regression, a 2nd config, and coverage sign-off.
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.

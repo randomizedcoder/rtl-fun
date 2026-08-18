@@ -481,11 +481,22 @@ Directed tables are the floor. Layered on top, in adoption order:
    generator interleaves parser ops with normal RV64 code, branches, loads/stores,
    and interrupts — hitting the V-table corners without hand-authoring each. Feeds
    the co-sim below.
-2. **Lock-step step-and-compare vs extended Spike.** The standing oracle: extend
-   Spike (Phase 7) with the parser semantics (reuse `libparsermodel`) and compare
+2. **Lock-step step-and-compare vs extended Spike.** The standing oracle: compare
    CVA6's retirement stream (via **RVFI**, which CVA6 already exposes and
-   `core-v-verif` already uses) instruction-by-instruction. This is the workhorse
-   that turns every random program into a self-checking test.
+   `core-v-verif` already uses) instruction-by-instruction against Spike. This is the
+   workhorse that turns every random program into a self-checking test.
+   ✅ **Stage 0 (base ISA) is realized** — `nix run .#cva6-parser-tandem` (**T0**)
+   source-builds the tandem-patched Spike (`nix/spike-tandem.nix`), flips the dormant
+   `SPIKE_TANDEM` lock-step on in the CVA6 build, and steps Spike alongside the patched
+   core for every retired `base_isa.S` instruction — asserting insn/rd/pc/trap/mode +
+   CSRs match, **287/287, 0 mismatches**. Bringing it up shook out three real infra/config
+   bugs the directed floor could never surface (a `st_rvfi` stack-overflow, a vendored
+   `get_misa` that dropped the `D` bit and force-disabled FP in the reference, and an
+   `mstatus.SD` RVFI-vs-model trace difference) — exactly the "unknown-unknowns" this
+   layer exists to catch. Still deferred: **Stage 1** — extend Spike with the *parser*
+   semantics (reuse `libparsermodel`; `customext/parser.cc` + MMIO device) and run the
+   22-case cosim under lock-step; **Stage 2** — `riscv-dv` random interleaving with the
+   tandem pair as the oracle (no per-test golden vectors).
 3. **Formal properties.** Proofs of the handful that must hold for *all* inputs.
    ✅ **The G2 no-state-survives-a-flush property is proved** — `parser-formal` runs
    an unbounded k-induction (`verif/formal/parser_wrap.sby`, `mode prove`) on
@@ -545,7 +556,7 @@ value mismatch, any watchdog timeout, any coverage regression, or a base-ISA reg
 | G8 metadata sink | I2 → **I5** | ✅ commit-gated frame, MMIO-visible, cosim-checked |
 | G9 hand-encoded | **I5** | ✅ program + CAM model-generated (`enc.hex`/`camprog.hex`) |
 | G10 single config | **N6** | ✅ `cva6-parser-config-wb` builds the patched model under a 2nd RV64GC config (`cv64a6_imafdc_sv39_wb`, write-back cache) + runs the in-core parser test — the FU integrates under a different config. Superscalar (`NrIssuePorts=2`) still deferred (§3.1) |
-| G11 no negative control | **N1** (negative control) + **N6** (base-ISA) | ✅ `parser-negative-control` asserts the **stock** core traps the custom-0 word (illegal-instruction, mcause=2 → fesvr SUCCESS); **`cva6-parser-baseisa` asserts a directed RV64GC slice still retires on the PATCHED core** (extension is base-ISA-transparent). Full upstream riscv-tests suite is a deferred complement (§3.1) |
+| G11 no negative control | **N1** (negative control) + **N6** (base-ISA) + **T0** (tandem) | ✅ `parser-negative-control` asserts the **stock** core traps the custom-0 word (illegal-instruction, mcause=2 → fesvr SUCCESS); **`cva6-parser-baseisa` asserts a directed RV64GC slice still retires on the PATCHED core** (extension is base-ISA-transparent); **`cva6-parser-tandem` lock-steps that same slice against a source-built extended Spike — 287/287 instructions, 0 mismatches on insn/rd/pc/trap/mode/CSRs — a strictly stronger transparency oracle than a program self-check**. Full upstream riscv-tests suite is a deferred complement (§3.1) |
 | G12 no coverage | **N7** | ✅ `parser-coverage` — Verilator line/toggle + functional cover points (`+define+PARSER_COVER`), merged with `verilator_coverage`; gate = **100%** of the §2.6.5 cross-product bins (op class × pipeline event × exit outcome) hit. Corpus-scaled line-% floor is Phase-7 |
 | G13 X-prop/reset | I2 + V11 | ✅ V11 reset X-freedom (`parser_wrap_tb` Sc.0, `$isunknown`-free spec/arch state + first-op) — PR-5 |
 | G14 timing/physical | Phase 8 | synthesis + STA (§5 tapeout exit bar) |
@@ -626,7 +637,11 @@ value mismatch, any watchdog timeout, any coverage regression, or a base-ISA reg
    stays deferred** — it needs a new cv64 superscalar config pkg + validating the
    no-parser-on-issue-port-1 interlock and `PARSER_WB` indexing. **Coverage ✅ N7**
    (`parser-coverage` — Verilator line/toggle + 100%-functional cover closure over the
-   §2.6.5 cross-product). `riscv-dv` + Spike lock-step stay Phase 7+.
+   §2.6.5 cross-product). **Extended-Spike lock-step — Stage 0 ✅ T0** (`cva6-parser-tandem`
+   — the base ISA lock-steps against a source-built tandem Spike, 287/287, 0 mismatches;
+   `nix/spike-tandem.nix` + the `SPIKE_TANDEM` build gate). **Stage 1** (parser Spike
+   extension → 22-case cosim under lock-step) and **Stage 2** (`riscv-dv` random with the
+   tandem pair as oracle) stay Phase 7+.
 8. **Real DMA packet feed** — the I5 MMIO peripheral is **test-grade** (CPU/fesvr
    fills the buffer); the DMA feed + runtime CAM programming from the wire are Phase 8.
 9. **DFT / POST (§4)** — scan/ATPG/MBIST + power-on self-test ROM: a Phase-8 silicon

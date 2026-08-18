@@ -44,6 +44,12 @@
           parserRtl = ./rtl;
         };
 
+        # Tandem-patched Spike (libriscv with the RVFI DPI + openhw Simulation/Params
+        # model + commitlog), source-built from the vendored tree as its own cached
+        # store path. Enables the Phase-7 RVFI-vs-Spike lock-step; uses the UNPATCHED
+        # source (the vendored spike is identical in both trees).
+        spike-tandem = import ./nix/spike-tandem.nix { inherit pkgs cva6-src; };
+
         # Two Verilator builds from ONE builder, for easy unpatched-vs-patched
         # compare: cva6-baseline (stock) and cva6-parser (patched). Distinct work
         # dirs so they don't collide under build/.
@@ -66,6 +72,14 @@
         # (I5): packet -> flow_keys equivalence vs the golden model, over real MMIO.
         cva6-parser-cosim = import ./nix/cva6-parser-cosim.nix {
           inherit pkgs;
+          cva6-src = cva6-parser-src;
+        };
+
+        # Phase 7, Stage 0 (G11): build the patched model WITH the RVFI-vs-Spike
+        # lock-step (SPIKE_TANDEM=1) + run the base-ISA slice under per-instruction
+        # tandem verification against the source-built tandem Spike.
+        cva6-parser-tandem = import ./nix/cva6-parser-tandem.nix {
+          inherit pkgs spike-tandem;
           cva6-src = cva6-parser-src;
         };
 
@@ -149,11 +163,14 @@
           cva6-src = cva6-src;
           # The parser-patched CVA6 source: `nix build .#cva6-parser-src`.
           cva6-parser-src = cva6-parser-src;
+          # The tandem-patched Spike: `nix build .#spike-tandem`.
+          spike-tandem = spike-tandem;
           # The two Verilator builders as packages too.
           cva6-baseline = cva6-baseline;
           cva6-parser = cva6-parser;
           cva6-parser-test = cva6-parser-test;
           cva6-parser-cosim = cva6-parser-cosim;
+          cva6-parser-tandem = cva6-parser-tandem;
           parser-negative-control = parser-negative-control;
           cva6-parser-trap-v7 = cva6-parser-trap-v7;
           cva6-parser-trap-v6 = cva6-parser-trap-v6;
@@ -206,6 +223,13 @@
         apps.cva6-parser-cosim = {
           type = "app";
           program = "${cva6-parser-cosim}/bin/cva6-parser-cosim";
+        };
+
+        # Base-ISA RVFI-vs-Spike lock-step (Phase 7, Stage 0): every retired RV64GC
+        # instruction is matched against Spike in tandem: `nix run .#cva6-parser-tandem`.
+        apps.cva6-parser-tandem = {
+          type = "app";
+          program = "${cva6-parser-tandem}/bin/cva6-parser-tandem";
         };
 
         # Negative control (G11): the stock core must reject the parser ops:

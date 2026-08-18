@@ -36,7 +36,13 @@ pkgs.runCommand "cva6-parser-src"
 {
   nativeBuildInputs = [ pkgs.git ];
   # the patches applied, in order — bump this list as further stages land.
-  patches = [ ./cva6-parser/decode.patch ./cva6-parser/issue-ex.patch ./cva6-parser/tb-backdoor.patch ./cva6-parser/mmio.patch ];
+  #   tandem-get-misa-d-bit  — fix vendored core-v-verif get_misa() to set the D
+  #                            misa bit (it only set F), so the Phase-7 RVFI-vs-Spike
+  #                            lock-step's reference Spike keeps FP double ops legal.
+  #   tandem-mstatus-sd-mask — mask the read-only mstatus.SD summary bit in the tandem
+  #                            CSR compare (CVA6's RVFI omits it; Spike computes it).
+  #   Both touch only SPIKE_TANDEM-gated SV, so non-tandem builds are unaffected.
+  patches = [ ./cva6-parser/decode.patch ./cva6-parser/issue-ex.patch ./cva6-parser/tb-backdoor.patch ./cva6-parser/mmio.patch ./cva6-parser/tandem-get-misa-d-bit.patch ./cva6-parser/tandem-mstatus-sd-mask.patch ];
 }
 ''
   cp -r --no-preserve=mode,ownership ${cva6-src} "$out"

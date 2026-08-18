@@ -32,6 +32,8 @@
       nix run .#cva6-parser       build the parser-patched CVA6 model (compare vs baseline)
       nix run .#cva6-parser-test  build patched model + run the in-core custom-0 test
       nix run .#cva6-parser-cosim build patched model + run the in-core packet->flow_keys cosim (I5)
+      nix run .#cva6-parser-tandem build patched model w/ RVFI-vs-Spike lock-step + run base-ISA tandem (Phase 7)
+      nix build .#spike-tandem     source-built tandem Spike (libriscv w/ RVFI DPI; cached derivation)
       nix build .#cva6-parser-src patched CVA6 source only (cached derivation)
 
     Golden model (Phase 2)
