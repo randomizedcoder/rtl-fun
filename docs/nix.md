@@ -45,6 +45,7 @@ nix/
   parser-negative-control.nix # parser-negative-control: STOCK model must trap the custom-0 word (G11, N1)
   parser-trap-v7.nix          # cva6-parser-trap-v7: faulting instr must not corrupt an in-flight parser op (V7/G7, N4)
   parser-trap-v6.nix          # cva6-parser-trap-v6: async interrupt (msip) mid-parse must not corrupt an in-flight parser op (V6/G7, N5)
+  parser-ctxsw-v10.nix        # cva6-parser-ctxsw-v10: a between-parse context switch must round-trip the parser register context via the custom-3 move ABI (V10/G7, D7)
   parser-baseisa.nix          # cva6-parser-baseisa: RV64GC slice must still retire on the patched core (base-ISA regression, G11, N6)
   parser-config-wb.nix        # cva6-parser-config-wb: FU integrates under the 2nd config cv64a6_imafdc_sv39_wb (G10, N6)
   xdp2.nix                    # pinned xdp2 source (packet corpus, Phase 2)
@@ -60,6 +61,7 @@ scripts/
   parser-negative-control.sh  # negative control: assemble negctl.S, run on STOCK model, assert trap (G11, N1)
   parser-trap-v7.sh           # V7: assemble parser_trap_v7.S, run on patched model, assert no fault-corruption (G7, N4)
   parser-trap-v6.sh           # V6: assemble parser_trap_v6.S, run on patched model, assert no interrupt-corruption (G7, N5)
+  parser-ctxsw-v10.sh         # V10: assemble parser_ctxsw_v10.S, run on patched model, assert the parser register context round-trips a context switch (G7, D7)
   parser-baseisa.sh           # base-ISA regression: assemble base_isa.S, run on patched model, assert RV64GC still retires (G11, N6)
                               # (the 2nd-config app reuses cva6-parser-test.sh with CVA6_TARGET=..._wb — no new script)
   model-test.sh, pm-trace.sh  # bodies of the golden-model apps (Phase 2)
@@ -86,6 +88,7 @@ One `writeShellApplication` per runner; each puts its tools on `PATH` via
 | `parser-negative-control` | negative control (G11): the **stock** core must trap the custom-0 parser word (illegal-instruction) | 6 |
 | `cva6-parser-trap-v7` | V7 (G7): a faulting instruction (`ecall`) that flushes an in-flight parser op must not corrupt its committed result | 6 |
 | `cva6-parser-trap-v6` | V6 (G7): an async machine software interrupt (`msip`) mid-parse that flushes an in-flight parser op must not corrupt its committed result | 6 |
+| `cva6-parser-ctxsw-v10` | V10 (G7, ratifies D7): a between-parse context switch — spill/clobber/reload of the writable parser regs {p11,p13,p14,p15,p16} via the custom-3 move ABI — must round-trip the parser register context bit-for-bit | 6 |
 | `cva6-parser-baseisa` | base-ISA regression (G11): a directed RV64GC slice (integer/M/A/F/D/CSR/branches) must still retire correctly on the patched core | 6 |
 | `cva6-parser-config-wb` | 2nd-config integration (G10): the parser FU must issue/execute/retire under `cv64a6_imafdc_sv39_wb` (write-back cache) too | 6 |
 | `model-test` | golden-model unit + corpus tests | 2 |

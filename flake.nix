@@ -91,6 +91,15 @@
           cva6-src = cva6-parser-src;
         };
 
+        # V10 (G7 / §3.1 item 4; ratifies D7): build the patched model + assert a
+        # between-parse context switch — spill/clobber/reload of the five writable parser
+        # registers {p11,p13,p14,p15,p16} via the custom-3 move ABI — round-trips the
+        # parser register context bit-for-bit through memory.
+        cva6-parser-ctxsw-v10 = import ./nix/parser-ctxsw-v10.nix {
+          inherit pkgs;
+          cva6-src = cva6-parser-src;
+        };
+
         # Base-ISA regression (G11): build the patched model + assert a directed slice
         # of RV64GC (integer/M/A/F/D/CSR/branches) still retires correctly on the
         # PATCHED core — the parser extension is transparent to the base ISA. Companion
@@ -139,6 +148,7 @@
           parser-negative-control = parser-negative-control;
           cva6-parser-trap-v7 = cva6-parser-trap-v7;
           cva6-parser-trap-v6 = cva6-parser-trap-v6;
+          cva6-parser-ctxsw-v10 = cva6-parser-ctxsw-v10;
           cva6-parser-baseisa = cva6-parser-baseisa;
           cva6-parser-config-wb = cva6-parser-config-wb;
           # The pinned xdp2 source (packet corpus): `nix build .#xdp2-src`.
@@ -208,6 +218,14 @@
         apps.cva6-parser-trap-v6 = {
           type = "app";
           program = "${cva6-parser-trap-v6}/bin/cva6-parser-trap-v6";
+        };
+
+        # V10 between-parse context switch (G7 / §3.1 item 4; ratifies D7): the custom-3
+        # move ABI must round-trip the parser register context bit-for-bit through a
+        # simulated context switch: `nix run .#cva6-parser-ctxsw-v10`.
+        apps.cva6-parser-ctxsw-v10 = {
+          type = "app";
+          program = "${cva6-parser-ctxsw-v10}/bin/cva6-parser-ctxsw-v10";
         };
 
         # Base-ISA regression (G11): RV64GC must still retire correctly on the patched

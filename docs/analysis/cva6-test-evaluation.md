@@ -163,8 +163,16 @@ concrete test/fix that would. Severity is the tapeout cost if it escaped.
   a CLINT machine software interrupt — msip — flushes the in-flight parser op mid-parse;
   the handler clears msip and `mret`s without advancing mepc, so it re-executes and
   commits the interrupt-free result). V6+V7 cover both flavours of the FU `flush_i`
-  (async interrupt / sync exception). Remaining: the context-switch save/restore (V10),
-  which is decision-gated on the D7 parser-state ABI.
+  (async interrupt / sync exception). And the **context-switch save/restore is closed
+  (scoped) by V10** (`parser_ctxsw_v10.S`, ratifying **D7**): the custom-3 move ABI
+  (`prs.mv.x.p`/`prs.mv.p.x`) spills thread A's parser register context to memory, a
+  simulated thread B clobbers every writable p-reg, and A is reloaded and asserted
+  bit-for-bit — in-core over the real commit-gated pipeline. The round-trippable context is
+  the read∩write p-reg subset {p11,p13,p14,p15,p16}. *Remaining:* a **mid-parse**
+  context-switch that must preserve in-progress cursor/position state
+  (cur_off/dat_off/encap/node_cnt/next_pc/done) — not reachable through today's custom-3
+  encodings, so it needs new encodings and stays deferred (§3.1 item 4). **G7 is otherwise
+  closed.**
 
 - **G8 — Metadata sink undefined in-core.** *Sev: medium (blocks G1).* There is no
   in-core metadata/`flow_keys` frame; store results are dropped. Until a sink

@@ -30,7 +30,7 @@ files/signals.
 | D4 | End-of-node redirect | Reuse `branch_unit`'s path: drive `resolved_branch_o`/`resolve_branch_o`. Target computed from `Next`/`Loop` (JALR-like). No new redirect invented. |
 | D5 | CAM sizing | 3–15 shared tables, **32 entries** provisioned (slice uses 13), entry = 20-bit key + 32-bit target (+valid). Behavioral first, synthesizable later. Loaded via custom-3 `CPPRSWRCAM`. |
 | D6 | Register file | 32 × 64-bit p-regs *inside* the unit; sub-field access keyed by `(Pos,Sz)`. **One in-flight parser op** interlock ⇒ no rename, no per-reg scoreboard. |
-| D7 | Context switch | Save/restore through the custom-3 move ABI (`prs.mv.x.p`/`prs.mv.p.x`); minimize in-use state (single encap, no runthread) for the slice. No new CSRs yet. |
+| D7 | Context switch | **Ratified (bounded policy).** Save/restore through the custom-3 move ABI (`prs.mv.x.p`/`prs.mv.p.x`); minimize in-use state (single encap, no runthread) for the slice. No new CSRs. Round-trippable subset = {p11,p13,p14,p15,p16}; mid-parse position state needs new encodings (deferred). Proven in-core by V10. |
 
 ## Design detail
 
@@ -184,11 +184,21 @@ Key mechanisms:
   op can't issue while one executes) removes every parser-reg RAW/WAW/WAR hazard for
   free — no rename, no per-p-reg scoreboard. Integer-side hazards for custom-3 moves
   are the ordinary `rs`/`rd` scoreboard dependencies CVA6 already tracks.
-- **Context switch (Risk R2) — Decision (D7).** Save/restore rides the existing
-  custom-3 move ABI: an OS spill/reload stub reads each live p-reg with
-  `prs.mv.x.p` and restores with `prs.mv.p.x`. For the first slice, *in-use* state
-  is minimized (single encap level, no runthread) to bound the cost; a dedicated
-  CSR/shadow-block spill path is revisited only if profiling demands it.
+- **Context switch (Risk R2) — Decision (D7): RATIFIED as a bounded policy.**
+  Save/restore rides the existing custom-3 move ABI: an OS spill/reload stub reads each
+  live p-reg with `prs.mv.x.p` (CPPRSRD) and restores with `prs.mv.p.x` (CPPRSWR). No new
+  CSRs, no runthread, single encap level for the first slice. The policy is proven in-core
+  by the **V10 between-parse context-switch test** (`tests/cva6-parser/parser_ctxsw_v10.S`,
+  `nix run .#cva6-parser-ctxsw-v10`): thread A's parser context is spilled to memory,
+  clobbered by a simulated thread B, reloaded, and asserted bit-for-bit — over the real
+  commit-gated pipeline. **ABI boundary (scope):** the round-trippable context is exactly
+  the read∩write p-reg subset **{p11, p13, p14, p15, p16}** (p1/p2 are read-only
+  telemetry), and every field in it round-trips losslessly. The mid-parse *position* state
+  (cur_off, dat_off, encap, node_cnt, next_pc, done) is **not** reachable through today's
+  custom-3 encodings, so a genuine *mid-parse* preemption cannot yet be saved/restored;
+  exposing it (new custom-3/CSR encodings) is a follow-on deferral (see
+  [cva6-verification-design.md §3.1](analysis/cva6-verification-design.md#31-canonical-deferral-list-single-source-of-truth)).
+  A dedicated CSR/shadow-block spill path is revisited only if profiling demands it.
 
 ### 4.6 Unit interfaces (signal-level, for Phase 5)
 

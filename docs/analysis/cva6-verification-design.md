@@ -460,12 +460,14 @@ have. Each is a directed program plus a property.
 | V7 | preceding **faulting** instr squashes parser op | COR | no state corruption (**G2/G7**) — ✅ N4: `parser_trap_v7.S` — an `ecall` flushes an in-flight CPPRSWR parser write in-core; after the handler returns it re-executes and commits the SAME value as a fault-free run (fault-run == clean-run + trap fired once) |
 | V8 | **end-of-node redirect** taken | POS | fetch resumes at target PC (**G3**) — ✅ I4a + I5 (every cosim walk jumps mid-graph) |
 | V9 | parse-**exit** redirect (not trap) | POS | redirects per contract (**G7**) — ✅ I5: on exit the FU steers fetch to a program-provided landing PC ("subroutine return"); all 22 cosim cases return + read back |
-| V10 | **context switch** save/restore of parser regs | COR | state preserved (Risk R2 — needs design) |
+| V10 | **context switch** save/restore of parser regs | COR | state preserved (Risk R2) — ✅ **scoped** (D7 ratified): `parser_ctxsw_v10.S` — a between-parse context switch spills thread A's parser context to memory (`prs.mv.x.p`/CPPRSRD), a simulated thread B clobbers every writable p-reg, then A is reloaded (`prs.mv.p.x`/CPPRSWR) and asserted bit-for-bit over the real commit-gated pipeline. Round-trippable subset = {p11,p13,p14,p15,p16}; **mid-parse position state (cur_off/dat_off/encap/node_cnt/next_pc/done) is not ABI-reachable and stays deferred** (§3.1) |
 | V11 | **reset** then first op | BND | defined state, no X (**G13**) — ✅ PR-5: `parser_wrap_tb` Sc.0 asserts `$isunknown`-free spec/arch state + first-op result out of reset |
 
-V10 requires a *design decision first* (parser state is internal — how is it
-saved/restored across a trap? CSR-mapped? memory-mapped? not-context-switchable
-by contract?); the test follows the decision.
+V10's *design decision* is now made — **D7 is ratified** as a bounded policy (§6): parser
+state is saved/restored by reusing the custom-3 move ABI, no new CSRs. The scoped test above
+proves the round-trip in-core. The one remaining piece — a *mid-parse* switch that must
+preserve the parser's in-progress cursor/position state — needs new custom-3/CSR encodings
+to expose that state, and is the sole surviving V10 deferral (§3.1 item 4).
 
 ### 2.6 Beyond directed tables — the escalation layers
 
@@ -530,7 +532,7 @@ value mismatch, any watchdog timeout, any coverage regression, or a base-ISA reg
 | G4 custom-3 untested | I3 / I4b / **N2** | ✅ custom-3 read (I3) + write/CAM-program/readback (I4b) + immediate-load (N2, `CPPRSWRIMM`); Table B custom-3 rows, V3, wrap-TB Sc.11 |
 | G5 one op only | **I5** | ✅ all op classes in the cosim + wrap-TB |
 | G6 hazards | I3/I1 + V-rows | ✅ RAW (V3), WAW (V4), adjacency/no-WB-contention (V5) — PR-5 (`parser_wrap_tb` + in-core `parser_insn.S`); V2 back-to-back interlock in wrap-TB Sc.3 |
-| G7 interrupts/ctx-switch | I5 (+design) / **N4 / N5** | 🔵 V9 parse-exit redirect done (I5); **V7 faulting-squash done (N4)**; **V6 interrupt-mid-parse done (N5)** — both flavours of the flush_i that reaches the FU; V10 ctx-switch deferred (§3.1, needs the D7 ABI) |
+| G7 interrupts/ctx-switch | I5 / **N4 / N5 / V10** | ✅ V9 parse-exit redirect (I5); **V7 faulting-squash (N4)** + **V6 interrupt-mid-parse (N5)** — both flavours of the flush_i that reaches the FU; **V10 between-parse ctx-switch (scoped, D7 ratified)** — custom-3 move ABI round-trips the parser register context bit-for-bit (`parser_ctxsw_v10.S`). Only a *mid-parse* ctx-switch stays deferred (§3.1 item 4, needs new encodings) |
 | G8 metadata sink | I2 → **I5** | ✅ commit-gated frame, MMIO-visible, cosim-checked |
 | G9 hand-encoded | **I5** | ✅ program + CAM model-generated (`enc.hex`/`camprog.hex`) |
 | G10 single config | **N6** | ✅ `cva6-parser-config-wb` builds the patched model under a 2nd RV64GC config (`cv64a6_imafdc_sv39_wb`, write-back cache) + runs the in-core parser test — the FU integrates under a different config. Superscalar (`NrIssuePorts=2`) still deferred (§3.1) |
@@ -568,8 +570,12 @@ value mismatch, any watchdog timeout, any coverage regression, or a base-ISA reg
    handler clears msip and `mret`s without advancing mepc, so it re-executes and
    commits the interrupt-free result). V6+V7 together cover **both** flavours of the
    single-cycle `flush_i` that reaches the FU (async interrupt / sync exception), so
-   **G7 is closed** for the realized parser state; context-switch save/restore (V10)
-   remains deferred — it needs the parser-state ABI decision first (§6, D7).
+   **G7 is closed** for the realized parser state. **V10 context-switch save/restore ✅
+   closed (scoped) by the V10 increment** (`parser_ctxsw_v10.S`, ratifying **D7** — §6):
+   the custom-3 move ABI round-trips thread A's parser register context bit-for-bit through
+   a simulated between-parse context switch, in-core. Only a *mid-parse* switch (preserving
+   the in-progress cursor/position state that is not ABI-reachable today) remains deferred —
+   see §3.1 item 4.
 5. ~~**CAM-write speculation-safety** — `CPPRSWRCAM` applies at execute, not
    commit-gated.~~ **✅ Closed by N3.** `CPPRSWRCAM` now buffers its `{index,key,target}`
    in the I1 pending queue and applies to the CAM only on **commit**; a dependent CAM
@@ -825,8 +831,13 @@ closure on `parser_execute` + the injected redirect path (G14).
   architectural shadow)? Recommend yes — ship correctness, optimize later.
 - **Decision (I1):** exact `commit_valid`/`trans_id` signal to thread from
   `commit_stage.sv` to the FU. Scope during I1.
-- **Decision (V10):** parser-state context-switch contract — CSR-mapped,
-  memory-mapped, or "not context-switchable" by ABI? Test follows.
+- **Decided (V10, D7 ratified):** parser-state context-switch contract = **reuse the
+  custom-3 move ABI** (`prs.mv.x.p`/`prs.mv.p.x`) to spill/reload live p-regs to memory —
+  no new CSRs, no runthread, single encap. The round-trippable subset is the read∩write
+  p-reg set {p11,p13,p14,p15,p16} (p1/p2 read-only), proven bit-exact in-core by
+  `parser_ctxsw_v10.S` (`nix run .#cva6-parser-ctxsw-v10`). **Open (deferred):** a *mid-parse*
+  switch preserving in-progress cursor/position state (cur_off/dat_off/encap/node_cnt/
+  next_pc/done) needs new custom-3/CSR encodings to expose that state (§3.1 item 4).
 - **Decided (§2.6.5, N7):** functional-coverage closure target = **100% of the
   enumerated cross-product bins** (`parser-coverage` gates on it). A corpus-scaled
   line-% floor + the fuzz budget stay Phase-7.
