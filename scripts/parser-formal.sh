@@ -26,6 +26,7 @@ fi
 
 mkdir -p "$BUILD"
 
+# ---- proof 1: parser_execute (combinational, 1-step BMC = exhaustive) ----------
 # 1. flatten SystemVerilog -> Verilog-2005 (yosys' builtin frontend can't parse
 #    our SV; sv2v produces the subset SymbiYosys needs).
 sv2v --write="$BUILD/parser_flat.v" \
@@ -36,3 +37,19 @@ cp "$FORMAL/parser_execute.sby" "$BUILD/parser_execute.sby"
 ( cd "$BUILD" && sby -f parser_execute.sby )
 
 echo "parser-formal: PASS — parser_execute safety invariants proved (see $BUILD/parser_execute)"
+
+# ---- proof 2: cva6_parser_wrap (SEQUENTIAL — the I1/G2 speculation-safety SVAs) -
+# cva6_parser_wrap is a clocked state machine, so its safety properties are
+# sequential ($past/$stable) and need a multi-cycle proof, not the combinational
+# 1-step flow above. This is the I1 formal follow-up: the two G2 invariants
+# (a_arch_committed / a_flush_rollback) — and every other embedded wrap SVA —
+# proved over ALL inputs by unbounded k-induction (mode prove). --define=FORMAL
+# switches the embedded PRS_ASSERTs on; the wrap instantiates only parser_execute
+# and elaborates with its default parameters, so no CVA6 packages are needed.
+sv2v --define=FORMAL -I"$RTL" --write="$BUILD/parser_wrap_flat.v" \
+  "$RTL/parser_pkg.sv" "$RTL/parser_execute.sv" "$RTL/cva6_parser_wrap.sv"
+
+cp "$FORMAL/parser_wrap.sby" "$BUILD/parser_wrap.sby"
+( cd "$BUILD" && sby -f parser_wrap.sby )
+
+echo "parser-formal: PASS — cva6_parser_wrap G2 speculation/flush invariants proved (see $BUILD/parser_wrap)"

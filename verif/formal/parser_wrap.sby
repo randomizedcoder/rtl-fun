@@ -1,0 +1,59 @@
+# parser_wrap.sby — SymbiYosys formal proof of cva6_parser_wrap's SEQUENTIAL
+# speculation-safety invariants (the I1/G2 properties).
+#
+# Unlike parser_execute (combinational, proved by a 1-step BMC in
+# parser_execute.sby), cva6_parser_wrap is a clocked state machine: the
+# speculative working state (st_q) advances at EXECUTE while the architectural
+# shadow (st_arch_q) advances only at COMMIT, and a flush rolls st_q back to
+# st_arch_q. Its safety SVAs are therefore *sequential* ($past/$stable, multi-
+# cycle) and cannot be discharged by the combinational 1-step flow. This harness
+# proves them directly on the FU.
+#
+# The headline obligations are the two G2 (speculation/flush) properties embedded
+# in cva6_parser_wrap.sv (via parser_asserts.svh, enabled by +define+FORMAL):
+#   a_arch_committed : !$stable(st_arch_q) |-> $past(pend_commit)
+#                      (architectural state advances ONLY on a commit)
+#   a_flush_rollback : $past(flush_i)      |-> (st_q == st_arch_q)
+#                      (after a flush the speculative copy == the committed copy)
+# Both are 1-inductive over ANY start state (st_arch_q is written only under
+# pend_commit; the flush block dominates the always_ff and drives st_q/st_arch_q
+# from one identical RHS), so no environment model / input assumptions are needed.
+# The whole module's other embedded SVAs (valid-after-accept, we-iff-rd,
+# ready-low-when-done, the CAM commit-gate + lookup interlock, redirect exclusivity)
+# ride along in the same proof.
+#
+# Driven by scripts/parser-formal.sh (nix run .#parser-formal), which flattens the
+# SystemVerilog (parser_pkg + parser_execute + cva6_parser_wrap) to Verilog-2005
+# with sv2v first — yosys' built-in frontend can't parse our SV — passing
+# --define=FORMAL so the assertions compile in. cva6_parser_wrap elaborates with
+# its default type/int parameters (bp_resolve_t = logic, VLEN = 64, TRANS_ID_BITS
+# = 3), so no CVA6 packages are pulled in.
+
+[tasks]
+prove       # unbounded k-induction — proves the invariants hold for ALL inputs
+
+[options]
+# The invariants are 1-inductive (st_arch_q moves only under pend_commit; the flush
+# block dominates the always_ff and drives st_q/st_arch_q from one identical RHS), so a
+# shallow k-induction is a SOUND *unbounded* proof — no deep unroll needed. The
+# induction step considers arbitrary states (including flush_i / commit asserted), so
+# the implications are checked non-vacuously; the base case covers the reset behaviour.
+prove: mode prove
+prove: depth 2
+
+[engines]
+smtbmc z3
+
+[script]
+read_verilog -formal parser_wrap_flat.v
+prep -top cva6_parser_wrap
+# The metadata frame (meta_mem) + its MMIO readback (meta_rd_data_o) feed NONE of the
+# speculation-safety assertions — it is a pure commit-gated data sink. Drop the output
+# so opt prunes the 64-byte frame and its per-commit byte-scatter writes, keeping every
+# solver step cheap. (The frame's own correctness is covered by parser-wrap-test /
+# the cosim, not this proof.)
+delete o:meta_rd_data_o
+opt_clean
+
+[files]
+parser_wrap_flat.v

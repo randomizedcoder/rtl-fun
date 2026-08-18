@@ -323,7 +323,7 @@ module cva6_parser_wrap
     meta_rd_data_o = 64'h0;
     for (int k = 0; k < 8; k++) begin
       logic [META_OFF_W:0] a;
-      a = {1'b0, meta_rd_addr_i} + k[META_OFF_W:0];
+      a = {1'b0, meta_rd_addr_i} + (META_OFF_W+1)'(k);
       if (a < META_MAX[META_OFF_W:0])
         meta_rd_data_o[8*k +: 8] = meta_mem[a[META_IDX_W-1:0]];
     end
@@ -441,7 +441,7 @@ module cva6_parser_wrap
         if (pend_q[pend_head_q].meta_we) begin
           for (int i = 0; i < 8; i++)
             if (i < int'(pend_q[pend_head_q].meta_nbytes))
-              meta_mem[META_IDX_W'(pend_q[pend_head_q].meta_off + i[META_OFF_W-1:0])]
+              meta_mem[META_IDX_W'(pend_q[pend_head_q].meta_off + META_OFF_W'(i))]
                   <= pend_q[pend_head_q].meta_wdata[8*i +: 8];
         end
       end

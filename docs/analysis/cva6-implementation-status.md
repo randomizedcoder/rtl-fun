@@ -29,7 +29,7 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 | Gap | Owner | State |
 |--|--|--|
 | G1 no in-core value checking | I2 → I5 | ✅ (I5: full packet→flow_keys cosim over real MMIO, 22/22 vs the model; the I2 sim-only backdoor is superseded) |
-| **G2 speculation/flush state corruption** | **I1** | ✅ (fix merged + verified by `parser-wrap-test`; PR #21) |
+| **G2 speculation/flush state corruption** | **I1** | ✅ (fix merged + verified by `parser-wrap-test`; PR #21. **Now also proved over all inputs**: `parser-formal` runs a k-induction proof of the sequential `a_arch_committed` + `a_flush_rollback` SVAs on `cva6_parser_wrap` — the I1 formal follow-up, `verif/formal/parser_wrap.sby`) |
 | G3 redirect untested in-core | I4a (redirect) / I4b (CAM) → I5 | ✅ (I4a: end-of-node redirect fires + steers fetch in-core; I4b: CAM programmed/read back from the integer side, CAMNEXT hit drives a real redirect, mux-exclusivity SVA. **I5 exercises the redirect + CAMNEXT-hit + parse-exit-return path over 22 real packets** (15 at I5, +7 Table-A edge rows at PR-4) — every graph walk jumps/exits correctly. CAM-write speculation-safety **closed by N3** — CPPRSWRCAM is commit-gated with a dependent-lookup interlock) |
 | G4 custom-3 untested | I3 / I4b | ✅ (read **and** write now merged: CPPRSRD register read — `read_preg` p-reg selector, PR #23; CPPRSWR register write + CPPRSWRCAM CAM program + CPPRSRDCAM CAM readback, all rs1-threaded from `ex_stage`, PR #25. In-core self-checks + wrap-TB Scenarios 5/7. The last custom-3 form — **CPPRSWRIMM immediate-load** — is now implemented (N2): `parser_decode` I=1 leg + split-imm extract, commit-gated on the CPPRSWR path, decode patch zeroes integer rs1/rd; wrap-TB Sc.11 + in-core directed row) |
 | G5 one op only | I5 | ✅ (every op class — load/store/storeimm/lensetmin/cmpib·neib·ord/cam/camnext/next/stp + custom-3 moves — exercised by the 22-case cosim + wrap-TB; model-generated program) |
@@ -51,7 +51,7 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
 | `nix run .#parser-wrap-test` | I1 rollback/commit/backpressure + I2 metadata (Sc.4) + **I3 custom-3 readback** (Sc.5) + **I4a redirect target** (Sc.6) + **I4b CAM program/readback** (Sc.7) + **CAMNEXT-hit redirect** (Sc.8) + **I5 MMIO meta read** + **V11 reset/X** (Sc.0) + **V4 WAW** (Sc.9) + **store-past-frame bound** (Sc.10, PR-5), assertion-based | ✅ PASS |
 | `nix run .#parser-lint` | lints the parser unit incl. `cva6_parser_wrap` | ✅ clean |
 | `nix run .#parser-sim-suite` | standalone unit vs model (unaffected by in-core work) | ✅ 22/22 (Table A complete after PR-4) |
-| `nix run .#parser-formal` | standalone `parser_execute` safety (combinational) | ✅ PASS |
+| `nix run .#parser-formal` | `parser_execute` safety (combinational, 1-step) **+ `cva6_parser_wrap` G2 speculation/flush invariants** (`a_arch_committed`/`a_flush_rollback` proved over all inputs by k-induction, `mode prove`) | ✅ PASS (both proofs; `successful proof by k-induction`) |
 | `nix run .#cva6-parser-cosim` | **table-driven in-core packet→flow_keys value-check vs the model, over real MMIO** | ✅ **22/22** (positive/negative/boundary/corner; flow_keys byte-for-byte + exit code; Table A rows 16–22 added by PR-4) |
 
 ## Notes / open decisions (from the plan)
@@ -174,8 +174,19 @@ Status legend: ⬜ planned · 🔵 in progress · ✅ done (merged to `main`).
   the marker, not restored (mid-stream `done=1` wedges the frontend, deferred). Only the
   **M2** residual (meta_mem frame + CAM restore path) stays deferred (§3.1 item 4).
 - **Coverage closure target** — set with the corpus.
-- **I1 formal (follow-up):** the I1 SVA (`a_arch_committed`, `a_flush_rollback`) are
-  *sequential* (`$past`, multi-cycle), which the current `parser-formal` flow (sv2v +
-  1-step BMC on the combinational `parser_execute`) does not cover. They are proven
-  here by the directed assertion-based `parser-wrap-test`; a multi-cycle BMC harness
-  for `cva6_parser_wrap` is a tracked follow-up.
+- **I1 formal (follow-up) — ✅ DONE.** The I1 SVA (`a_arch_committed`,
+  `a_flush_rollback`) are *sequential* (`$past`, multi-cycle), so the combinational
+  1-step `parser_execute` proof cannot reach them. `parser-formal` now runs a **second**
+  SymbiYosys proof (`verif/formal/parser_wrap.sby`) directly on `cva6_parser_wrap`: an
+  **unbounded k-induction** (`mode prove`) discharges the two G2 speculation/flush
+  invariants — and every other embedded wrap SVA — over ALL inputs, with a bounded
+  `bmc` net alongside. The properties are 1-inductive (`st_arch_q` advances only under
+  `pend_commit`; the flush block dominates the `always_ff` and drives `st_q`/`st_arch_q`
+  from one identical RHS), so no environment model is needed. `parser_execute`
+  elaborates inside the proof but the invariants hold for any datapath; the irrelevant
+  `meta_mem` frame + its MMIO readback are pruned (`delete o:meta_rd_data_o`) so each
+  solver step stays cheap. The directed `parser-wrap-test` remains as the simulation
+  cross-check. Flatten note: sv2v can't bit-select an `int` loop variable, so the
+  metadata-scatter width expressions in `cva6_parser_wrap` use width casts
+  (`META_OFF_W'(i)`) rather than `i[META_OFF_W-1:0]` — behavior-identical, and now
+  sv2v-portable.

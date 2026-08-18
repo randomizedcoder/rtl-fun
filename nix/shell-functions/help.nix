@@ -48,7 +48,7 @@
       nix run .#parser-sim-debug  -O0 -ggdb + waveform, for stepping in gdb
       nix run .#parser-lint       --lint-only -Wall, no build (fast lint)
       nix run .#parser-analyze    extra SV lint (verible + svlint)
-      nix run .#parser-formal     SymbiYosys proof of parser_execute safety
+      nix run .#parser-formal     SymbiYosys: parser_execute safety + wrap G2 (k-induction)
       nix run .#parser-wrap-test  cva6_parser_wrap commit/flush state (I1/G2)
 
     Meta
