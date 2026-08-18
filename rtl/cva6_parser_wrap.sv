@@ -215,11 +215,21 @@ module cva6_parser_wrap
   // the op is later squashed, its rd writeback is squashed with it (scoreboard/flush).
   // Cpreg selects a pstate_t field per the patent p0..p31 map (FIG 42). Registers
   // outside this execution subset read 0. p1/p2 return the flattened {len,off} of the
-  // current/data header (an implementation-defined packing of the exec subset).
+  // current/data header (an implementation-defined packing of the exec subset). The
+  // mid-parse registers p6/p7/p8/p9 (M1) expose node_cnt/encap/next_pc/done — the
+  // in-progress cursor state needed to resume a preempted parse. p8/p9 occupy free patent
+  // slots (next_pc/done have no patent p-index); all four are zero-extended like p1/p2.
+  // p6/p7/p8 are writable (write_preg packs their exact inverse for a lossless save/restore
+  // round-trip); p9 (done) is READ-ONLY — a status flag the context switcher observes but
+  // never restores (a resumable checkpoint always has done==0).
   function automatic logic [63:0] read_preg(input pstate_t s, input logic [4:0] sel);
     unique case (sel)
       5'd1:    read_preg = {{(64-2*PKT_OFF_W){1'b0}}, s.cur_len, s.cur_off}; // p1  CurHdr*
       5'd2:    read_preg = {{(64-2*PKT_OFF_W){1'b0}}, s.dat_len, s.dat_off}; // p2  DataHdr*
+      5'd6:    read_preg = {48'b0, s.node_cnt};                    // p6  NodeLoopCnt
+      5'd7:    read_preg = {56'b0, s.encap};                       // p7  Counters/encap
+      5'd8:    read_preg = {{(64-PC_W){1'b0}}, s.next_pc};         // p8  NextPc (free slot)
+      5'd9:    read_preg = {63'b0, s.done};                        // p9  Done  (read-only)
       5'd11:   read_preg = {{32{s.next[31]}}, s.next};             // p11 Next
       5'd13:   read_preg = {s.loop, s.databound};                  // p13 DataBndLoop
       5'd14:   read_preg = {{32{s.code[31]}}, s.code};             // p14 ParserExitCode
@@ -234,11 +244,26 @@ module cva6_parser_wrap
   // integer rs1. It advances parser state (a p-register is architectural), so — like
   // a parse op — it is enqueued and commit-gated (I1). Registers outside the writable
   // subset are ignored. p15 (Accum) is the natural staging register for CPPRSWRCAM's
-  // {key,target} word (see the CAM program drive below).
+  // {key,target} word (see the CAM program drive below). M1 adds the mid-parse
+  // POSITION registers to the writable set: p1/p2 become read∩write (were read-only
+  // telemetry) and p6/p7/p8 join it, each packing the exact inverse of read_preg so a
+  // CPPRSRD→CPPRSWR save/restore round-trips bit-for-bit and resumes a preempted parse.
+  // p9 (Done) is deliberately READ-ONLY (read_preg only): it is a status flag, not
+  // restorable cursor state — at any resumable mid-parse checkpoint the parser has not
+  // exited so done==0, and writing done=1 to a live parse stream is a spurious mid-stream
+  // exit the frontend does not model (out of scope). So done is observable (the context
+  // switcher reads it to decide "is this thread mid-parse?") but never written.
   function automatic pstate_t write_preg(input pstate_t s, input logic [4:0] sel,
                                          input logic [63:0] v);
     write_preg = s;
     unique case (sel)
+      5'd1:    begin write_preg.cur_off = v[PKT_OFF_W-1:0];        // p1  CurHdr*
+                     write_preg.cur_len = v[2*PKT_OFF_W-1:PKT_OFF_W]; end
+      5'd2:    begin write_preg.dat_off = v[PKT_OFF_W-1:0];        // p2  DataHdr*
+                     write_preg.dat_len = v[2*PKT_OFF_W-1:PKT_OFF_W]; end
+      5'd6:    write_preg.node_cnt = v[15:0];                      // p6  NodeLoopCnt
+      5'd7:    write_preg.encap    = v[7:0];                       // p7  Counters/encap
+      5'd8:    write_preg.next_pc  = v[PC_W-1:0];                  // p8  NextPc (free slot)
       5'd11:   write_preg.next  = v[31:0];                         // p11 Next
       5'd13:   begin write_preg.databound = v[31:0]; write_preg.loop = v[63:32]; end
       5'd14:   write_preg.code  = v[31:0];                         // p14 ParserExitCode
@@ -271,7 +296,8 @@ module cva6_parser_wrap
   // is commit-gated (N3): it needs pending-queue room and stops once the parser has
   // exited. Only custom-3 register/CAM READS stay always-ready (they change no
   // architectural state), so a p-register/CAM read still works after an exit — but a
-  // CAM read still interlocks behind an uncommitted CAM write.
+  // CAM read still interlocks behind an uncommitted CAM write. (M1 keeps this gate as-is:
+  // done is read-only, so no register write ever needs to be serviced after an exit.)
   wire needs_queue = is_parse | op_wr_reg | op_wr_cam;
   assign parser_ready_o = rst_ni & ~lu_interlock &
                           (op_rd | (~st_q.done & ~pend_full));

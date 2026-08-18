@@ -168,10 +168,18 @@ concrete test/fix that would. Severity is the tapeout cost if it escaped.
   (`prs.mv.x.p`/`prs.mv.p.x`) spills thread A's parser register context to memory, a
   simulated thread B clobbers every writable p-reg, and A is reloaded and asserted
   bit-for-bit — in-core over the real commit-gated pipeline. The round-trippable context is
-  the read∩write p-reg subset {p11,p13,p14,p15,p16}. *Remaining:* a **mid-parse**
-  context-switch that must preserve in-progress cursor/position state
-  (cur_off/dat_off/encap/node_cnt/next_pc/done) — not reachable through today's custom-3
-  encodings, so it needs new encodings and stays deferred (§3.1 item 4). **G7 is otherwise
+  the read∩write p-reg subset {p11,p13,p14,p15,p16}. The **mid-parse register-state switch
+  is closed by M1** (`parser_ctxsw_mid.S` + `parser_wrap_tb` Sc.14 + `cva6-parser-ctxsw-mid`):
+  the ABI is extended to the position state (p1{cur_len,cur_off}, p2{dat_len,dat_off},
+  p6 node_cnt, p7 encap, p8 next_pc **writable**; p9 done **read-only**), so an async
+  interrupt preempts a live parse, the ISR saves/clobbers/restores the resumable
+  position+data registers over the ABI (register-file only), and the parse resumes to the
+  golden model's byte-exact flow_keys. `done` (p9) is read-only — observed for the mid-parse
+  marker, not restored (at a resumable checkpoint `done==0`; writing `done=1` to a live parse
+  stream wedges the CVA6 frontend, a distinct deferred limitation). *Remaining (M2,
+  deferred):* a mid-parse switch to a STORE-ing /
+  CAM-programming parse also needs a `meta_mem` flow_keys spill/reload port + a CAM
+  save/restore path — neither is custom-3-reachable (§3.1 item 4). **G7 is otherwise
   closed.**
 
 - **G8 — Metadata sink undefined in-core.** *Sev: medium (blocks G1).* There is no

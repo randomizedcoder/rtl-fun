@@ -100,6 +100,15 @@
           cva6-src = cva6-parser-src;
         };
 
+        # M1 mid-parse context switch (§3.1 item 4, register half; ratifies D7's
+        # mid-parse follow-on): an interrupt preempts an in-flight parse, the ISR
+        # saves/clobbers/restores the resumable position+data registers via the custom-3 ABI,
+        # and the parse resumes to the model's byte-exact flow_keys.
+        cva6-parser-ctxsw-mid = import ./nix/parser-ctxsw-mid.nix {
+          inherit pkgs;
+          cva6-src = cva6-parser-src;
+        };
+
         # Base-ISA regression (G11): build the patched model + assert a directed slice
         # of RV64GC (integer/M/A/F/D/CSR/branches) still retires correctly on the
         # PATCHED core — the parser extension is transparent to the base ISA. Companion
@@ -149,6 +158,7 @@
           cva6-parser-trap-v7 = cva6-parser-trap-v7;
           cva6-parser-trap-v6 = cva6-parser-trap-v6;
           cva6-parser-ctxsw-v10 = cva6-parser-ctxsw-v10;
+          cva6-parser-ctxsw-mid = cva6-parser-ctxsw-mid;
           cva6-parser-baseisa = cva6-parser-baseisa;
           cva6-parser-config-wb = cva6-parser-config-wb;
           # The pinned xdp2 source (packet corpus): `nix build .#xdp2-src`.
@@ -226,6 +236,15 @@
         apps.cva6-parser-ctxsw-v10 = {
           type = "app";
           program = "${cva6-parser-ctxsw-v10}/bin/cva6-parser-ctxsw-v10";
+        };
+
+        # M1 mid-parse context switch (§3.1 item 4, register half; ratifies D7): an
+        # interrupt-preempted parse saves/clobbers/restores its full parser register
+        # context via the custom-3 ABI and resumes to the model's flow_keys:
+        # `nix run .#cva6-parser-ctxsw-mid`.
+        apps.cva6-parser-ctxsw-mid = {
+          type = "app";
+          program = "${cva6-parser-ctxsw-mid}/bin/cva6-parser-ctxsw-mid";
         };
 
         # Base-ISA regression (G11): RV64GC must still retire correctly on the patched
