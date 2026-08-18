@@ -486,10 +486,15 @@ Directed tables are the floor. Layered on top, in adoption order:
    CVA6's retirement stream (via **RVFI**, which CVA6 already exposes and
    `core-v-verif` already uses) instruction-by-instruction. This is the workhorse
    that turns every random program into a self-checking test.
-3. **Formal properties.** Bounded proofs of the handful that must hold for *all*
-   inputs: the **G2** no-state-survives-a-flush property, decode-table correctness
-   (RTL decode == `isa/parser-opcodes.yaml`), and redirect-mux exclusivity. Extend
-   `rtl/parser_asserts.svh` to the in-core seam.
+3. **Formal properties.** Proofs of the handful that must hold for *all* inputs.
+   ✅ **The G2 no-state-survives-a-flush property is proved** — `parser-formal` runs
+   an unbounded k-induction (`verif/formal/parser_wrap.sby`, `mode prove`) on
+   `cva6_parser_wrap` discharging `a_arch_committed` (architectural state advances only
+   on a commit) and `a_flush_rollback` (after a flush the speculative copy == the
+   committed copy), plus the other embedded wrap SVAs, over every input sequence — the
+   combinational `parser_execute` invariants keep their own 1-step proof. Still open as
+   deferred formal work: decode-table correctness (RTL decode == `isa/parser-opcodes.yaml`)
+   and a formal (not just SVA) redirect-mux exclusivity proof at the in-core seam.
 4. **Base-ISA regression.** `riscv-tests` + RISCOF on the *base* ISA of the patched
    core — we changed `NrWbPorts` and shared pipeline logic, so proving we didn't
    break standard RV64GC is a required gate, not a nicety.
@@ -531,7 +536,7 @@ value mismatch, any watchdog timeout, any coverage regression, or a base-ISA reg
 | Gap (from eval) | Closed by | Proven by |
 |--|--|--|
 | G1 no value checking | I2 → **I5** | ✅ Table A in-core cosim over real MMIO (22/22) |
-| G2 speculation/flush | **I1** | ✅ `parser-wrap-test` (V1 + rollback SVA) |
+| G2 speculation/flush | **I1** | ✅ `parser-wrap-test` (V1 + rollback SVA) **+ k-induction proof over all inputs** (`parser-formal` → `parser_wrap.sby`: `a_arch_committed` + `a_flush_rollback` on `cva6_parser_wrap`) |
 | G3 redirect untested | I4 → **I5** | ✅ V8/V9 realized (every cosim walk jumps + exit-returns) |
 | G4 custom-3 untested | I3 / I4b / **N2** | ✅ custom-3 read (I3) + write/CAM-program/readback (I4b) + immediate-load (N2, `CPPRSWRIMM`); Table B custom-3 rows, V3, wrap-TB Sc.11 |
 | G5 one op only | **I5** | ✅ all op classes in the cosim + wrap-TB |
@@ -837,7 +842,9 @@ Two honest caveats so this section reads as *design intent*, not present state:
 **Exit bar — "the in-core FU is verified":** lock-step clean vs the reference over
 the full corpus **and** a constrained-random campaign; every §2.5 V-row green;
 base-ISA regression green on the patched core; coverage target met; no unproven
-speculation/flush path (I1 formal property holds). **Exit bar — "the FU is
+speculation/flush path (**the I1 formal property now holds** — the G2
+`a_arch_committed`/`a_flush_rollback` invariants are proved by k-induction on
+`cva6_parser_wrap`, `parser-formal`). **Exit bar — "the FU is
 tapeout-ready":** the above **plus** scan/ATPG fault coverage target met, MBIST on
 all three arrays, a functional POST ROM screening one row per op class, and timing
 closure on `parser_execute` + the injected redirect path (G14).
