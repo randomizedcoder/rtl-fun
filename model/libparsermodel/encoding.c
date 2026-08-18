@@ -5,6 +5,7 @@
  * Every custom-0 word is:  Opcode[6:0]=0x0b | Fnc4[10:7] | group-specific fields.
  * The custom-3 coprocessor word is a standard RISC-V R-form on Opcode=0x7b.
  */
+#include <string.h>
 #include "encoding.h"
 
 #define OP0(fnc4) (PRS_OP_C0 | prs_put((fnc4), 10, 7))
@@ -165,4 +166,92 @@ enum opcode pm_decode_opcode(uint32_t w)
     case FNC4_CMPNEIB:  return OP_CMPINEB;
     default:            return OP__COUNT;
     }
+}
+
+/* Full word -> instr inverse of pm_encode. Field ranges mirror the per-group
+ * encoders above exactly (NOT rtl/parser_decode.sv, which narrows some fields to
+ * the bits its executor uses). `cam` and CAM/next targets are not word-encoded,
+ * so they stay zero/NULL. */
+int pm_decode(uint32_t w, instr *out)
+{
+    enum opcode op = pm_decode_opcode(w);
+    if (op == OP__COUNT) return -1;
+
+    memset(out, 0, sizeof(*out));
+    out->op = op;
+    switch (op) {
+    case OP_LOAD:   /* X[31] D[30] Sz[29:28] Blen[27:24] Shift[23:21] E[20] Offset[19:11] */
+        out->x      = (int)prs_get(w, 31, 31);
+        out->d      = (int)prs_get(w, 30, 30);
+        out->sz     = prs_get(w, 29, 28);
+        out->blen   = prs_get(w, 27, 24);
+        out->shift  = prs_get(w, 23, 21);
+        out->e      = (int)prs_get(w, 20, 20);
+        out->offset = prs_get(w, 19, 11);
+        break;
+    case OP_LENCUR: /* S[31] D[30] Sz[29:28] Pos[27:24] Shift[23:21] F2[20:19] Len[18:11] */
+        out->s      = (int)prs_get(w, 31, 31);
+        out->d      = (int)prs_get(w, 30, 30);
+        out->sz     = prs_get(w, 29, 28);
+        out->pos    = prs_get(w, 27, 24);
+        out->shift  = prs_get(w, 23, 21);
+        out->value  = prs_get(w, 18, 11);  /* F2[20:19] is always 0 from pm_encode */
+        break;
+    case OP_STORE:  /* S[31] F[30] Sz[29:28] Pos[27:24] J[23] Sind[22:20] Offset[19:11] */
+        out->s      = (int)prs_get(w, 31, 31);
+        out->f      = (int)prs_get(w, 30, 30);
+        out->sz     = prs_get(w, 29, 28);
+        out->pos    = prs_get(w, 27, 24);
+        out->j      = (int)prs_get(w, 23, 23);
+        out->offset = prs_get(w, 19, 11);  /* Sind[22:20] is always 0 from pm_encode */
+        break;
+    case OP_STOREIMM: /* S[31] F[30] Sz[29:28] Value[27:20] Offset[19:11] */
+        out->s      = (int)prs_get(w, 31, 31);
+        out->f      = (int)prs_get(w, 30, 30);
+        out->sz     = prs_get(w, 29, 28);
+        out->value  = prs_get(w, 27, 20);
+        out->offset = prs_get(w, 19, 11);
+        break;
+    case OP_CAM:      /* S[31] D[30] Sz[29:28] Pos[27:24] Func3[23:21] F[20] Share[19:16] Miss[15:11] */
+    case OP_CAMNEXT:  /* (D bit already selected the opcode) */
+        out->s      = (int)prs_get(w, 31, 31);
+        out->sz     = prs_get(w, 29, 28);
+        out->pos    = prs_get(w, 27, 24);
+        out->func3  = prs_get(w, 23, 21);
+        out->f      = (int)prs_get(w, 20, 20);
+        out->share  = prs_get(w, 19, 16);
+        out->miss   = prs_get(w, 15, 11);
+        break;
+    case OP_CMPORD:  /* S[31] D[30] Sz[29:28] Pos[27:24] Func3[23:21] Er[20:19] Value[18:11] */
+        out->s      = (int)prs_get(w, 31, 31);
+        out->d      = (int)prs_get(w, 30, 30);
+        out->sz     = prs_get(w, 29, 28);
+        out->pos    = prs_get(w, 27, 24);
+        out->func3  = prs_get(w, 23, 21);
+        out->er     = prs_get(w, 20, 19);
+        out->value  = prs_get(w, 18, 11);
+        break;
+    case OP_CMPIB:    /* Er[31:30] Pos[29:27] Value[26:19] Mask[18:11] */
+    case OP_CMPINEB:
+        out->er     = prs_get(w, 31, 30);
+        out->pos    = prs_get(w, 29, 27);
+        out->value  = prs_get(w, 26, 19);
+        out->mask   = prs_get(w, 18, 11);
+        break;
+    case OP_NEXTNODE: /* S[31] V[30] Pos[29:28]=0 A[27] Payload[26:11] */
+        out->s       = (int)prs_get(w, 31, 31);
+        out->value   = prs_get(w, 30, 30);          /* V bit -> pm_encode(s, value?1:0, ...) */
+        out->payload = (int32_t)prs_get(w, 26, 11);
+        break;
+    case OP_SETCODE:  /* S[31] Pos[29:28]=2 V=0; Payload[26:11] carries the 8-bit code */
+        out->s       = (int)prs_get(w, 31, 31);
+        out->payload = (int32_t)(prs_get(w, 26, 11) & 0xFF);
+        break;
+    case OP_STP:      /* S[31] Pos[29:28]=2 V=1; no payload */
+        out->s       = (int)prs_get(w, 31, 31);
+        break;
+    default:
+        return -1;    /* pm_decode_opcode never yields OP_INITPARSER etc. here */
+    }
+    return 0;
 }

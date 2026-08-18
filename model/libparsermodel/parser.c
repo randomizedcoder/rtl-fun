@@ -313,6 +313,10 @@ static void exec_one(pstate *ps, const instr *in)
     }
 }
 
+/* Public one-step entry: the Spike tandem parser extension fetches custom-0 words
+ * itself and steps its own pstate one instruction at a time. */
+void pm_exec_one(pstate *ps, const instr *in) { exec_one(ps, in); }
+
 int32_t pm_run(pstate *ps, const instr *prog, size_t n)
 {
     ps->next_pc = 0;

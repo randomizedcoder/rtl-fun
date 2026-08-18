@@ -81,4 +81,13 @@ int pm_encode(const instr *in, uint32_t *out);
  * pm_encode's group selection). Returns OP__COUNT if unrecognised. */
 enum opcode pm_decode_opcode(uint32_t w);
 
+/* Full inverse of pm_encode: decode a 32-bit custom-0 word back into a model
+ * `instr`. Recovers every field pm_encode packs into the word; the two fields
+ * that never live in the word — `cam` (the CAM table pointer) and CAM/next
+ * TARGETS — are left zero/NULL for the runtime to attach. Returns 0 on success,
+ * -1 if the word is not a decodable custom-0 op (wrong opcode, or a Fnc4 outside
+ * the executed subset). The word-level round-trip pm_encode->pm_decode->pm_encode
+ * is therefore bit-exact for every word pm_encode can produce. */
+int pm_decode(uint32_t w, instr *out);
+
 #endif /* LIBPARSERMODEL_ENCODING_H */
