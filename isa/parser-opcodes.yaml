@@ -211,6 +211,35 @@ coprocessor:
     CPPRSRDARRAY:  { S: 1, I: 0, R: 1, Func3: 0, asm: "prs.array.read ireg,ireg" }
     CPPRSWRARRAY:  { S: 1, I: 0, R: 1, Func3: 1, D: 23, asm: "prs.array.write/delete" }
 
+# ABI-reachable parser registers (Cpreg selects one; the read/write set the CPPRSRD /
+# CPPRSWR moves actually reach — read_preg/write_preg in rtl/cva6_parser_wrap.sv). This
+# is the SINGLE SOURCE of the round-trippable context. Every entry packs its pstate_t
+# field(s) into an integer word and is zero-/sign-extended on read; a CPPRSRD->CPPRSWR
+# round-trip is lossless within `bits`. `access: rw` => save/restore; `ro` => telemetry.
+#
+# M1 (§3.1 item 4, register half) added the mid-parse POSITION registers p6/p7/p8 (writable)
+# + p9 (read-only) and promoted p1/p2 read-only -> rw, so the resumable *register* set is now
+# reachable and a genuine mid-parse context switch round-trips it
+# (tests/cva6-parser/parser_ctxsw_mid.S + tb/parser_wrap_tb.sv Scenario 14). p8/p9 occupy FREE
+# patent slots (next_pc/done have no patent p-index in FIG 42). p9 (done) is READ-ONLY: it is a
+# status flag the switcher observes, not restorable cursor state — at any resumable checkpoint
+# done==0, and writing done=1 to a live parse stream is a spurious mid-stream exit (out of scope).
+# The remaining clobberable surfaces — the meta_mem flow_keys frame and the shared CAM — have no
+# custom-3 restore path and stay the deferred M2 residual (a mid-parse switch to a STORE-ing /
+# CAM-programming parse).
+p_registers:
+  p1:  { name: CurHdr,      fields: { cur_len: [17, 9], cur_off: [8, 0] }, access: rw }  # M1: was ro
+  p2:  { name: DataHdr,     fields: { dat_len: [17, 9], dat_off: [8, 0] }, access: rw }  # M1: was ro
+  p6:  { name: NodeLoopCnt, fields: { node_cnt: [15, 0] },                 access: rw }  # M1
+  p7:  { name: Counters,    fields: { encap: [7, 0] },                     access: rw }  # M1
+  p8:  { name: NextPc,      fields: { next_pc: [9, 0] },  access: rw, note: "free slot (no patent p-index)" }  # M1
+  p9:  { name: Done,        fields: { done: [0, 0] },     access: ro, note: "free slot; read-only status flag (observed, not restored)" }  # M1
+  p11: { name: Next,          fields: { next: [31, 0] },                        access: rw, extend: sign }
+  p13: { name: DataBndLoop,   fields: { loop: [63, 32], databound: [31, 0] },   access: rw }
+  p14: { name: ParserExitCode, fields: { code: [31, 0] },                       access: rw, extend: sign }
+  p15: { name: Accum,         fields: { accum: [63, 0] },                       access: rw }
+  p16: { name: Flags,         fields: { flags: [63, 0] },                       access: rw }
+
 # Next-node address/code word (data in Next/Loop/CAM targets, NOT the instr).
 next_word:
   selector_bit: 31           # 0 = address, 1 = parser code

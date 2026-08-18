@@ -460,14 +460,18 @@ have. Each is a directed program plus a property.
 | V7 | preceding **faulting** instr squashes parser op | COR | no state corruption (**G2/G7**) — ✅ N4: `parser_trap_v7.S` — an `ecall` flushes an in-flight CPPRSWR parser write in-core; after the handler returns it re-executes and commits the SAME value as a fault-free run (fault-run == clean-run + trap fired once) |
 | V8 | **end-of-node redirect** taken | POS | fetch resumes at target PC (**G3**) — ✅ I4a + I5 (every cosim walk jumps mid-graph) |
 | V9 | parse-**exit** redirect (not trap) | POS | redirects per contract (**G7**) — ✅ I5: on exit the FU steers fetch to a program-provided landing PC ("subroutine return"); all 22 cosim cases return + read back |
-| V10 | **context switch** save/restore of parser regs | COR | state preserved (Risk R2) — ✅ **scoped** (D7 ratified): `parser_ctxsw_v10.S` — a between-parse context switch spills thread A's parser context to memory (`prs.mv.x.p`/CPPRSRD), a simulated thread B clobbers every writable p-reg, then A is reloaded (`prs.mv.p.x`/CPPRSWR) and asserted bit-for-bit over the real commit-gated pipeline. Round-trippable subset = {p11,p13,p14,p15,p16}; **mid-parse position state (cur_off/dat_off/encap/node_cnt/next_pc/done) is not ABI-reachable and stays deferred** (§3.1) |
+| V10 | **context switch** save/restore of parser regs | COR | state preserved (Risk R2) — ✅ **scoped** (D7 ratified): `parser_ctxsw_v10.S` — a between-parse context switch spills thread A's parser context to memory (`prs.mv.x.p`/CPPRSRD), a simulated thread B clobbers every writable p-reg, then A is reloaded (`prs.mv.p.x`/CPPRSWR) and asserted bit-for-bit over the real commit-gated pipeline. Round-trippable subset = {p11,p13,p14,p15,p16} |
+| M1 | **mid-parse** context switch of parser regs | COR | in-flight parse resumes bit-exact (**G7**) — ✅ M1: the ABI now reaches the position state (p1/p2/p6/p7/p8 writable, p9 done read-only, in `read_preg`/`write_preg`), so an async interrupt preempts a live parse and the ISR saves/clobbers/restores the resumable position+data registers over the custom-3 ABI (register-file only); the parse resumes to the golden model's byte-exact flow_keys (`parser_ctxsw_mid.S` + `parser_wrap_tb` Sc.14, oracle = model final state + a `done==0` mid-parse marker). `done` (p9) is **read-only** — observed for the marker, not restored (writing `done=1` to a live parse stream wedges the frontend: a distinct limitation, deferred). **Residual (M2, deferred):** the `meta_mem` flow_keys frame + the shared CAM have no custom-3 restore path — a switch to a STORE-ing/CAM-programming parse still needs that |
 | V11 | **reset** then first op | BND | defined state, no X (**G13**) — ✅ PR-5: `parser_wrap_tb` Sc.0 asserts `$isunknown`-free spec/arch state + first-op result out of reset |
 
 V10's *design decision* is now made — **D7 is ratified** as a bounded policy (§6): parser
-state is saved/restored by reusing the custom-3 move ABI, no new CSRs. The scoped test above
-proves the round-trip in-core. The one remaining piece — a *mid-parse* switch that must
-preserve the parser's in-progress cursor/position state — needs new custom-3/CSR encodings
-to expose that state, and is the sole surviving V10 deferral (§3.1 item 4).
+state is saved/restored by reusing the custom-3 move ABI, no new CSRs. V10 proves the
+*between-parse* round-trip in-core; **M1 finishes the register half** — the ABI reaches the
+in-progress cursor/position state too (p1/p2/p6/p7/p8/p9), and a genuine *mid-parse*
+save/clobber/restore/resume is proven against the model oracle. The one residual is **M2**:
+a mid-parse switch to a STORE-ing / CAM-programming parse also needs a `meta_mem` flow_keys
+spill/reload port + a CAM save/restore path (§3.1 item 4) — a large addition that cuts
+against D7's minimize-in-use-state intent, so it stays deferred.
 
 ### 2.6 Beyond directed tables — the escalation layers
 
@@ -532,7 +536,7 @@ value mismatch, any watchdog timeout, any coverage regression, or a base-ISA reg
 | G4 custom-3 untested | I3 / I4b / **N2** | ✅ custom-3 read (I3) + write/CAM-program/readback (I4b) + immediate-load (N2, `CPPRSWRIMM`); Table B custom-3 rows, V3, wrap-TB Sc.11 |
 | G5 one op only | **I5** | ✅ all op classes in the cosim + wrap-TB |
 | G6 hazards | I3/I1 + V-rows | ✅ RAW (V3), WAW (V4), adjacency/no-WB-contention (V5) — PR-5 (`parser_wrap_tb` + in-core `parser_insn.S`); V2 back-to-back interlock in wrap-TB Sc.3 |
-| G7 interrupts/ctx-switch | I5 / **N4 / N5 / V10** | ✅ V9 parse-exit redirect (I5); **V7 faulting-squash (N4)** + **V6 interrupt-mid-parse (N5)** — both flavours of the flush_i that reaches the FU; **V10 between-parse ctx-switch (scoped, D7 ratified)** — custom-3 move ABI round-trips the parser register context bit-for-bit (`parser_ctxsw_v10.S`). Only a *mid-parse* ctx-switch stays deferred (§3.1 item 4, needs new encodings) |
+| G7 interrupts/ctx-switch | I5 / **N4 / N5 / V10 / M1** | ✅ V9 parse-exit redirect (I5); **V7 faulting-squash (N4)** + **V6 interrupt-mid-parse (N5)** — both flavours of the flush_i that reaches the FU; **V10 between-parse ctx-switch (scoped, D7 ratified)** — custom-3 move ABI round-trips the parser register context bit-for-bit (`parser_ctxsw_v10.S`); **M1 mid-parse ctx-switch** — the ABI now reaches the position state too (p1/p2/p6/p7/p8 writable, p9 done read-only), so an interrupt-preempted parse saves/clobbers/restores its position+data registers and resumes to the model's flow_keys (`parser_ctxsw_mid.S` + `parser_wrap_tb` Sc.14). `done` is read-only (observed, not restored; mid-stream `done=1` wedges the frontend — deferred). Only the **M2** residual (meta_mem frame + CAM restore path) stays deferred (§3.1 item 4) |
 | G8 metadata sink | I2 → **I5** | ✅ commit-gated frame, MMIO-visible, cosim-checked |
 | G9 hand-encoded | **I5** | ✅ program + CAM model-generated (`enc.hex`/`camprog.hex`) |
 | G10 single config | **N6** | ✅ `cva6-parser-config-wb` builds the patched model under a 2nd RV64GC config (`cv64a6_imafdc_sv39_wb`, write-back cache) + runs the in-core parser test — the FU integrates under a different config. Superscalar (`NrIssuePorts=2`) still deferred (§3.1) |
@@ -573,9 +577,22 @@ value mismatch, any watchdog timeout, any coverage regression, or a base-ISA reg
    **G7 is closed** for the realized parser state. **V10 context-switch save/restore ✅
    closed (scoped) by the V10 increment** (`parser_ctxsw_v10.S`, ratifying **D7** — §6):
    the custom-3 move ABI round-trips thread A's parser register context bit-for-bit through
-   a simulated between-parse context switch, in-core. Only a *mid-parse* switch (preserving
-   the in-progress cursor/position state that is not ABI-reachable today) remains deferred —
-   see §3.1 item 4.
+   a simulated between-parse context switch, in-core. **Mid-parse register-state switch ✅
+   closed by M1** (`parser_ctxsw_mid.S` + `parser_wrap_tb.sv` Scenario 14 +
+   `cva6-parser-ctxsw-mid`): the ABI now also reaches the in-progress position state —
+   p1{cur_len,cur_off}, p2{dat_len,dat_off}, p6 node_cnt, p7 encap, p8 next_pc **writable**,
+   plus p9 done **read-only** (`read_preg`/`write_preg`) — so an async interrupt can preempt
+   a live parse, the ISR saves/clobbers/restores the resumable position+data registers over
+   the ABI (register-file only), and the parse resumes to the golden model's byte-exact
+   flow_keys. **`done` (p9) is read-only:** a status flag the switcher observes (the
+   mid-parse marker), not restorable cursor state — at a resumable checkpoint `done==0`, and
+   writing `done=1` to a live parse stream is a spurious mid-stream exit the CVA6 frontend
+   does not model (it wedges fetch); a *distinct* limitation, not part of the register
+   resume M1 delivers. **Residual (M2, still deferred):** a mid-parse switch to a *STORE-ing /
+   CAM-programming* parse also needs a `meta_mem` flow_keys spill/reload port + a CAM
+   save/restore path — neither is custom-3-reachable — so M1's "other thread" clobber is
+   register-file only. That architectural addition cuts against D7's minimize-in-use-state
+   intent and stays deferred.
 5. ~~**CAM-write speculation-safety** — `CPPRSWRCAM` applies at execute, not
    commit-gated.~~ **✅ Closed by N3.** `CPPRSWRCAM` now buffers its `{index,key,target}`
    in the I1 pending queue and applies to the CAM only on **commit**; a dependent CAM
@@ -833,11 +850,23 @@ closure on `parser_execute` + the injected redirect path (G14).
   `commit_stage.sv` to the FU. Scope during I1.
 - **Decided (V10, D7 ratified):** parser-state context-switch contract = **reuse the
   custom-3 move ABI** (`prs.mv.x.p`/`prs.mv.p.x`) to spill/reload live p-regs to memory —
-  no new CSRs, no runthread, single encap. The round-trippable subset is the read∩write
-  p-reg set {p11,p13,p14,p15,p16} (p1/p2 read-only), proven bit-exact in-core by
-  `parser_ctxsw_v10.S` (`nix run .#cva6-parser-ctxsw-v10`). **Open (deferred):** a *mid-parse*
-  switch preserving in-progress cursor/position state (cur_off/dat_off/encap/node_cnt/
-  next_pc/done) needs new custom-3/CSR encodings to expose that state (§3.1 item 4).
+  no new CSRs, no runthread, single encap. V10 proved the *between-parse* round-trip of the
+  read∩write set {p11,p13,p14,p15,p16} bit-exact in-core (`parser_ctxsw_v10.S`,
+  `nix run .#cva6-parser-ctxsw-v10`).
+- **Decided (M1):** the *mid-parse* register half is closed by **extending the same ABI**
+  (no new CSRs, no ready-logic change): `read_preg`/`write_preg` gain the in-progress
+  position registers — p1{cur_len,cur_off}, p2{dat_len,dat_off} (promoted read-only→rw),
+  p6 node_cnt, p7 encap, p8 next_pc **writable**; p9 done **read-only** (p8/p9 use free
+  patent slots). The resumable position+data register set is now ABI-reachable and a genuine
+  mid-parse save/clobber/restore/resume is proven against the model oracle
+  (`parser_ctxsw_mid.S`, `nix run .#cva6-parser-ctxsw-mid`; deterministic encodings in
+  `parser_wrap_tb` Sc.14). **`done` (p9) is read-only** — a status flag the switcher observes
+  (the mid-parse marker), not restorable cursor state: at a resumable checkpoint `done==0`,
+  and writing `done=1` to a live parse stream is a spurious mid-stream exit that wedges the
+  CVA6 frontend (a distinct limitation, deferred — not on the register-resume path). **Open
+  (deferred, M2):** a mid-parse switch to a STORE-ing / CAM-programming parse also needs a
+  `meta_mem` flow_keys spill/reload port + a CAM save/restore path — neither is
+  custom-3-reachable (§3.1 item 4).
 - **Decided (§2.6.5, N7):** functional-coverage closure target = **100% of the
   enumerated cross-product bins** (`parser-coverage` gates on it). A corpus-scaled
   line-% floor + the fuzz budget stay Phase-7.

@@ -30,7 +30,7 @@ files/signals.
 | D4 | End-of-node redirect | Reuse `branch_unit`'s path: drive `resolved_branch_o`/`resolve_branch_o`. Target computed from `Next`/`Loop` (JALR-like). No new redirect invented. |
 | D5 | CAM sizing | 3–15 shared tables, **32 entries** provisioned (slice uses 13), entry = 20-bit key + 32-bit target (+valid). Behavioral first, synthesizable later. Loaded via custom-3 `CPPRSWRCAM`. |
 | D6 | Register file | 32 × 64-bit p-regs *inside* the unit; sub-field access keyed by `(Pos,Sz)`. **One in-flight parser op** interlock ⇒ no rename, no per-reg scoreboard. |
-| D7 | Context switch | **Ratified (bounded policy).** Save/restore through the custom-3 move ABI (`prs.mv.x.p`/`prs.mv.p.x`); minimize in-use state (single encap, no runthread) for the slice. No new CSRs. Round-trippable subset = {p11,p13,p14,p15,p16}; mid-parse position state needs new encodings (deferred). Proven in-core by V10. |
+| D7 | Context switch | **Ratified (bounded policy).** Save/restore through the custom-3 move ABI (`prs.mv.x.p`/`prs.mv.p.x`); minimize in-use state (single encap, no runthread) for the slice. No new CSRs. V10 round-trips {p11,p13,p14,p15,p16} between parses; **M1 extends the ABI to the position state (p1/p2/p6/p7/p8 writable, p9 done read-only)** so the resumable position+data register set round-trips and a genuine *mid-parse* switch resumes bit-exact vs the model. `done` is read-only (observed, not restored; mid-stream `done=1` wedges the frontend — deferred). Residual M2 (meta_mem frame + CAM restore) deferred. Proven in-core by V10 + M1. |
 
 ## Design detail
 
@@ -192,13 +192,26 @@ Key mechanisms:
   `nix run .#cva6-parser-ctxsw-v10`): thread A's parser context is spilled to memory,
   clobbered by a simulated thread B, reloaded, and asserted bit-for-bit — over the real
   commit-gated pipeline. **ABI boundary (scope):** the round-trippable context is exactly
-  the read∩write p-reg subset **{p11, p13, p14, p15, p16}** (p1/p2 are read-only
-  telemetry), and every field in it round-trips losslessly. The mid-parse *position* state
-  (cur_off, dat_off, encap, node_cnt, next_pc, done) is **not** reachable through today's
-  custom-3 encodings, so a genuine *mid-parse* preemption cannot yet be saved/restored;
-  exposing it (new custom-3/CSR encodings) is a follow-on deferral (see
+  the read∩write p-reg subset **{p11, p13, p14, p15, p16}** (p1/p2 were read-only
+  telemetry), and every field in it round-trips losslessly.
+- **Mid-parse register-state switch realized (M1).** The same ABI is *extended* (no new
+  CSRs, no ready-logic change) to reach the in-progress *position* state:
+  `read_preg`/`write_preg` gain **p1{cur_len,cur_off}, p2{dat_len,dat_off}** (promoted
+  read-only→rw), **p6 node_cnt, p7 encap, p8 next_pc** writable; **p9 done** read-only
+  (p8/p9 use free patent slots). The resumable position+data register set is now
+  ABI-reachable, and a genuine *mid-parse* preemption is proven in-core: an async interrupt
+  squashes a live parse op, the ISR saves/clobbers/restores those registers over the ABI,
+  and the parse resumes to the golden model's byte-exact flow_keys
+  (`tests/cva6-parser/parser_ctxsw_mid.S`, `nix run .#cva6-parser-ctxsw-mid`; deterministic
+  encodings in `parser_wrap_tb` Scenario 14). **`done` (p9) is read-only** — a status flag
+  the switcher observes (the mid-parse marker), not restorable cursor state: at a resumable
+  checkpoint `done==0`, and writing `done=1` to a live parse stream is a spurious mid-stream
+  exit that wedges the CVA6 frontend (a distinct limitation, deferred — not on the
+  register-resume path). **Residual (M2, deferred):** a mid-parse switch to a
+  STORE-ing / CAM-programming parse also needs a `meta_mem` flow_keys spill/reload port + a
+  CAM save/restore path — neither is custom-3-reachable, and both cut against the
+  minimize-in-use-state intent — so they stay deferred (see
   [cva6-verification-design.md §3.1](analysis/cva6-verification-design.md#31-canonical-deferral-list-single-source-of-truth)).
-  A dedicated CSR/shadow-block spill path is revisited only if profiling demands it.
 
 ### 4.6 Unit interfaces (signal-level, for Phase 5)
 

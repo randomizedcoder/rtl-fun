@@ -701,9 +701,83 @@ module parser_wrap_tb
     flush = 1'b1; @(posedge clk); #1; flush = 1'b0;         // clear the done state
     @(posedge clk); #1;
 
+    // ================================================================
+    // Scenario 14 — M1: mid-parse register-state round-trip (§3.1 item 4,
+    // register half). The new writable position registers {p1,p2,p6,p7,p8}
+    // save/clobber/restore bit-for-bit via the custom-3 CPPRSWR/CPPRSRD ABI.
+    // p9 (Done) is READ-ONLY: it is observable (CPPRSRD) but a CPPRSWR to it is
+    // ignored — done is a status flag, not restorable cursor state.
+    // ================================================================
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    @(posedge clk); #1;
+    check(dut.pend_cnt_q == 0, "M1: queue empty entering scenario 14");
+
+    // (a) round-trip: for each new writable cpreg, WRITE a field-width-exercising
+    // value (high bits set to prove write-masking + read zero-extension), COMMIT,
+    // and read it back field-masked; CLOBBER with 0xA5.. and prove the readback
+    // changed (the write is not a no-op); RESTORE the saved value and prove the
+    // readback matches again — a genuine save/clobber/restore round-trip.
+    begin
+      logic [4:0]  m1_cp  [5];
+      logic [63:0] m1_wr  [5];   // value driven on rs1 (upper bits are garbage)
+      logic [63:0] m1_exp [5];   // expected CPPRSRD readback (field-masked, zero-extended)
+      m1_cp  = '{5'd1, 5'd2, 5'd6, 5'd7, 5'd8};
+      m1_wr  = '{64'hDEAD_BEEF_0002_AAAA, 64'hCAFE_F00D_0001_873C,
+                 64'hFFFF_FFFF_FFFF_BEEF, 64'hFFFF_FFFF_FFFF_FFC7,
+                 64'hFFFF_FFFF_FFFF_FEA5};
+      m1_exp = '{64'h0000_0000_0002_AAAA, 64'h0000_0000_0001_873C,
+                 64'h0000_0000_0000_BEEF, 64'h0000_0000_0000_00C7,
+                 64'h0000_0000_0000_02A5};
+      foreach (m1_cp[i]) begin
+        // write took
+        rs1 = m1_wr[i]; uop = wrpreg_op(m1_cp[i]); tid = 3'd0; valid = 1'b1;
+        @(posedge clk); #1; valid = 1'b0;
+        commit = 1'b1; commit_tid = 3'd0; @(posedge clk); #1; commit = 1'b0;
+        uop = rdpreg_op(m1_cp[i]); tid = 3'd1; valid = 1'b1;
+        @(posedge clk); #1; valid = 1'b0;
+        check(result === m1_exp[i], "M1 round-trip: CPPRSRD != field-masked CPPRSWR value");
+        @(posedge clk); #1;
+        // clobber changes the readback
+        rs1 = 64'hA5A5_A5A5_A5A5_A5A5; uop = wrpreg_op(m1_cp[i]); tid = 3'd2; valid = 1'b1;
+        @(posedge clk); #1; valid = 1'b0;
+        commit = 1'b1; commit_tid = 3'd2; @(posedge clk); #1; commit = 1'b0;
+        uop = rdpreg_op(m1_cp[i]); tid = 3'd3; valid = 1'b1;
+        @(posedge clk); #1; valid = 1'b0;
+        check(result !== m1_exp[i], "M1 clobber: readback should differ after an A5 clobber");
+        @(posedge clk); #1;
+        // restore round-trips back bit-exact
+        rs1 = m1_wr[i]; uop = wrpreg_op(m1_cp[i]); tid = 3'd4; valid = 1'b1;
+        @(posedge clk); #1; valid = 1'b0;
+        commit = 1'b1; commit_tid = 3'd4; @(posedge clk); #1; commit = 1'b0;
+        uop = rdpreg_op(m1_cp[i]); tid = 3'd5; valid = 1'b1;
+        @(posedge clk); #1; valid = 1'b0;
+        check(result === m1_exp[i], "M1 restore: readback should match the saved value again");
+        @(posedge clk); #1;
+      end
+    end
+    check(dut.pend_cnt_q == 0, "M1: queue drained after the register round-trip");
+
+    // (b) p9 (Done) is READ-ONLY. It is observable via CPPRSRD (the context switcher
+    // reads it to decide "is this thread mid-parse?"), but a CPPRSWR to p9 is IGNORED
+    // (write_preg has no p9 case) — done is a status flag, not restorable cursor state,
+    // and injecting done=1 out of band would be a spurious mid-stream exit. Prove both:
+    // the read works, and a write does not disturb it.
+    uop = rdpreg_op(5'd9); tid = 3'd0; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    check(result === 64'd0, "M1: CPPRSRD p9 reads done (0 here, no parse has exited)");
+    @(posedge clk); #1;
+    // attempt to write p9<-1: it must be a no-op (done stays 0, spec and arch)
+    rs1 = 64'hFFFF_FFFF_FFFF_FFFF; uop = wrpreg_op(5'd9); tid = 3'd0; valid = 1'b1;
+    @(posedge clk); #1; valid = 1'b0;
+    commit = 1'b1; commit_tid = 3'd0; @(posedge clk); #1; commit = 1'b0;
+    check(dut.st_q.done      == 1'b0, "M1: CPPRSWR p9 is ignored — done stays 0 (spec)");
+    check(dut.st_arch_q.done == 1'b0, "M1: CPPRSWR p9 is ignored — done stays 0 (arch)");
+    flush = 1'b1; @(posedge clk); #1; flush = 1'b0;
+    @(posedge clk); #1;
+
     // ---- verdict ----
     if (tb_fails == 0)
-      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext + I5 MMIO meta read + V4 WAW + V11 reset/X + store-bound + CPPRSWRIMM + CAM commit-gate/rollback + COV backpressure/interlock/exit-redirect)");
+      $display("parser_wrap_tb: PASS (I1 rollback/commit/backpressure + I2 metadata + I3 readback + I4a redirect + I4b CAM program/readback/camnext + I5 MMIO meta read + V4 WAW + V11 reset/X + store-bound + CPPRSWRIMM + CAM commit-gate/rollback + COV backpressure/interlock/exit-redirect + M1 mid-parse register round-trip + p9 read-only)");
     else
       $fatal(1, "parser_wrap_tb: FAIL (%0d checks failed)", tb_fails);
     $finish;
