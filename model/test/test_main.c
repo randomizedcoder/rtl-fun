@@ -372,6 +372,53 @@ TEST(t_enc_model_program)  /* every 32-bit instr in the slice encodes + decodes 
     EXPECT(encoded > 30);   /* the slice has 40+ encodable instructions */
 }
 
+TEST(t_dec_roundtrip)  /* pm_encode -> pm_decode -> pm_encode is bit-exact */
+{
+    size_t n; const instr *prog = pm_slice_program(&n);
+    int decoded = 0;
+    for (size_t i = 0; i < n; i++) {
+        uint32_t w1, w2; instr d;
+        if (pm_encode(&prog[i], &w1) != 0) continue;   /* no 32-bit form */
+        EXPECT_EQ(pm_decode(w1, &d), 0);
+        EXPECT_EQ((unsigned)d.op, (unsigned)prog[i].op);
+        EXPECT_EQ(pm_encode(&d, &w2), 0);
+        EXPECT_EQ(w2, w1);                             /* the word survives the round-trip */
+        decoded++;
+    }
+    EXPECT(decoded > 30);
+}
+
+TEST(t_dec_fields)     /* decode the golden words and check reconstructed fields */
+{
+    instr d;
+    /* PLOAD .h off=12 (0x2010600b): Sz=2, E=1, Offset=12. */
+    EXPECT_EQ(pm_decode(prs_load_h(12), &d), 0);
+    EXPECT_EQ((unsigned)d.op, (unsigned)OP_LOAD);
+    EXPECT_EQ(d.sz, 2u); EXPECT_EQ(d.offset, 12u); EXPECT_EQ(d.e, 1);
+    /* PLOAD .b off=0 (0x1000000b): Sz=1, Offset=0. */
+    EXPECT_EQ(pm_decode(prs_load_b(0), &d), 0);
+    EXPECT_EQ(d.sz, 1u); EXPECT_EQ(d.offset, 0u);
+    /* PSTOREIMM(sz=1,value=4,offset=3). */
+    EXPECT_EQ(pm_decode(prs_storeimm(1, 4, 3), &d), 0);
+    EXPECT_EQ((unsigned)d.op, (unsigned)OP_STOREIMM);
+    EXPECT_EQ(d.sz, 1u); EXPECT_EQ(d.value, 4u); EXPECT_EQ(d.offset, 3u);
+    /* PCMPIB(pos=5,value=0xA5,mask=0x0F,er=3): the compare group.
+     * NB: the parser_insn.h wrapper takes (pos, value, mask, er). */
+    EXPECT_EQ(pm_decode(prs_cmpib(5, 0xA5, 0x0F, 3), &d), 0);
+    EXPECT_EQ((unsigned)d.op, (unsigned)OP_CMPIB);
+    EXPECT_EQ(d.er, 3u); EXPECT_EQ(d.pos, 5u);
+    EXPECT_EQ(d.value, 0xA5u); EXPECT_EQ(d.mask, 0x0Fu);
+}
+
+TEST(t_dec_illegal)    /* non-custom-0 and reserved/unexecuted Fnc4 -> -1 */
+{
+    instr d;
+    EXPECT_EQ(pm_decode(0x00000013u, &d), -1);              /* addi: not custom-0 */
+    EXPECT_EQ(pm_decode(PRS_OP_C0 | (FNC4_LIFECYCLE << 7), &d), -1); /* reserved Fnc4 0xF */
+    EXPECT_EQ(pm_decode(PRS_OP_C0 | (FNC4_ARR << 7), &d), -1);       /* not in the executed subset */
+    EXPECT_EQ(pm_decode(PRS_OP_C3, &d), -1);                /* custom-3 R-form: not a custom-0 op */
+}
+
 /* ---------------- corpus smoke tests: pinned xdp2 pcap_templates ---------- */
 
 static int run_pcap(const char *dir, const char *name, struct flow_keys *fk, int32_t *code)
@@ -545,6 +592,9 @@ int main(void)
     RUN(t_enc_golden);
     RUN(t_enc_roundtrip);
     RUN(t_enc_model_program);
+    RUN(t_dec_roundtrip);
+    RUN(t_dec_fields);
+    RUN(t_dec_illegal);
     RUN(t_corpus_tcp);
     RUN(t_corpus_udp);
     RUN(t_corpus_ipv6);

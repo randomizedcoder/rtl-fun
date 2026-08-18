@@ -41,8 +41,13 @@ pkgs.runCommand "cva6-parser-src"
   #                            lock-step's reference Spike keeps FP double ops legal.
   #   tandem-mstatus-sd-mask — mask the read-only mstatus.SD summary bit in the tandem
   #                            CSR compare (CVA6's RVFI omits it; Spike computes it).
-  #   Both touch only SPIKE_TANDEM-gated SV, so non-tandem builds are unaffected.
-  patches = [ ./cva6-parser/decode.patch ./cva6-parser/issue-ex.patch ./cva6-parser/tb-backdoor.patch ./cva6-parser/mmio.patch ./cva6-parser/tandem-get-misa-d-bit.patch ./cva6-parser/tandem-mstatus-sd-mask.patch ];
+  #   tandem-parser-activate — Stage 1b: select the "parser" Spike extension (instead of
+  #                            "cvxif") so the reference Spike executes the parser ISA in
+  #                            lock-step. parser-only because cvxif also claims custom-0/3
+  #                            (one {match,mask} per opcode); safe — base_isa.S carries no
+  #                            custom words, so Stage 0 stays 287/287.
+  #   All touch only SPIKE_TANDEM-gated SV, so non-tandem builds are unaffected.
+  patches = [ ./cva6-parser/decode.patch ./cva6-parser/issue-ex.patch ./cva6-parser/tb-backdoor.patch ./cva6-parser/mmio.patch ./cva6-parser/tandem-get-misa-d-bit.patch ./cva6-parser/tandem-mstatus-sd-mask.patch ./cva6-parser/tandem-parser-activate.patch ];
 }
 ''
   cp -r --no-preserve=mode,ownership ${cva6-src} "$out"

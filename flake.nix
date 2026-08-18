@@ -47,8 +47,14 @@
         # Tandem-patched Spike (libriscv with the RVFI DPI + openhw Simulation/Params
         # model + commitlog), source-built from the vendored tree as its own cached
         # store path. Enables the Phase-7 RVFI-vs-Spike lock-step; uses the UNPATCHED
-        # source (the vendored spike is identical in both trees).
-        spike-tandem = import ./nix/spike-tandem.nix { inherit pkgs cva6-src; };
+        # source (the vendored spike is identical in both trees). Stage 1b also
+        # compiles the parser customext extension (nix/spike-tandem/parser.cc) + the
+        # reused reference model into libcustomext.so so parser ops can be lock-stepped.
+        spike-tandem = import ./nix/spike-tandem.nix {
+          inherit pkgs cva6-src;
+          parserExt = ./nix/spike-tandem/parser_ext.cc;
+          modelSrc  = ./model/libparsermodel;
+        };
 
         # Two Verilator builds from ONE builder, for easy unpatched-vs-patched
         # compare: cva6-baseline (stock) and cva6-parser (patched). Distinct work

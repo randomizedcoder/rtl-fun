@@ -173,6 +173,12 @@ void pm_init(pstate *ps, const uint8_t *pkt, uint32_t len, struct flow_keys *met
 /* Run a decoded program to completion; returns the exit parser code. */
 int32_t pm_run(pstate *ps, const instr *prog, size_t n);
 
+/* Execute a single decoded instruction against `ps` (one step of pm_run's loop,
+ * without the fetch/PC bookkeeping). The caller drives ps->pc / ps->next_pc.
+ * Used by out-of-tree steppers (the Spike tandem parser extension) that fetch
+ * instructions themselves. */
+void pm_exec_one(pstate *ps, const instr *in);
+
 /* Sub-register extract (Phase-1 §1.3): big-endian numbering, Pos 0 = the
  * most-significant sub-register of the given width. */
 uint64_t pm_extract_subreg(uint64_t val, unsigned sz, unsigned pos);

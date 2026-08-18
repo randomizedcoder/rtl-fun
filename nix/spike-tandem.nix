@@ -22,7 +22,7 @@
 # patch adds fesvr_dpi.cc/SimDTM.cc to fesvr.mk.in); do NOT point --with-fesvr at
 # another fesvr, to keep a single fesvr on any downstream link line.
 #
-{ pkgs, cva6-src }:
+{ pkgs, cva6-src, parserExt, modelSrc }:
 
 pkgs.stdenv.mkDerivation {
   pname = "spike-tandem";
@@ -54,6 +54,32 @@ pkgs.stdenv.mkDerivation {
     cp -r --no-preserve=ownership,timestamps \
       ${cva6-src}/verif/core-v-verif/vendor/riscv/riscv-isa-sim spike-src
     chmod -R u+w spike-src
+
+    # --- inject the parser customext extension (Phase 7, Stage 1b) -------------
+    # Teach the tandem Spike the parser ISA by compiling a customext extension
+    # that reuses the pure-C reference model. parser.cc (C++) joins customext_srcs;
+    # the model's parser.c/encoding.c (C) join customext_c_srcs, so the MCPPBS rule
+    # compiles them with $(CC) — keeping C linkage that matches parser.cc's
+    # extern "C" decls. Their headers sit beside them so the quote-includes resolve.
+    # Editing customext.mk.in must happen BEFORE ../configure generates customext.mk.
+    # parser_ext.cc (NOT parser.cc): the C++ object name must not collide with the
+    # model's parser.c -> both would map to parser.o and only one would build.
+    cp ${parserExt} spike-src/customext/parser_ext.cc
+    cp ${modelSrc}/parser.c ${modelSrc}/encoding.c \
+       ${modelSrc}/parser.h ${modelSrc}/encoding.h spike-src/customext/
+    chmod -R u+w spike-src/customext
+    {
+      echo ""
+      echo "# Phase 7 Stage 1b: parser ISA extension + the reused reference model."
+      echo "customext_srcs += parser_ext.cc"
+      echo "customext_c_srcs = parser.c encoding.c"
+    } >> spike-src/customext/customext.mk.in
+    # Register the extension name so the "extensions" param can activate "parser".
+    substituteInPlace spike-src/riscv/Proc.cc \
+      --replace 'registered_extensions_v["cvxif"] = false;' \
+                'registered_extensions_v["cvxif"] = false;
+  registered_extensions_v["parser"] = false;'
+
     mkdir -p spike-src/build
     cd spike-src/build
     ../configure --prefix=$out

@@ -493,10 +493,28 @@ Directed tables are the floor. Layered on top, in adoption order:
    bugs the directed floor could never surface (a `st_rvfi` stack-overflow, a vendored
    `get_misa` that dropped the `D` bit and force-disabled FP in the reference, and an
    `mstatus.SD` RVFI-vs-model trace difference) — exactly the "unknown-unknowns" this
-   layer exists to catch. Still deferred: **Stage 1** — extend Spike with the *parser*
-   semantics (reuse `libparsermodel`; `customext/parser.cc` + MMIO device) and run the
-   22-case cosim under lock-step; **Stage 2** — `riscv-dv` random interleaving with the
-   tandem pair as the oracle (no per-test golden vectors).
+   layer exists to catch.
+   ✅ **Stage 1a+1b (parser ISA) is realized** — the same `cva6-parser-tandem` app now
+   runs a second directed test, `parser_tandem.S`, against a Spike that *knows the parser
+   ISA*: `nix/spike-tandem/parser_ext.cc` is a Spike `customext` extension that reuses
+   `libparsermodel` (compiled straight into `libcustomext.so`) to own an independent
+   `pstate`, decode each retired custom-0 word via the new **`pm_decode`** (1a — the exact
+   inverse of `pm_encode`, whole-slice round-trip-proven in `model-test`), execute it, and
+   reproduce the golden `read_preg`/`write_preg` field packing so RVFI `rd`/`pc_wdata` match
+   the core. Spike is authoritative and independent — no core state is copied across; parity
+   follows because Stage 0 already lock-steps the one external input (`rs1` on `CPPRSWR`). The
+   parser extension is activated by the `"parser"` extensions param
+   (`nix/cva6-parser/tandem-parser-activate.patch`), replacing `cvxif` — the two can't share
+   the custom-0/3 `{match,mask}`, and nothing here needs `cvxif`. Result: **base_isa 287/0 and
+   parser_ops 43/0 mismatches**, with the run log confirming `Activating extension: parser`;
+   custom-0 redirect (`nextnode`), custom-3 register RD/WR/WRIMM, and CAM program/lookup all
+   lock-step. A deliberate-break negative control (corrupt `read_preg` p11) flips the report to
+   MISMATCH on the `CPPRSRD`, proving the compare is live on parser ops, not vacuously green.
+   Still deferred: **Stage 1c** — the `abstract_device_t` MMIO packet buffer at `0x5000_0000`
+   + packet-load ops (`PLOAD`/`PLENCUR`) + the full 22-case flow-parse cosim under lock-step
+   (packet-independent ops only in 1b — with no shared packet memory the core's empty-window
+   load and the model's bounds check diverge); **Stage 2** — `riscv-dv` random interleaving
+   with the tandem pair as the oracle (no per-test golden vectors).
 3. **Formal properties.** Proofs of the handful that must hold for *all* inputs.
    ✅ **The G2 no-state-survives-a-flush property is proved** — `parser-formal` runs
    an unbounded k-induction (`verif/formal/parser_wrap.sby`, `mode prove`) on
@@ -637,11 +655,15 @@ value mismatch, any watchdog timeout, any coverage regression, or a base-ISA reg
    stays deferred** — it needs a new cv64 superscalar config pkg + validating the
    no-parser-on-issue-port-1 interlock and `PARSER_WB` indexing. **Coverage ✅ N7**
    (`parser-coverage` — Verilator line/toggle + 100%-functional cover closure over the
-   §2.6.5 cross-product). **Extended-Spike lock-step — Stage 0 ✅ T0** (`cva6-parser-tandem`
-   — the base ISA lock-steps against a source-built tandem Spike, 287/287, 0 mismatches;
-   `nix/spike-tandem.nix` + the `SPIKE_TANDEM` build gate). **Stage 1** (parser Spike
-   extension → 22-case cosim under lock-step) and **Stage 2** (`riscv-dv` random with the
-   tandem pair as oracle) stay Phase 7+.
+   §2.6.5 cross-product). **Extended-Spike lock-step — Stages 0 + 1a+1b ✅ T0**
+   (`cva6-parser-tandem` — the base ISA lock-steps against a source-built tandem Spike,
+   287/287, 0 mismatches; and a second directed test lock-steps the *parser ops* against a
+   Spike taught the parser ISA via a `customext` extension reusing `libparsermodel` — 43/0
+   mismatches on custom-0 redirect + custom-3 register/CAM ops, deliberate-break negative
+   control confirmed; `nix/spike-tandem.nix` + `nix/spike-tandem/parser_ext.cc` + the
+   `pm_decode` inverse decoder + the `SPIKE_TANDEM` build gate). **Stage 1c** (MMIO packet
+   buffer + packet-load ops → the full 22-case cosim under lock-step) and **Stage 2**
+   (`riscv-dv` random with the tandem pair as oracle) stay Phase 7+.
 8. **Real DMA packet feed** — the I5 MMIO peripheral is **test-grade** (CPU/fesvr
    fills the buffer); the DMA feed + runtime CAM programming from the wire are Phase 8.
 9. **DFT / POST (§4)** — scan/ATPG/MBIST + power-on self-test ROM: a Phase-8 silicon
