@@ -1,0 +1,26 @@
+Fix get_misa() to set the D (double-float) misa bit — Phase 7 tandem.
+
+The vendored core-v-verif helper get_misa() (used only on the SPIKE_TANDEM path,
+via uvma_cva6pkg_utils's cva6pkg_to_core_cntrl_cfg -> spike_set_param
+"misa_override_value") builds a misa word from the core config but OMITS bit 3
+(D). With misa_override_mask = 0x0FFF_FFFF, that override then force-clears misa.D
+in the reference Spike even though the ISA string (RV64IMAFDC) has D — so every
+double-precision op (e.g. fcvt.d.w) hits `require_either_extension('D', ...)` and
+Spike raises an illegal-instruction trap while the CVA6 core executes it, desyncing
+the RVFI-vs-Spike lock-step on the very first FP instruction.
+
+This is an upstream core-v-verif bug (F is set, D is not). Add the missing D bit so
+the reference misa matches the ISA string. Only compiled under SPIKE_TANDEM, so the
+non-tandem builds are byte-for-byte unaffected.
+
+diff --git a/verif/core-v-verif/lib/uvm_agents/uvma_core_cntrl/uvma_core_cntrl_utils.sv b/verif/core-v-verif/lib/uvm_agents/uvma_core_cntrl/uvma_core_cntrl_utils.sv
+--- a/verif/core-v-verif/lib/uvm_agents/uvma_core_cntrl/uvma_core_cntrl_utils.sv
++++ b/verif/core-v-verif/lib/uvm_agents/uvma_core_cntrl/uvma_core_cntrl_utils.sv
+@@ -70,6 +70,7 @@ function bit[MAX_XLEN-1:0] get_misa(st_core_cntrl_cfg cfg);
+    if (cfg.ext_a_supported)         get_misa[0] = 1;
+    if (is_ext_b_supported(cfg))     get_misa[1] = 1;
+    if (cfg.ext_c_supported)         get_misa[2] = 1;
++   if (cfg.ext_d_supported)         get_misa[3] = 1;
+    if (cfg.ext_f_supported)         get_misa[5] = 1;
+    if (cfg.ext_i_supported)         get_misa[8] = 1;
+    if (cfg.ext_m_supported)         get_misa[12] = 1;

@@ -98,24 +98,35 @@ cd "$WORK/cva6"
 # They resolve their own #include "elf.h"/"htif.h"/… from their sibling headers.
 # (Upstream builds the sim via its core-v-verif flow; the bare root target is
 # under-maintained here.)
-FESVR_DIR="verif/core-v-verif/vendor/riscv/riscv-isa-sim/fesvr"
-FESVR_SRCS="$FESVR_DIR/fesvr_dpi.cc $FESVR_DIR/elfloader.cc"
-if ! grep -q 'fesvr_dpi.cc' Makefile; then
-  sed -i "s#corev_apu/tb/dpi/msim_helper.cc#corev_apu/tb/dpi/msim_helper.cc $FESVR_SRCS#" Makefile
-  echo "== patched Makefile: added fesvr_dpi.cc + elfloader.cc to verilate --exe list =="
-fi
-# fesvr_dpi.cc does #include "config.h"/"elf.h"/"htif.h"/… ; nixpkgs keeps the
-# fesvr headers under include/fesvr/, which isn't on the active CFLAGS block
-# (Makefile lines ~143-148, ending "corev_apu/tb/dpi -O3"). Append the resolved
-# include path there — a real path, so no literal Makefile $(...) in the sed.
-if ! grep -q "$PREFIX/include/fesvr" Makefile; then
-  sed -i "s#corev_apu/tb/dpi -O3#corev_apu/tb/dpi -O3 -I$PREFIX/include/fesvr#" Makefile
-  echo "== patched Makefile: added $PREFIX/include/fesvr to CFLAGS =="
+#
+# SKIP this entirely under SPIKE_TANDEM: the tandem Spike (nix/spike-tandem.nix)
+# builds fesvr_dpi.cc + elfloader.cc INTO its own libfesvr, and the verilate
+# LDFLAGS already link -lfesvr against that tandem prefix. Re-adding the same
+# sources to the --exe list would double-define read_elf/get_section/load_elf at
+# link (R2). Under tandem the DPI shims resolve straight out of libfesvr.so.
+if [ -z "${SPIKE_TANDEM:-}" ]; then
+  FESVR_DIR="verif/core-v-verif/vendor/riscv/riscv-isa-sim/fesvr"
+  FESVR_SRCS="$FESVR_DIR/fesvr_dpi.cc $FESVR_DIR/elfloader.cc"
+  if ! grep -q 'fesvr_dpi.cc' Makefile; then
+    sed -i "s#corev_apu/tb/dpi/msim_helper.cc#corev_apu/tb/dpi/msim_helper.cc $FESVR_SRCS#" Makefile
+    echo "== patched Makefile: added fesvr_dpi.cc + elfloader.cc to verilate --exe list =="
+  fi
+  # fesvr_dpi.cc does #include "config.h"/"elf.h"/"htif.h"/… ; nixpkgs keeps the
+  # fesvr headers under include/fesvr/, which isn't on the active CFLAGS block
+  # (Makefile lines ~143-148, ending "corev_apu/tb/dpi -O3"). Append the resolved
+  # include path there — a real path, so no literal Makefile $(...) in the sed.
+  if ! grep -q "$PREFIX/include/fesvr" Makefile; then
+    sed -i "s#corev_apu/tb/dpi -O3#corev_apu/tb/dpi -O3 -I$PREFIX/include/fesvr#" Makefile
+    echo "== patched Makefile: added $PREFIX/include/fesvr to CFLAGS =="
+  fi
 fi
 
 echo "== verilator: $(verilator --version) =="
-echo "== running 'make verilate' (this is the long step) =="
-make verilate target="$TARGET" NUM_JOBS="$NUM_JOBS"
+echo "== running 'make verilate' (this is the long step)${SPIKE_TANDEM:+ — SPIKE_TANDEM} =="
+# ${SPIKE_TANDEM:+SPIKE_TANDEM=1} is empty (byte-identical to the stock command)
+# unless SPIKE_TANDEM is set; when set it flips the Makefile's tandem gate
+# (spike-tandem ?= $(SPIKE_TANDEM)), pulling in the RVFI-vs-Spike lock-step SV.
+make verilate target="$TARGET" NUM_JOBS="$NUM_JOBS" ${SPIKE_TANDEM:+SPIKE_TANDEM=1}
 
 BIN="$WORK/cva6/work-ver/Variane_testharness"
 if [ -x "$BIN" ]; then
