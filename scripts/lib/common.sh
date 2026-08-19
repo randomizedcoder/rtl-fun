@@ -39,7 +39,7 @@ PARSER_VFLAGS=(
 gen_vectors() {
   local out="$1"; shift
   cc -std=c11 -O2 -Wall -Wextra -I "$MODEL" \
-    "$GEN_SRC" "$MODEL/parser.c" "$MODEL/program.c" "$MODEL/encoding.c" \
+    "$GEN_SRC" "$MODEL/parser.c" "$MODEL/program.c" "$MODEL/encoding.c" "$MODEL/pcap.c" \
     -o "$out/gen_parser_rom"
   "$out/gen_parser_rom" "$out" "$@"
 }
