@@ -914,6 +914,17 @@ Two honest caveats so this section reads as *design intent*, not present state:
        DFT: scan/MBIST-aware RTL now; scan/ATPG/BIST insertion + POST ROM (Phase 8)
 ```
 
+> **Update (reclassification):** the **Spike lock-step** tail above was executed
+> (Stages 0/1a/1b/1c/2, PRs #42–#45) and is now **filed under Phase-6 verification**,
+> not Phase 7 — it is the project's verification oracle, and its Spike custom extension
+> reuses `libparsermodel`, so it proves *RTL == model* on random input rather than
+> providing a user-facing toolchain. The base-ISA-regression + coverage sign-off gate is
+> **met** (N6/N7). What remains genuinely deferred from this line is **riscv-dv proper**
+> (random RV64GC *instruction* interleaving, blocked on a commercial UVM simulator) — the
+> Phase-6 Stage-2 campaign randomizes only the *packet* axis. The user-facing Phase-7
+> Spike/QEMU toolchain (a C-intrinsics parser binary) stays in [Phase 7](../phase-7-toolchain.md).
+> The "in-core FU is verified" exit bar below is now **satisfied**.
+
 **Exit bar — "the in-core FU is verified":** lock-step clean vs the reference over
 the full corpus **and** a constrained-random campaign; every §2.5 V-row green;
 base-ISA regression green on the patched core; coverage target met; no unproven
