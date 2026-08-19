@@ -14,10 +14,42 @@ correctness gate for the project.
 - Phase 5 RTL running in Verilator.
 - Phase 2 golden model + serialized corpus (`{bytes, flow_keys, status}`).
 
-## Status — verification foundation delivered
+## Status — ✅ Done (correctness gate met)
 
-Ahead of the full cocotb/DPI-C corpus co-sim below, the verification *foundation*
-across all four techniques is in place and green (all runnable from the flake):
+**The Phase-6 correctness gate is met.** The RTL is proven equal to the golden
+model — `flow_keys` fields **and** exit status — across the corpus, by three
+independent paths: the standalone Verilator directed suite (`parser-sim-suite`,
+22/22), the **in-core** packet→flow_keys MMIO co-simulation (`cva6-parser-cosim`,
+22/22), and a **per-instruction RVFI-vs-Spike lock-step** with a constrained-random +
+real-corpus packet campaign layered on top (`cva6-parser-tandem` /
+`cva6-parser-tandem-campaign`, 0 mismatches). Coverage is signed off
+(`parser-coverage`, 100% of the functional op×event×exit bins). The in-core gap
+register **G1–G13 is fully closed**; **G14 (timing/physical) is Phase 8**.
+
+Two honesty notes on scope:
+
+- **The cocotb + DPI-C corpus harness specified in §6.1 was not built as such — it is
+  *superseded*.** Its goal (RTL == model over the whole corpus, fields + status) is met
+  by the substitute infrastructure above (standalone suite + in-core MMIO cosim + tandem
+  campaign), which is stronger: it checks the FU both standalone *and* inside the CVA6
+  pipeline, against both the model and an independent Spike. The §6.1–§6.5 design below
+  is retained as the original plan of record.
+- **The RVFI-vs-Spike tandem lock-step (Stages 0/1a/1b/1c/2) is classified as Phase-6
+  verification**, even though its PRs (#42–#45) carry "Phase 7 Stage N" commit banners.
+  Its Spike custom extension reuses `libparsermodel`, so the *parser* tandem proves
+  **RTL executor == model** on random input; real Spike is the independent oracle for the
+  surrounding RV64GC stream. See the [`In-core verification`](#in-core-verification-the-cva6-integrated-fu)
+  section and the [status tracker](analysis/cva6-implementation-status.md). Building the
+  user-facing Phase-7 Spike/QEMU toolchain (a C-intrinsics parser binary) remains
+  [Phase 7](phase-7-toolchain.md).
+
+Residual items that are **not** Phase-6 blockers (deferred / other phases): G14 timing
+& DFT/POST → [Phase 8](phase-8-fpga.md); the M2 mid-parse-switch-to-a-STORE-ing/CAM
+parse, the superscalar `NrIssuePorts=2` config, formal decode-table correctness, and
+full riscv-tests / riscv-dv instruction-axis random → tracked deferrals.
+
+The verification *foundation* across all four techniques is in place and green (all
+runnable from the flake):
 
 - **Design assertions, toggleable.** One assertion header (`rtl/parser_asserts.svh`)
   defines `` `PRS_ASSERT `` / `` `PRS_ASSERT_I `` that expand to real SVA only under
@@ -43,8 +75,11 @@ across all four techniques is in place and green (all runnable from the flake):
   `nix run .#model-fuzz` fuzzes the model with libFuzzer + ASan/UBSan on random
   packets (memory-safety on malformed input, Risk R4).
 
-The remaining Phase-6 work is the **RTL↔model corpus co-simulation** (cocotb +
-DPI-C over the full Phase-2 corpus) and coverage sign-off, specified below.
+The originally-planned closing work — an **RTL↔model corpus co-simulation** (cocotb +
+DPI-C over the full Phase-2 corpus) and coverage sign-off — is **complete**: coverage
+is signed off (`parser-coverage`), and the corpus equivalence goal is met by the
+substitute infrastructure noted above (the cocotb/DPI-C harness itself was superseded,
+not built). The §6.1–§6.5 design below is retained as the plan of record.
 
 ## Design detail
 

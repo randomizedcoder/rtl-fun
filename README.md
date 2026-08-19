@@ -53,7 +53,7 @@ complete; phases are now being built in order.
   custom-0 becomes a new in-pipeline `fu_t::PARSER` that reuses CVA6's
   `resolved_branch_o` path for end-of-node fetch redirect, and the custom-3
   coprocessor moves attach via CV-X-IF.
-- 🔵 **Phase 5 (in progress) — RTL:** the parser datapath is implemented in
+- ✅ **Phase 5 — RTL:** the parser datapath is implemented in
   synthesizable SystemVerilog ([`rtl/`](rtl/README.md)) as a hardware `pm_run` and
   **runs the vertical slice in Verilator, producing a `flow_keys` that matches the
   golden model byte-for-byte** (`nix run .#parser-sim`). Lint-clean under `-Wall`,
@@ -67,43 +67,53 @@ complete; phases are now being built in order.
   builds (`nix run .#cva6-parser`) with no baseline regression, and a bare-metal
   custom-0 program **issues, executes, and retires in-core**
   (`nix run .#cva6-parser-test` → fesvr `tohost` PASS). The **packet-data feed + CAM
-  programming are now real** (I5): a SoC AXI MMIO peripheral (`nix/cva6-parser/
+  programming are real** (I5): a SoC AXI MMIO peripheral (`nix/cva6-parser/
   mmio.patch`) bridges `sd`/`ld` into the FU's `parser_pktbuf` write port + commit-gated
   flow_keys frame, and the CAM is programmed at runtime from the integer side — so a
-  program parses a packet end-to-end in-core. Remaining: generate `parser_pkg` from
-  `isa/`.
-- 🔵 **Phase 6 (in progress) — Verification:** the verification foundation is in
-  place across all four techniques, every target green from the flake:
-  **toggleable design assertions** (`rtl/parser_asserts.svh`, on in every sim,
-  gone from synthesis); a **SymbiYosys formal proof** that `parser_execute` never
-  writes metadata out of bounds and always exits with a valid code, for all inputs
-  (`nix run .#parser-formal`); a **directed suite** of 15 positive / negative /
-  boundary / corner packets — IPv4/IPv6, VLAN, QinQ, IPv6 ext + fragment, malformed
-  and truncated — each matched byte-for-byte and by exit code against the model
-  (`nix run .#parser-sim-suite`); and **static analysis + fuzzing** — verible +
-  svlint on the RTL (`nix run .#parser-analyze`), cppcheck + gcc `-fanalyzer` +
-  clang-tidy + ASan/UBSan on the model (`nix run .#model-analyze`), and libFuzzer
-  + ASan/UBSan on random packets (`nix run .#model-fuzz`). The in-core FU is being
-  hardened increment by increment against a [status tracker](docs/analysis/cva6-implementation-status.md):
-  **I1** speculation-safe commit-visible parser state, **I2** commit-gated metadata
-  sink (first in-core value-check), **I3** custom-3 register readback, **I4a**
-  end-of-node fetch redirect (node-index→byte-PC), **I4b** CAM programming from the
-  integer side (custom-3 `CPPRSWR`/`CPPRSWRCAM`/`CPPRSRDCAM`, rs1 threaded from
-  `ex_stage`) with a CAM-hit `CAMNEXT` driving a real fetch redirect, and **I5** the
-  full **in-core packet→flow_keys co-simulation over real MMIO** — a SoC AXI peripheral
-  bridges `sd`/`ld` to the FU's packet buffer + flow_keys frame, and all 22 corpus
-  packets parse in-core and match the model **byte-for-byte + exit code**
-  (`nix run .#cva6-parser-cosim`, 22/22 — the full Table A, incl. the ihl=15/ihl=0,
-  deep-VLAN, len=0-ext, and 256-B/over-buffer edge rows added by PR-4). All increments
-  green in-core (`nix run .#cva6-parser-test`). A **negative control**
-  now guards the extension both ways: the *stock* core traps the identical custom-0
-  word as an illegal instruction (`nix run .#parser-negative-control`, G11), so the
-  patched core's PASS is specific to the patch. A **V7** in-core test now proves a
-  faulting instruction that squashes an in-flight parser op does not corrupt its
-  committed result — the op re-executes and commits the fault-free value through a real
-  machine-mode exception (`nix run .#cva6-parser-trap-v7`, G7). Remaining: the
-  interrupt-mid-parse row (V6), base-ISA regression on the patched core, a 2nd config,
-  and coverage sign-off.
+  program parses a packet end-to-end in-core. All exit criteria met; the lone leftover
+  (generate `parser_pkg` from `isa/`) is a cosmetic refactor, not a gate.
+- ✅ **Phase 6 — Verification:** the correctness gate is met — the RTL is proven
+  equal to the golden model (fields **and** exit status) across the corpus, and the
+  in-core FU is verified end-to-end. The foundation is green across all four
+  techniques from the flake: **toggleable design assertions**
+  (`rtl/parser_asserts.svh`, on in every sim, gone from synthesis); **SymbiYosys
+  formal proofs** — `parser_execute` never writes metadata out of bounds / always
+  exits valid, and `cva6_parser_wrap` never leaks speculative parser state past a
+  flush (G2 k-induction), for all inputs (`nix run .#parser-formal`); a **directed
+  suite** of 22 positive / negative / boundary / corner packets — IPv4/IPv6, VLAN,
+  QinQ, IPv6 ext + fragment, malformed and truncated — each matched byte-for-byte and
+  by exit code against the model (`nix run .#parser-sim-suite`); and **static
+  analysis + fuzzing** — verible + svlint on the RTL (`nix run .#parser-analyze`),
+  cppcheck + gcc `-fanalyzer` + clang-tidy + ASan/UBSan on the model
+  (`nix run .#model-analyze`), and libFuzzer + ASan/UBSan on random packets
+  (`nix run .#model-fuzz`). The in-core FU is hardened through increments **I1–I5**
+  (see the [status tracker](docs/analysis/cva6-implementation-status.md)), culminating
+  in the full **in-core packet→flow_keys co-simulation over real MMIO** — all 22 corpus
+  packets parse in the CVA6 pipeline and match the model **byte-for-byte + exit code**
+  (`nix run .#cva6-parser-cosim`, 22/22). A **per-instruction RVFI-vs-Spike lock-step**
+  then steps an extended Spike (its custom extension reuses `libparsermodel`) beside
+  the core and compares every retired instruction — base ISA (287/287), parser ops
+  (43/0), the 22-packet corpus (0 mismatches) — plus a **constrained-random +
+  real-corpus packet campaign** (`nix run .#cva6-parser-tandem` /
+  `.#cva6-parser-tandem-campaign`). *(That lock-step tandem is the project's Phase-6
+  verification oracle; its PRs are commit-tagged "Phase 7 Stage N", but the work is
+  classified as Phase-6 verification, not the Phase-7 toolchain.)* Sign-off is
+  complete: **negative control** (`nix run .#parser-negative-control`, G11),
+  **base-ISA regression** (`nix run .#cva6-parser-baseisa`), a **2nd config**
+  (`nix run .#cva6-parser-config-wb`, G10), the interrupt / fault / context-switch
+  rows (V6/V7/V10/M1), and **coverage closure** (`nix run .#parser-coverage`, 100% of
+  the functional op×event×exit bins, G12). Gaps **G1–G13 are closed**; **G14
+  (timing/physical) belongs to Phase 8**. The only §6.1 item not built as literally
+  specified — a **cocotb + DPI-C** corpus harness — is *superseded*: its goal is met
+  by the Verilator suite + in-core MMIO cosim + tandem campaign.
+- 🔵 **Phase 7 (in progress) — Toolchain:** the software-tooling ladder. **Level 1**
+  (`.insn` + intrinsics, [`toolchain/parser_insn.h`](toolchain/parser_insn.h)) is
+  done, and a Spike custom extension implementing the Phase-2 semantics exists (built
+  as the Phase-6 lock-step oracle). Still open: **binutils** as/objdump (L2), **LLVM
+  MC / GCC builtins** (L3), **QEMU** modeling (L4), a C-intrinsics rewrite of the slice
+  parser running on Spike **and** QEMU matching the model (the exit criterion), and the
+  heavyweight random-*instruction* checks (full upstream riscv-tests; riscv-dv, blocked
+  on a commercial UVM simulator).
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its
 testbenches in [`tb/`](tb/README.md) and the vector generator + formal harness in

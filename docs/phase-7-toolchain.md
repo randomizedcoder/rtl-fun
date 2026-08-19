@@ -8,6 +8,23 @@ Make the parser instructions usable from real code, in increasing order of
 investment: raw `.insn` → intrinsics → assembler → compiler → ISA simulators. Do
 the cheap thing first; only add heavyweight tool support once the ISA has settled.
 
+> **Status: 🔵 In progress.**
+> - **Level 1 (§7.2) — done:** the `.insn` + intrinsics header
+>   [`toolchain/parser_insn.h`](../toolchain/parser_insn.h) emits every slice
+>   instruction from the Phase-3 table.
+> - **Level 4 Spike (§7.5) — partially satisfied, as a *verification oracle*:** a Spike
+>   custom extension implementing the Phase-2 semantics (reusing `libparsermodel`) was
+>   built for the [Phase-6](phase-6-verification.md) RVFI-vs-Spike lock-step
+>   (`nix/spike-tandem/parser_ext.cc`). It is an *internal* cross-check, **not** the
+>   Phase-7 user-facing deliverable — the exit criterion (a slice parser *written in C
+>   with intrinsics* that assembles and runs on Spike **and** QEMU matching the model)
+>   is not yet met.
+> - **Open:** binutils as/objdump (L2), LLVM MC + intrinsics/builtins and GCC builtins
+>   (L3), **QEMU** modeling (L4), the C-intrinsics slice rewrite (task 2), and the
+>   heavyweight random-instruction checks — full upstream riscv-tests and riscv-dv (the
+>   latter blocked on a commercial UVM simulator; the Phase-6 Stage-2 campaign randomizes
+>   only the *packet* axis).
+
 ## Inputs / prerequisites
 
 - Phase 3 encoding table (`isa/parser-opcodes.*`) — the single source of bits.

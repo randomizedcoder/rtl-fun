@@ -8,6 +8,13 @@ Implement the parser unit in synthesizable **SystemVerilog** realizing the
 [Phase 4](phase-4-microarchitecture.md) microarchitecture, and run the vertical
 slice in Verilator against the golden model.
 
+> **Status: ✅ Done.** All exit criteria below are met — the SV lints clean, the
+> slice runs in Verilator matching the model, the decode path is proven equivalent,
+> and the in-core CVA6 FU issues → executes → retires a custom-0 program (and, via
+> the I5 MMIO feed, parses a full packet in-core). The one open item — generating
+> `parser_pkg` constants from `isa/` (task 7) — is a **deferred nicety**, not an exit
+> criterion; full multi-packet correctness is [Phase 6](phase-6-verification.md).
+
 ## Status — decode path landed
 
 Update (this increment): **`parser_decode.sv` is done and verified.** It turns a
