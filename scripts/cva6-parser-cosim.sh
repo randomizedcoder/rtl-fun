@@ -40,6 +40,8 @@ if ! declare -F gen_vectors >/dev/null 2>&1; then
   . "$_lib/common.sh"
   # shellcheck source=/dev/null
   . "$_lib/suite.sh"
+  # shellcheck source=/dev/null
+  . "$_lib/cosim.sh"
 fi
 
 WORK="${CVA6_WORK:-$PWD/build/parser-core}"
@@ -61,57 +63,9 @@ echo "== generating vectors from the model =="
 gen_vectors "$OUT" --suite >/dev/null
 
 # ---- 2. shared prog.S: the parse block (executable) + the CAM table (data) ----
+# (emit_prog_s / gen_case_s live in scripts/lib/cosim.sh, shared with the tandem app.)
 PROG_S="$OUT/prog.S"
-{
-  echo '.section .text'
-  echo '.globl parse_prog'
-  echo '.align 2'
-  echo 'parse_prog:'
-  while read -r w; do [ -n "$w" ] && echo "    .word 0x$w"; done < "$OUT/enc.hex"
-  echo
-  echo '.section .data'
-  echo '.globl cam_table'
-  echo '.align 3'
-  echo 'cam_table:'
-  ncam=0
-  while read -r w; do [ -n "$w" ] && { echo "    .dword 0x$w"; ncam=$((ncam+1)); }; done < "$OUT/camprog.hex"
-  echo '.globl cam_count'
-  echo 'cam_count:'
-  echo "    .dword $ncam"
-} > "$PROG_S"
-
-# emit a per-case case.S (packet + expected flow_keys + expected code) into $1
-gen_case_s() {
-  local cdir="$1" out="$2"
-  local pkt_len meta_len code_hex code
-  pkt_len=$(sed -n '1p' "$cdir/params.hex");  pkt_len=$((16#$pkt_len))
-  meta_len=$(sed -n '2p' "$cdir/params.hex"); meta_len=$((16#$meta_len))
-  code_hex=$(sed -n '3p' "$cdir/params.hex"); code=$((16#$code_hex))
-  [ "$code" -ge 2147483648 ] && code=$((code - 4294967296))   # sign-extend 32-bit
-  {
-    echo '.section .data'
-    echo '.globl packet'
-    echo '.align 3'
-    echo 'packet:'
-    # packet bytes, padded up to a multiple of 8 (over-read bytes are ignored: the
-    # parse is bounded by ParseLen). An empty packet still gets one zero word.
-    awk 'BEGIN{n=0} {printf "    .byte 0x%s\n",$0; n++}
-         END{pad=(8-n%8)%8; if(n==0)pad=8; for(i=0;i<pad;i++)print "    .byte 0x00"}' "$cdir/packet.hex"
-    echo '.globl packet_len'
-    echo 'packet_len:'
-    echo "    .dword $pkt_len"
-    echo '.globl expected'
-    echo '.align 3'
-    echo 'expected:'
-    awk '{printf "    .byte 0x%s\n",$0}' "$cdir/expected.hex"
-    echo '.globl expected_len'
-    echo 'expected_len:'
-    echo "    .dword $meta_len"
-    echo '.globl expected_code'
-    echo 'expected_code:'
-    echo "    .dword $code"
-  } > "$out"
-}
+emit_prog_s "$OUT" "$PROG_S"
 
 # ---- 3. per-case: build the ELF, run it, check tohost (via run_suite) ----
 # For each case: emit case.S, link cosim_main.S + prog.S + case.S, run on the

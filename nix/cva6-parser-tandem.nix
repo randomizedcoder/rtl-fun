@@ -52,6 +52,8 @@ pkgs.writeShellApplication {
     export REPO_ROOT="''${REPO_ROOT:-$PWD}"
     export SPIKE_TANDEM=1
   '' + builtins.readFile ../scripts/lib/common.sh
+     + builtins.readFile ../scripts/lib/suite.sh
+     + builtins.readFile ../scripts/lib/cosim.sh
      + builtins.readFile ../scripts/cva6-baseline.sh
      + builtins.readFile ../scripts/cva6-parser-tandem.sh;
 }
