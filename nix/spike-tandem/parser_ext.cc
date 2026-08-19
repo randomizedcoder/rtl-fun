@@ -37,6 +37,11 @@ extern "C" {
 #include "encoding.h"
 }
 
+// Stage 1c: the MMIO packet buffer shared with the tandem Spike's parser_mmio_dev
+// (libriscv). g_parser_shared holds the CPU-stored packet/ParseLen/exit-PC and the
+// model's code/exit_seen/flow_keys served back on STATUS/META reads.
+#include "parser_shared.h"
+
 #define EXTENSION_NAME "parser"
 
 // Field widths mirroring rtl/parser_pkg.sv (PKT_OFF_W, PC_W, CAM_DEPTH).
@@ -57,6 +62,8 @@ class parser_t : public extension_t
     std::memset(zero_pkt, 0, sizeof(zero_pkt));
     pm_init(&ps, zero_pkt, 0, &meta);
     cam_clear();
+    armed = false;                                   // Stage 1c: re-arm each parse
+    std::memset(&g_parser_shared, 0, sizeof(g_parser_shared));
   }
 
   std::vector<insn_desc_t> get_instructions() override {
@@ -76,6 +83,20 @@ class parser_t : public extension_t
   struct cam_entry ents[PARSER_CAM_DEPTH];
   struct cam_table cam;
   uint8_t          zero_pkt[16];
+  bool             armed = false;   // Stage 1c: pstate bound to the MMIO packet yet?
+
+  // Stage 1c: bind the model to the MMIO packet window the CPU filled via `sd`
+  // (packet + ParseLen) before the parse block ran. pkthdrbase -> the device packet
+  // buffer; meta -> the device-visible flow_keys frame, so the model writes metadata
+  // straight where `ld PARSER_META` reads it. The CAM (ents/cam), programmed by the
+  // custom-3 ops that precede the parse block, is separate and survives. In the 1b
+  // inline path (no MMIO stores) g_parser_shared is all-zero, so this reduces to an
+  // empty window with parse_len 0 — reproducing today's packet-independent behavior.
+  void arm() {
+    pm_init(&ps, g_parser_shared.pkt, g_parser_shared.parse_len,
+            (struct flow_keys*)g_parser_shared.meta);
+    armed = true;
+  }
 
   void cam_clear() {
     // A sentinel that no valid {4-bit share, 16-bit match} key can hit.
@@ -145,12 +166,18 @@ class parser_t : public extension_t
       return ::illegal_instruction(p, insn, pc);   // reserved / packet-only Fnc4
     if (d.op == OP_CAM || d.op == OP_CAMNEXT)
       d.cam = &e->cam;                            // attach the programmed table
+    if (!e->armed) e->arm();                       // Stage 1c: bind to the MMIO packet
     uint32_t cur = e->ps.next_pc;
     e->ps.pc      = cur;                          // pm_run's per-step bookkeeping...
     e->ps.next_pc = cur + 1;                      // ...default fall-through
     pm_exec_one(&e->ps, &d);
     // custom-0 writes no integer rd (the core forces rd=x0) -> no WRITE_RD.
-    if (e->ps.done) return pc + 4;                // parser exit: no MMIO -> fall through
+    // Publish the running verdict so a later `ld PARSER_STATUS` (device 0x100) matches.
+    g_parser_shared.code      = e->ps.code;
+    g_parser_shared.exit_seen = e->ps.done ? 1 : 0;
+    if (e->ps.done)                               // parser exit
+      return g_parser_shared.exit_pc ? (reg_t)g_parser_shared.exit_pc  // MMIO: return
+                                     : pc + 4;    // 1b inline: fall through
     int64_t delta = (int64_t)e->ps.next_pc - (int64_t)cur;
     if (delta == 1) return pc + 4;                // fall-through
     return pc + (reg_t)(delta << 2);              // == redirect_pc_calc

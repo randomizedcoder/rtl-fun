@@ -22,7 +22,7 @@
 # patch adds fesvr_dpi.cc/SimDTM.cc to fesvr.mk.in); do NOT point --with-fesvr at
 # another fesvr, to keep a single fesvr on any downstream link line.
 #
-{ pkgs, cva6-src, parserExt, modelSrc }:
+{ pkgs, cva6-src, spikeExt, modelSrc }:
 
 pkgs.stdenv.mkDerivation {
   pname = "spike-tandem";
@@ -64,7 +64,8 @@ pkgs.stdenv.mkDerivation {
     # Editing customext.mk.in must happen BEFORE ../configure generates customext.mk.
     # parser_ext.cc (NOT parser.cc): the C++ object name must not collide with the
     # model's parser.c -> both would map to parser.o and only one would build.
-    cp ${parserExt} spike-src/customext/parser_ext.cc
+    cp ${spikeExt}/parser_ext.cc spike-src/customext/parser_ext.cc
+    cp ${spikeExt}/parser_shared.h spike-src/customext/
     cp ${modelSrc}/parser.c ${modelSrc}/encoding.c \
        ${modelSrc}/parser.h ${modelSrc}/encoding.h spike-src/customext/
     chmod -R u+w spike-src/customext
@@ -79,6 +80,46 @@ pkgs.stdenv.mkDerivation {
       --replace 'registered_extensions_v["cvxif"] = false;' \
                 'registered_extensions_v["cvxif"] = false;
   registered_extensions_v["parser"] = false;'
+
+    # --- inject the parser MMIO packet device (Phase 7, Stage 1c) --------------
+    # Teach the tandem Spike the 0x5000_0000 packet peripheral the CVA6 core has, so
+    # packet-load ops (PLOAD/PLENCUR) + the flow_keys/status readback lock-step too.
+    # parser_mmio.h defines a smart abstract_device_t + the g_parser_shared mailbox;
+    # the customext extension (libcustomext) shares that mailbox via parser_shared.h.
+    # #include it once in Simulation.cc (which owns the bus) and register the device at
+    # 0x5000_0000, right after the mem_t regions are attached (mirrors the DRAM path).
+    cp ${spikeExt}/parser_shared.h ${spikeExt}/parser_mmio.h spike-src/riscv/
+    chmod -R u+w spike-src/riscv
+    substituteInPlace spike-src/riscv/Simulation.cc \
+      --replace '#include "Simulation.h"' \
+                '#include "Simulation.h"
+#include "parser_mmio.h"          // Phase 7 Stage 1c: parser packet MMIO device'
+    # The CVA6 tandem models the whole SoC above 0x40000000 as ONE catch-all DRAM
+    # (uvma_cva6pkg_utils.sv: dram_base=0x40000000 size=0x80000000), which spans the
+    # 0x50000000 parser window. Registering parser_mmio_dev there would SPLIT that RAM
+    # and shadow every DRAM address >= 0x50000000 (incl. the 0x80000000 code region).
+    # So carve the 4 KiB window out of DRAM: two mem_t halves around it, the device in
+    # the hole. The halves stay real mem_t (fast path); only the window is the device.
+    substituteInPlace spike-src/riscv/Simulation.cc \
+      --replace '  if (dram) {
+    this->mems.push_back(std::make_pair(dram_base, new mem_t(dram_size)));
+  }' \
+                '  if (dram) {
+    const uint64_t PW = 0x50000000UL, PWS = 0x1000UL;  // parser MMIO window
+    if (dram_base <= PW && PW + PWS <= dram_base + dram_size) {
+      this->mems.push_back(std::make_pair(dram_base, new mem_t(PW - dram_base)));
+      this->mems.push_back(std::make_pair(PW + PWS, new mem_t(dram_base + dram_size - (PW + PWS))));
+    } else {
+      this->mems.push_back(std::make_pair(dram_base, new mem_t(dram_size)));
+    }
+  }'
+    substituteInPlace spike-src/riscv/Simulation.cc \
+      --replace 'for (auto &x : this->mems)
+    bus.add_device(x.first, x.second);' \
+                'for (auto &x : this->mems)
+    bus.add_device(x.first, x.second);
+
+  bus.add_device(0x50000000UL, new parser_mmio_dev());  // Phase 7 Stage 1c'
 
     mkdir -p spike-src/build
     cd spike-src/build
