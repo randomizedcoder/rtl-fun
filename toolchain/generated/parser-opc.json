@@ -1,0 +1,463 @@
+[
+  {
+    "asm": "prs.load",
+    "opcode": 11,
+    "match": 11,
+    "mask": 3487565823,
+    "fixed": {
+      "X": 0,
+      "D": 0,
+      "Blen": 0,
+      "Shift": 0
+    },
+    "operands": [
+      {
+        "name": "Sz",
+        "hi": 29,
+        "lo": 28
+      },
+      {
+        "name": "E",
+        "hi": 20,
+        "lo": 20
+      },
+      {
+        "name": "Offset",
+        "hi": 19,
+        "lo": 11
+      }
+    ]
+  },
+  {
+    "asm": "prs.lencur",
+    "opcode": 11,
+    "match": 267,
+    "mask": 2149058559,
+    "fixed": {
+      "S": 0,
+      "F2": 0
+    },
+    "operands": [
+      {
+        "name": "D",
+        "hi": 30,
+        "lo": 30
+      },
+      {
+        "name": "Sz",
+        "hi": 29,
+        "lo": 28
+      },
+      {
+        "name": "Pos",
+        "hi": 27,
+        "lo": 24
+      },
+      {
+        "name": "Shift",
+        "hi": 23,
+        "lo": 21
+      },
+      {
+        "name": "Len",
+        "hi": 18,
+        "lo": 11
+      }
+    ]
+  },
+  {
+    "asm": "prs.store",
+    "opcode": 11,
+    "match": 523,
+    "mask": 3236956159,
+    "fixed": {
+      "S": 0,
+      "F": 0,
+      "J": 0,
+      "Sind": 0
+    },
+    "operands": [
+      {
+        "name": "Sz",
+        "hi": 29,
+        "lo": 28
+      },
+      {
+        "name": "Pos",
+        "hi": 27,
+        "lo": 24
+      },
+      {
+        "name": "Offset",
+        "hi": 19,
+        "lo": 11
+      }
+    ]
+  },
+  {
+    "asm": "prs.storeimm",
+    "opcode": 11,
+    "match": 779,
+    "mask": 3221227519,
+    "fixed": {
+      "S": 0,
+      "F": 0
+    },
+    "operands": [
+      {
+        "name": "Sz",
+        "hi": 29,
+        "lo": 28
+      },
+      {
+        "name": "Value",
+        "hi": 27,
+        "lo": 20
+      },
+      {
+        "name": "Offset",
+        "hi": 19,
+        "lo": 11
+      }
+    ]
+  },
+  {
+    "asm": "prs.cam",
+    "opcode": 11,
+    "match": 1035,
+    "mask": 1088423935,
+    "fixed": {
+      "D": 0,
+      "Func3": 0
+    },
+    "operands": [
+      {
+        "name": "S",
+        "hi": 31,
+        "lo": 31
+      },
+      {
+        "name": "Sz",
+        "hi": 29,
+        "lo": 28
+      },
+      {
+        "name": "Pos",
+        "hi": 27,
+        "lo": 24
+      },
+      {
+        "name": "F",
+        "hi": 20,
+        "lo": 20
+      },
+      {
+        "name": "Share",
+        "hi": 19,
+        "lo": 16
+      },
+      {
+        "name": "Miss",
+        "hi": 15,
+        "lo": 11
+      }
+    ]
+  },
+  {
+    "asm": "prs.camnext",
+    "opcode": 11,
+    "match": 1073742859,
+    "mask": 1088423935,
+    "fixed": {
+      "D": 1,
+      "Func3": 0
+    },
+    "operands": [
+      {
+        "name": "S",
+        "hi": 31,
+        "lo": 31
+      },
+      {
+        "name": "Sz",
+        "hi": 29,
+        "lo": 28
+      },
+      {
+        "name": "Pos",
+        "hi": 27,
+        "lo": 24
+      },
+      {
+        "name": "F",
+        "hi": 20,
+        "lo": 20
+      },
+      {
+        "name": "Share",
+        "hi": 19,
+        "lo": 16
+      },
+      {
+        "name": "Miss",
+        "hi": 15,
+        "lo": 11
+      }
+    ]
+  },
+  {
+    "asm": "prs.cmpib",
+    "opcode": 11,
+    "match": 1675,
+    "mask": 2047,
+    "fixed": {},
+    "operands": [
+      {
+        "name": "Er",
+        "hi": 31,
+        "lo": 30
+      },
+      {
+        "name": "Pos",
+        "hi": 29,
+        "lo": 27
+      },
+      {
+        "name": "Value",
+        "hi": 26,
+        "lo": 19
+      },
+      {
+        "name": "Mask",
+        "hi": 18,
+        "lo": 11
+      }
+    ]
+  },
+  {
+    "asm": "prs.cmpneib",
+    "opcode": 11,
+    "match": 1803,
+    "mask": 2047,
+    "fixed": {},
+    "operands": [
+      {
+        "name": "Er",
+        "hi": 31,
+        "lo": 30
+      },
+      {
+        "name": "Pos",
+        "hi": 29,
+        "lo": 27
+      },
+      {
+        "name": "Value",
+        "hi": 26,
+        "lo": 19
+      },
+      {
+        "name": "Mask",
+        "hi": 18,
+        "lo": 11
+      }
+    ]
+  },
+  {
+    "asm": "prs.nextnode",
+    "opcode": 11,
+    "match": 1291,
+    "mask": 4160751615,
+    "fixed": {
+      "S": 0,
+      "V": 0,
+      "Pos": 0,
+      "A": 0
+    },
+    "operands": [
+      {
+        "name": "Payload",
+        "hi": 26,
+        "lo": 11
+      }
+    ]
+  },
+  {
+    "asm": "prs.setcode",
+    "opcode": 11,
+    "match": 536872203,
+    "mask": 4160751615,
+    "fixed": {
+      "S": 0,
+      "V": 0,
+      "Pos": 2,
+      "A": 0
+    },
+    "operands": [
+      {
+        "name": "Payload",
+        "hi": 26,
+        "lo": 11
+      }
+    ]
+  },
+  {
+    "asm": "prs.stp",
+    "opcode": 11,
+    "match": 1610614027,
+    "mask": 4294967295,
+    "fixed": {
+      "S": 0,
+      "V": 1,
+      "Pos": 2,
+      "A": 0,
+      "Payload": 0
+    },
+    "operands": []
+  },
+  {
+    "asm": "prs.mv.x.p",
+    "opcode": 123,
+    "match": 123,
+    "mask": 3765465215,
+    "fixed": {
+      "S": 0,
+      "I": 0,
+      "R": 0,
+      "Func3": 0
+    },
+    "operands": [
+      {
+        "name": "Cpreg",
+        "hi": 28,
+        "lo": 24
+      },
+      {
+        "name": "Rs",
+        "hi": 19,
+        "lo": 15
+      },
+      {
+        "name": "Rd",
+        "hi": 11,
+        "lo": 7
+      }
+    ]
+  },
+  {
+    "asm": "prs.mv.p.x",
+    "opcode": 123,
+    "match": 4219,
+    "mask": 3765465215,
+    "fixed": {
+      "S": 0,
+      "I": 0,
+      "R": 0,
+      "Func3": 1
+    },
+    "operands": [
+      {
+        "name": "Cpreg",
+        "hi": 28,
+        "lo": 24
+      },
+      {
+        "name": "Rs",
+        "hi": 19,
+        "lo": 15
+      },
+      {
+        "name": "Rd",
+        "hi": 11,
+        "lo": 7
+      }
+    ]
+  },
+  {
+    "asm": "prs.ld.immed",
+    "opcode": 123,
+    "match": 2101371,
+    "mask": 3765465215,
+    "fixed": {
+      "S": 0,
+      "I": 1,
+      "R": 0,
+      "Func3": 1
+    },
+    "operands": [
+      {
+        "name": "Cpreg",
+        "hi": 28,
+        "lo": 24
+      },
+      {
+        "name": "Rs",
+        "hi": 19,
+        "lo": 15
+      },
+      {
+        "name": "Rd",
+        "hi": 11,
+        "lo": 7
+      }
+    ]
+  },
+  {
+    "asm": "prs.cam.read",
+    "opcode": 123,
+    "match": 1048699,
+    "mask": 3765465215,
+    "fixed": {
+      "S": 0,
+      "I": 0,
+      "R": 1,
+      "Func3": 0
+    },
+    "operands": [
+      {
+        "name": "Cpreg",
+        "hi": 28,
+        "lo": 24
+      },
+      {
+        "name": "Rs",
+        "hi": 19,
+        "lo": 15
+      },
+      {
+        "name": "Rd",
+        "hi": 11,
+        "lo": 7
+      }
+    ]
+  },
+  {
+    "asm": "prs.array.read",
+    "opcode": 123,
+    "match": 5243003,
+    "mask": 3765465215,
+    "fixed": {
+      "S": 1,
+      "I": 0,
+      "R": 1,
+      "Func3": 0
+    },
+    "operands": [
+      {
+        "name": "Cpreg",
+        "hi": 28,
+        "lo": 24
+      },
+      {
+        "name": "Rs",
+        "hi": 19,
+        "lo": 15
+      },
+      {
+        "name": "Rd",
+        "hi": 11,
+        "lo": 7
+      }
+    ]
+  }
+]

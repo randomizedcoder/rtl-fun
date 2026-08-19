@@ -165,6 +165,10 @@
         # Parser-unit RTL apps (Phase 5): parser-sim{,-trace,-debug} + parser-lint.
         rtl = import ./nix/rtl.nix { inherit pkgs; };
 
+        # Phase-7 codegen spine: regenerate toolchain/generated from the ISA yaml
+        # and verify no yaml↔C drift (`nix run .#parser-gen-check`).
+        parser-gen = import ./nix/parser-gen.nix { inherit pkgs; };
+
         # The default development shell (exports CVA6_SRC -> the pinned source,
         # and puts the cva6-baseline app on PATH).
         devshell = import ./nix/devshell.nix {
@@ -213,6 +217,8 @@
           parser-formal = rtl.parser-formal;
           parser-wrap-test = rtl.parser-wrap-test;
           parser-coverage = rtl.parser-coverage;
+          # Phase-7 codegen spine check.
+          parser-gen-check = parser-gen.parser-gen-check;
         };
 
         # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
@@ -315,6 +321,12 @@
         apps.model-test = {
           type = "app";
           program = "${model.model-test}/bin/model-test";
+        };
+
+        # Phase-7 codegen spine: regenerate + drift check `nix run .#parser-gen-check`.
+        apps.parser-gen-check = {
+          type = "app";
+          program = "${parser-gen.parser-gen-check}/bin/parser-gen-check";
         };
 
         # Static analysis + sanitizers for the C model: `nix run .#model-analyze`.

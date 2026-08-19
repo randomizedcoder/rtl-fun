@@ -91,6 +91,16 @@ Everything that touches bits — model encoder/decoder, `.insn` header, binutils
 LLVM MC, Spike, QEMU — is **generated from or checked against `isa/parser-opcodes.*`**.
 No hand-copied encodings.
 
+> **Status: ✅ the codegen spine is real.** `tools/parser-gen` reads
+> `isa/parser-opcodes.yaml` (the new `mnemonics:` block + the `groups:` bit-truth) and
+> emits `toolchain/generated/`: the binutils opcode fragment (`parser-opc.inc`,
+> match/mask + operand descriptors — consumed by the L2 binutils patch) and the
+> `parser_intrinsics.h` word-builders. `nix run .#parser-gen-check` regenerates and
+> proves (a) the committed artifacts are byte-stable and (b) the generated encoders
+> equal the model's hand-written `encoding.c` + the golden constants
+> (`prs_load_h(12)==0x2010600b`) — closing the yaml↔C drift the round-trip tests can't
+> catch. Scope = the `pm_encode` custom-0 set + the custom-3 moves.
+
 ## Step-by-step tasks
 
 1. Finalize `toolchain/parser_insn.h` (`.insn` + intrinsics) for every instruction.

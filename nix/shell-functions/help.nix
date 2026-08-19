@@ -37,6 +37,9 @@
       nix build .#spike-tandem     source-built tandem Spike (libriscv w/ RVFI DPI; cached derivation)
       nix build .#cva6-parser-src patched CVA6 source only (cached derivation)
 
+    Toolchain codegen (Phase 7)
+      nix run .#parser-gen-check  regenerate toolchain/generated from the ISA yaml + drift check
+
     Golden model (Phase 2)
       nix run .#model-test        run the reference-model unit + corpus tests
       nix run .#model-analyze     cppcheck + gcc -fanalyzer + clang-tidy + ASan/UBSan
