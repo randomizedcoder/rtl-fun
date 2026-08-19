@@ -522,9 +522,30 @@ Directed tables are the floor. Layered on top, in adoption order:
    so nothing pollutes the RVFI commit-log — only the CPU's own `sd`/`ld` are matched. Result:
    **base_isa 287/0 + parser_ops 43/0 + all 22 packet cases 0 mismatches**, exit codes
    `-4/-13/-14/-15/-24` all matching; a deliberate-break negative control (corrupt one packet
-   byte in the device) flips the report to MISMATCH, proving the packet compare is live. Only
-   **Stage 2** remains — `riscv-dv` random interleaving with the tandem pair as the oracle (no
-   per-test golden vectors).
+   byte in the device) flips the report to MISMATCH, proving the packet compare is live.
+   ✅ **Stage 2 (random stimulus) is realized as a random-*packet* campaign** —
+   `nix run .#cva6-parser-tandem-campaign` (`scripts/cva6-parser-tandem-campaign.sh`) drives
+   **hundreds** of packets through the very same Stage-1c lock-step: a seeded, self-contained
+   `splitmix64` generator (`verif/gen/gen_parser_rom.c --random <N> <SEED>`) synthesizes
+   constrained-random frames spanning every code path the directed 22 hit but far broader (L2
+   tag depth incl. past `max_encap`, v4/v6/unknown ethertype, bad IPv4 version, IHL 0/5/6–15,
+   IPv6 ext-header chains incl. past `max_nodes=32`, tcp/udp/unknown L4, and random truncation
+   / sizing at the 0/1/256/>256-byte boundaries), and the real **xdp2 `proto_audit` pcap
+   corpus** (`--corpus <DIR>`, ~306 Ethernet frames, non-Ethernet logged-and-skipped) replays
+   real-world captures. Each packet is `sd`'d into the MMIO buffer and lock-stepped
+   per-instruction against Spike exactly as Stage 1c does — extending the oracle from 22
+   curated vectors to a broad random + real population, **0 mismatches**. The seed is a fixed
+   committed default (logged up front; re-running the same `CAMPAIGN_SEED` reproduces the case
+   set bit-for-bit) and each case name encodes its own repro (`rand-<seed>-<i>` / `corpus-<pcap>`).
+   **Two honesty caveats.** (i) This randomizes the *packet* axis, not the RV64GC *instruction*
+   stream — the parse program is a single fixed `pm_slice_program`, so the packet is the
+   parser's meaningful random surface. Full `riscv-dv` (random instruction interleaving with
+   parser ops via `corev-dv`) stays **deferred**: the custom-instruction generator is
+   SystemVerilog UVM whose only wired simulators are commercial (VCS/Xcelium/Questa/dsim), and
+   this flake is Verilator-only. (ii) Both the core's reference model *and* Spike's extension
+   are `libparsermodel`, so the *parser* tandem proves **RTL executor == model** on random input
+   (catching RTL bugs the directed 22 missed); real Spike remains the independent oracle for the
+   surrounding RV64GC stream, not for the flow_keys re-derivation.
 3. **Formal properties.** Proofs of the handful that must hold for *all* inputs.
    ✅ **The G2 no-state-survives-a-flush property is proved** — `parser-formal` runs
    an unbounded k-induction (`verif/formal/parser_wrap.sby`, `mode prove`) on
@@ -674,8 +695,13 @@ value mismatch, any watchdog timeout, any coverage regression, or a base-ISA reg
    (`nix/spike-tandem/parser_mmio.h`), so `PLOAD`/`PLENCUR` + the flow_keys/status readback
    match too — 22/22, exit codes `-4/-13/-14/-15/-24`, deliberate-break negative controls
    confirmed at each stage; `nix/spike-tandem.nix` + `parser_ext.cc` + the `pm_decode` inverse
-   decoder + the `SPIKE_TANDEM` build gate). Only **Stage 2** (`riscv-dv` random with the
-   tandem pair as oracle) stays Phase 7+.
+   decoder + the `SPIKE_TANDEM` build gate). **Stage 2 (random stimulus) ✅** — `cva6-parser-tandem-campaign`
+   drives hundreds of seeded constrained-random (`--random`) + real xdp2-corpus (`--corpus`)
+   packets through the same lock-step, 0 mismatches, reproducible from a fixed committed seed.
+   **Full `riscv-dv` (random *instruction* interleaving) stays deferred** — its
+   custom-instruction generator is commercial-UVM-only; this campaign randomizes the packet
+   axis, and since both sides are `libparsermodel` the parser tandem proves RTL==model on random
+   input (real Spike is the independent oracle for the surrounding RV64GC stream).
 8. **Real DMA packet feed** — the I5 MMIO peripheral is **test-grade** (CPU/fesvr
    fills the buffer); the DMA feed + runtime CAM programming from the wire are Phase 8.
 9. **DFT / POST (§4)** — scan/ATPG/MBIST + power-on self-test ROM: a Phase-8 silicon

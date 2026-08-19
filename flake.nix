@@ -91,6 +91,14 @@
           cva6-src = cva6-parser-src;
         };
 
+        # Phase 7, Stage 2: the random-packet tandem campaign — hundreds of seeded
+        # constrained-random + real xdp2-corpus packets driven through the SAME
+        # RVFI-vs-Spike lock-step (shares build/parser-tandem with the tandem app).
+        cva6-parser-tandem-campaign = import ./nix/cva6-parser-tandem-campaign.nix {
+          inherit pkgs spike-tandem xdp2-src;
+          cva6-src = cva6-parser-src;
+        };
+
         # Negative control (G11): build the STOCK model + assert the base core
         # REJECTS a custom-0 parser word (illegal-instruction trap). Uses the
         # unpatched source, so the parser ops are proven a genuine ISA extension.
@@ -179,6 +187,7 @@
           cva6-parser-test = cva6-parser-test;
           cva6-parser-cosim = cva6-parser-cosim;
           cva6-parser-tandem = cva6-parser-tandem;
+          cva6-parser-tandem-campaign = cva6-parser-tandem-campaign;
           parser-negative-control = parser-negative-control;
           cva6-parser-trap-v7 = cva6-parser-trap-v7;
           cva6-parser-trap-v6 = cva6-parser-trap-v6;
@@ -238,6 +247,14 @@
         apps.cva6-parser-tandem = {
           type = "app";
           program = "${cva6-parser-tandem}/bin/cva6-parser-tandem";
+        };
+
+        # Random-packet tandem campaign (Phase 7, Stage 2): hundreds of seeded
+        # constrained-random + real-corpus packets under RVFI-vs-Spike lock-step:
+        # `nix run .#cva6-parser-tandem-campaign`.
+        apps.cva6-parser-tandem-campaign = {
+          type = "app";
+          program = "${cva6-parser-tandem-campaign}/bin/cva6-parser-tandem-campaign";
         };
 
         # Negative control (G11): the stock core must reject the parser ops:

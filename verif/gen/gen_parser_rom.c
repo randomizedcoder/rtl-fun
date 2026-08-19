@@ -28,11 +28,13 @@
  */
 #include "parser.h"
 #include "encoding.h"
+#include "pcap.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 /* the RTL packet buffer size (rtl/parser_pkg.sv PKT_MAX). The standalone
  * testbench $readmemh's the packet straight into this fixed-size buffer, and
@@ -207,6 +209,94 @@ static void ipv4_ihl(pkt *p, unsigned ihl, unsigned proto, unsigned total_len)
 /* pad `p` with zero bytes up to `target` total length (after the parsed headers). */
 static void pad_to(pkt *p, unsigned target) { while (p->n < target) p8(p, 0x00); }
 
+/* ---------------------------------------------------------------------------
+ * constrained-random packet builder (Phase 7, Stage 2 tandem campaign)
+ *
+ * A self-contained splitmix64 PRNG — NOT libc rand(), whose sequence is
+ * implementation-defined — so a failing `rand-<seed>-<i>` reproduces bit-for-bit
+ * everywhere. c_random() composes the SAME primitives the directed suite uses,
+ * but with broader weighted choices, spanning every code path the 22 curated
+ * cases hit (L2 tag depth incl. past max_encap, v4/v6/unknown ethertype, bad
+ * IPv4 version, IHL 0/5/6-15, IPv6 ext-header chains incl. past max_nodes,
+ * tcp/udp/unknown L4) plus random truncation/sizing near the buffer boundaries.
+ * The tandem only needs core==Spike agreement, and pm_run always terminates
+ * deterministically on arbitrary bytes, so packet *validity* is never required.
+ * ------------------------------------------------------------------------- */
+typedef struct { uint64_t s; } rng_t;
+static uint64_t rng_next(rng_t *r)
+{
+    uint64_t z = (r->s += 0x9E3779B97F4A7C15ULL);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    return z ^ (z >> 31);
+}
+/* uniform in [0, n) for n>0 */
+static unsigned rng_below(rng_t *r, unsigned n) { return (unsigned)(rng_next(r) % n); }
+
+static void c_random(pkt *p, rng_t *r)
+{
+    /* L4 proto the L3 header will advertise: tcp (50%), udp (25%), unknown (25%). */
+    unsigned l4 = rng_below(r, 4);
+    unsigned proto = (l4 < 2) ? 6u : (l4 == 2 ? 17u : 200u);
+
+    /* L3 selector: IPv4 (50%), IPv6 (~37%), unknown ethertype (~12%). */
+    unsigned l3sel = rng_below(r, 8);
+    unsigned l3et = (l3sel < 4) ? ETH_P_IP : (l3sel < 7 ? ETH_P_IPV6 : 0x9999);
+
+    /* L2: eth, then 0..4 stacked VLAN tags (5 => one past max_encap=4). */
+    unsigned ntag = rng_below(r, 6);
+    if (ntag == 0) {
+        eth(p, l3et);
+    } else {
+        eth(p, ETH_P_8021AD);
+        for (unsigned i = 0; i + 1 < ntag; i++) vlan(p, ETH_P_8021Q);
+        vlan(p, l3et);   /* innermost tag carries the real L3 ethertype */
+    }
+
+    if (l3et == ETH_P_IP) {
+        if (rng_below(r, 10) == 0) {
+            ipv4(p, 0x65, proto, 40);            /* bad version (6) — NEG path */
+        } else {
+            unsigned q = rng_below(r, 10);
+            unsigned ihl = 5;
+            if (q == 0)      ihl = 0;                       /* illegal small IHL */
+            else if (q == 1) ihl = 6 + rng_below(r, 10);    /* 6..15 options walked */
+            if (ihl == 5) ipv4(p, 0x45, proto, 40);
+            else          ipv4_ihl(p, ihl, proto, 20 + ihl * 4u);
+        }
+    } else if (l3et == ETH_P_IPV6) {
+        /* ext-header chain: usually 0..5 hop-by-hop headers, rarely 33..40 to
+         * trip the max_nodes=32 guard. Big chains use len=0 (8 bytes each) so the
+         * packet stays inside the 512-byte builder buffer. */
+        unsigned next = rng_below(r, 6);
+        if (rng_below(r, 8) == 0) next = 33 + rng_below(r, 8);
+        ipv6(p, next ? 0u /*HBH*/ : proto);
+        for (unsigned i = 0; i < next; i++) {
+            unsigned nh = (i + 1 < next) ? 0u /*HBH*/ : proto;
+            unsigned units = (next > 5) ? 0u : rng_below(r, 3);
+            ip6ext(p, nh, units);
+        }
+    } else {
+        p16(p, 0);   /* unknown ethertype — a couple of L3 bytes, no valid header */
+    }
+
+    /* L4 payload matching the advertised proto (unknown => opaque bytes). */
+    if (proto == 6)       tcp(p);
+    else if (proto == 17) udp(p);
+    else                  pn(p, 0, 8);
+
+    /* Size perturbation near the interesting boundaries (empty / 1-byte /
+     * mid-truncation / exactly PKT_MAX / just past the 256-byte buffer). */
+    switch (rng_below(r, 12)) {
+        case 0:  p->n = 0; break;                              /* empty */
+        case 1:  p->n = 1; break;                              /* 1-byte */
+        case 2:  if (p->n > 4) p->n = 1 + rng_below(r, p->n - 1); break;  /* truncate */
+        case 3:  pad_to(p, 256); break;                        /* exactly PKT_MAX */
+        case 4:  pad_to(p, 264 + rng_below(r, 32)); break;     /* past the buffer */
+        default: break;                                        /* as built */
+    }
+}
+
 /* Row 16: ipv4 IHL=15 (60-byte header, max options) — the full header is walked. */
 static void c_ipv4_ihl15(pkt *p)  { eth(p, ETH_P_IP); ipv4_ihl(p, 15, 6, 80); tcp(p); }
 /* Row 17: ipv4 IHL=0 (illegal) — the LENCUR min-length trap fails the parse. */
@@ -307,10 +397,26 @@ static int emit_case(const char *dir, const instr *prog, size_t nprog,
     return 0;
 }
 
+/* emit one packet into cases_dir/<name>/ and append its manifest row (the format
+ * run_suite reads: `name category expect_ok exp_code len`). Shared by the random +
+ * corpus modes; returns the model's exit code via *out_code, -1 on I/O error. */
+static int emit_manifest_case(FILE *mf, const char *cases_dir, const char *name,
+                              const char *cat, const instr *prog, size_t nprog,
+                              const pkt *p, int32_t *out_code)
+{
+    char cdir[700];
+    snprintf(cdir, sizeof cdir, "%s/%s", cases_dir, name);
+    mkdir(cdir, 0777);
+    if (emit_case(cdir, prog, nprog, p, out_code) != 0) return -1;
+    fprintf(mf, "%s %s %d %d %u\n", name, cat,
+            (*out_code == P_STOP_OKAY), *out_code, p->n);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *dir = (argc > 1) ? argv[1] : ".";
-    int do_suite = (argc > 2) && strcmp(argv[2], "--suite") == 0;
+    const char *mode = (argc > 2) ? argv[2] : NULL;   /* --suite | --random | --corpus */
     char buf[512];
 
     /* ---- the program (shared by every case) ---- */
@@ -392,9 +498,10 @@ int main(int argc, char **argv)
     fprintf(stderr, "gen: %zu instrs, %d CAM entries, baseline pkt=%u bytes, model code=%d\n",
             n, nrows, base.n, base_code);
 
-    if (!do_suite) return 0;
+    if (!mode) return 0;
 
-    /* ---- the directed suite: one dir per case + a manifest for the runner ---- */
+    /* every multi-case mode shares the cases/ tree + cases.txt manifest layout the
+     * suite runner (scripts/lib/suite.sh) walks. */
     char cases_dir[512];
     snprintf(cases_dir, sizeof cases_dir, "%s/cases", dir);
     mkdir(cases_dir, 0777);
@@ -403,33 +510,105 @@ int main(int argc, char **argv)
     FILE *mf = fopen(path(dir, "cases.txt", manifest, sizeof manifest), "w");
     if (!mf) { perror("cases.txt"); return 1; }
 
-    int mism = 0;
-    for (int i = 0; i < NSUITE; i++) {
-        char cdir[600];
-        snprintf(cdir, sizeof cdir, "%s/%s", cases_dir, suite[i].name);
-        mkdir(cdir, 0777);
+    if (strcmp(mode, "--suite") == 0) {
+        /* ---- the directed suite: one dir per curated case ---- */
+        int mism = 0;
+        for (int i = 0; i < NSUITE; i++) {
+            char cdir[600];
+            snprintf(cdir, sizeof cdir, "%s/%s", cases_dir, suite[i].name);
+            mkdir(cdir, 0777);
 
-        pkt p = {0};
-        suite[i].build(&p);
-        int32_t code;
-        if (emit_case(cdir, prog, n, &p, &code) != 0) { fclose(mf); return 1; }
+            pkt p = {0};
+            suite[i].build(&p);
+            int32_t code;
+            if (emit_case(cdir, prog, n, &p, &code) != 0) { fclose(mf); return 1; }
 
-        int got_ok = (code == P_STOP_OKAY);
-        const char *verdict = (got_ok == suite[i].expect_ok) ? "ok" : "MISMATCH";
-        if (got_ok != suite[i].expect_ok) mism++;
+            int got_ok = (code == P_STOP_OKAY);
+            const char *verdict = (got_ok == suite[i].expect_ok) ? "ok" : "MISMATCH";
+            if (got_ok != suite[i].expect_ok) mism++;
 
-        /* manifest line: name category expect_ok exp_code len */
-        fprintf(mf, "%s %s %d %d %u\n", suite[i].name, cat_name[suite[i].cat],
-                suite[i].expect_ok, code, p.n);
-        fprintf(stderr, "  %-22s %-9s len=%-3u code=%-4d %s\n",
-                suite[i].name, cat_name[suite[i].cat], p.n, code, verdict);
+            /* manifest line: name category expect_ok exp_code len */
+            fprintf(mf, "%s %s %d %d %u\n", suite[i].name, cat_name[suite[i].cat],
+                    suite[i].expect_ok, code, p.n);
+            fprintf(stderr, "  %-22s %-9s len=%-3u code=%-4d %s\n",
+                    suite[i].name, cat_name[suite[i].cat], p.n, code, verdict);
+        }
+        fclose(mf);
+        if (mism) {
+            fprintf(stderr, "gen: %d case(s) disagree with expected OK/FAIL — fix the vectors\n", mism);
+            return 3;
+        }
+        fprintf(stderr, "gen: suite = %d cases, all match expected OK/FAIL\n", NSUITE);
+        return 0;
     }
+
+    if (strcmp(mode, "--random") == 0) {
+        /* ---- constrained-random packets: --random <N> <SEED> ---- */
+        if (argc < 5) { fprintf(stderr, "usage: %s <dir> --random <N> <SEED>\n", argv[0]); fclose(mf); return 1; }
+        unsigned long N = strtoul(argv[3], NULL, 0);
+        unsigned long long seed = strtoull(argv[4], NULL, 0);
+        rng_t rng = { (uint64_t)seed };
+        for (unsigned long i = 0; i < N; i++) {
+            pkt p = {0};
+            c_random(&p, &rng);
+            char name[64];
+            snprintf(name, sizeof name, "rand-%llu-%lu", seed, i);
+            int32_t code;
+            if (emit_manifest_case(mf, cases_dir, name, "random", prog, n, &p, &code) != 0) { fclose(mf); return 1; }
+            fprintf(stderr, "  %-26s len=%-4u code=%-4d\n", name, p.n, code);
+        }
+        fclose(mf);
+        fprintf(stderr, "gen: random suite = %lu cases (seed=%llu)\n", N, seed);
+        return 0;
+    }
+
+    if (strcmp(mode, "--corpus") == 0) {
+        /* ---- real pcap corpus: --corpus <DIR> [MAX]  (MAX=0/absent => all) ---- */
+        if (argc < 4) { fprintf(stderr, "usage: %s <dir> --corpus <PCAP_DIR> [MAX]\n", argv[0]); fclose(mf); return 1; }
+        const char *pdir = argv[3];
+        unsigned long maxc = (argc > 4) ? strtoul(argv[4], NULL, 0) : 0;   /* 0 = all */
+        DIR *d = opendir(pdir);
+        if (!d) { perror(pdir); fclose(mf); return 1; }
+
+        /* collect *.pcap names, sort so the corpus order (and thus the gate) is
+         * deterministic regardless of readdir() order. */
+        static char names[1024][256];
+        int nn = 0;
+        struct dirent *de;
+        while ((de = readdir(d)) != NULL && nn < 1024) {
+            size_t L = strlen(de->d_name);
+            if (L > 5 && strcmp(de->d_name + L - 5, ".pcap") == 0)
+                snprintf(names[nn++], sizeof names[0], "%s", de->d_name);
+        }
+        closedir(d);
+        qsort(names, (size_t)nn, sizeof names[0],
+              (int (*)(const void *, const void *))strcmp);
+
+        int emitted = 0, skipped = 0;
+        for (int i = 0; i < nn; i++) {
+            if (maxc && (unsigned long)emitted >= maxc) break;
+            char full[1024];
+            snprintf(full, sizeof full, "%s/%s", pdir, names[i]);
+            pkt p = {0};
+            uint32_t lt = 0;
+            int len = pcap_read_first(full, p.b, sizeof p.b, &lt);
+            if (len <= 0) { skipped++; fprintf(stderr, "  SKIP %-24s (read err %d)\n", names[i], len); continue; }
+            if (lt != 1)  { skipped++; fprintf(stderr, "  SKIP %-24s (linktype %u, not Ethernet)\n", names[i], lt); continue; }
+            p.n = (unsigned)len;
+            char cname[300];
+            snprintf(cname, sizeof cname, "corpus-%.*s", (int)(strlen(names[i]) - 5), names[i]);
+            int32_t code;
+            if (emit_manifest_case(mf, cases_dir, cname, "corpus", prog, n, &p, &code) != 0) { fclose(mf); return 1; }
+            emitted++;
+            fprintf(stderr, "  %-30s len=%-4u code=%-4d\n", cname, p.n, code);
+        }
+        fclose(mf);
+        fprintf(stderr, "gen: corpus = %d cases emitted, %d skipped (non-Ethernet/unreadable)%s\n",
+                emitted, skipped, maxc ? " [MAX cap applied]" : "");
+        return 0;
+    }
+
+    fprintf(stderr, "gen: unknown mode '%s' (expected --suite | --random | --corpus)\n", mode);
     fclose(mf);
-
-    if (mism) {
-        fprintf(stderr, "gen: %d case(s) disagree with expected OK/FAIL — fix the vectors\n", mism);
-        return 3;
-    }
-    fprintf(stderr, "gen: suite = %d cases, all match expected OK/FAIL\n", NSUITE);
-    return 0;
+    return 1;
 }
