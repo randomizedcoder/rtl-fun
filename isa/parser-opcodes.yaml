@@ -306,15 +306,22 @@ sizes:
 mnemonics:
   # `size_class` (when present) tells tools/parser-gen to fold the Sz operand into a dotted size
   # suffix and emit one binutils row per size; without it, all `operands` become positional imms.
+  #
+  # `prose` (Stage 1.5) adds *additive, lossless* operand sugar on top of the Hybrid syntax: it
+  # maps a field to a readable form that still encodes to the exact same bits. tools/parser-gen
+  # emits an extra binutils row (before the Hybrid row, so objdump prints the sugar) per sugared
+  # mnemonic; the Hybrid form keeps assembling (gas falls through when the sugar keyword is absent).
+  # Kinds:  ptr = `pcurptr+N` displacement (load Offset);  index = `paccum[i]` sub-register index
+  # (Pos);  valmask = `value:mask` (cmp Value+Mask, consumes the field named here plus Mask).
   custom0:
-    - { asm: prs.load,     group: load,             fixed: { X: 0, D: 0, Blen: 0, Shift: 0 }, operands: [Sz, E, Offset],        size_class: loadstore }
-    - { asm: prs.lencur,   group: length,           fixed: { S: 0, F2: 0 },                   operands: [D, Sz, Pos, Shift, Len], size_class: general }
-    - { asm: prs.store,    group: store,            fixed: { S: 0, F: 0, J: 0, Sind: 0 },     operands: [Sz, Pos, Offset],      size_class: loadstore }
+    - { asm: prs.load,     group: load,             fixed: { X: 0, D: 0, Blen: 0, Shift: 0 }, operands: [Sz, E, Offset],        size_class: loadstore, prose: { Offset: ptr } }
+    - { asm: prs.lencur,   group: length,           fixed: { S: 0, F2: 0 },                   operands: [D, Sz, Pos, Shift, Len], size_class: general, prose: { Pos: index } }
+    - { asm: prs.store,    group: store,            fixed: { S: 0, F: 0, J: 0, Sind: 0 },     operands: [Sz, Pos, Offset],      size_class: loadstore, prose: { Pos: index } }
     - { asm: prs.storeimm, group: storeimm,         fixed: { S: 0, F: 0 },                    operands: [Sz, Value, Offset],    size_class: loadstore }
-    - { asm: prs.cam,      group: cam,              fixed: { D: 0, Func3: 0 },                operands: [S, Sz, Pos, F, Share, Miss], size_class: general }
-    - { asm: prs.camnext,  group: cam,              fixed: { D: 1, Func3: 0 },                operands: [S, Sz, Pos, F, Share, Miss], size_class: general }
-    - { asm: prs.cmpib,    group: cmp_masked_byte,  fixed: { fnc4: 0xd },                     operands: [Er, Pos, Value, Mask] }
-    - { asm: prs.cmpneib,  group: cmp_masked_byte,  fixed: { fnc4: 0xe },                     operands: [Er, Pos, Value, Mask] }
+    - { asm: prs.cam,      group: cam,              fixed: { D: 0, Func3: 0 },                operands: [S, Sz, Pos, F, Share, Miss], size_class: general, prose: { Pos: index } }
+    - { asm: prs.camnext,  group: cam,              fixed: { D: 1, Func3: 0 },                operands: [S, Sz, Pos, F, Share, Miss], size_class: general, prose: { Pos: index } }
+    - { asm: prs.cmpib,    group: cmp_masked_byte,  fixed: { fnc4: 0xd },                     operands: [Er, Pos, Value, Mask], prose: { Pos: index, Value: valmask } }
+    - { asm: prs.cmpneib,  group: cmp_masked_byte,  fixed: { fnc4: 0xe },                     operands: [Er, Pos, Value, Mask], prose: { Pos: index, Value: valmask } }
     - { asm: prs.nextnode, group: next,             fixed: { S: 0, V: 0, Pos: 0, A: 0 },      operands: [Payload] }
     - { asm: prs.setcode,  group: next,             fixed: { S: 0, V: 0, Pos: 2, A: 0 },      operands: [Payload] }
     - { asm: prs.stp,      group: next,             fixed: { S: 0, V: 1, Pos: 2, A: 0, Payload: 0 }, operands: [] }

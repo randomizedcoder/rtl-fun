@@ -1,8 +1,8 @@
 diff --git a/gas/config/tc-riscv.c b/gas/config/tc-riscv.c
-index 6bcf5383..108169e7 100644
+index 6bcf538..6b9be82 100644
 --- a/gas/config/tc-riscv.c
 +++ b/gas/config/tc-riscv.c
-@@ -1771,6 +1771,14 @@ validate_riscv_insn (const struct riscv_opcode *opc, int length)
+@@ -1771,6 +1771,30 @@ validate_riscv_insn (const struct riscv_opcode *opc, int length)
  		    goto unknown_validate_operand;
  		}
  		break;
@@ -10,6 +10,22 @@ index 6bcf5383..108169e7 100644
 +	      switch (*++oparg)
 +		{
 +		case 'r': USE_IMM (5, 24); break; /* p-register, Cpreg[28:24].  */
++		case 'o': /* pcurptr+N displacement, 'XpoN@S' (load Offset).  */
++		case 'a': /* paccum[i] index, 'XpaN@S' (Pos).  */
++		  {
++		    size_t n, s;
++		    n = strtol (oparg + 1, (char **)&oparg, 10);
++		    if (*oparg != '@')
++		      goto unknown_validate_operand;
++		    s = strtol (oparg + 1, (char **)&oparg, 10);
++		    oparg--;
++		    USE_IMM (n, s);
++		    break;
++		  }
++		case 'm': /* value:mask, 'Xpm' -> Value[26:19] + Mask[18:11].  */
++		  USE_IMM (8, 19);
++		  USE_IMM (8, 11);
++		  break;
 +		default:
 +		  goto unknown_validate_operand;
 +		}
@@ -17,7 +33,7 @@ index 6bcf5383..108169e7 100644
  	    default:
  	      goto unknown_validate_operand;
  	    }
-@@ -4287,6 +4295,49 @@ riscv_ip (char *str, struct riscv_cl_insn *ip, expressionS *imm_expr,
+@@ -4287,6 +4311,125 @@ riscv_ip (char *str, struct riscv_cl_insn *ip, expressionS *imm_expr,
  		    }
  		  break;
  
@@ -59,6 +75,82 @@ index 6bcf5383..108169e7 100644
 +			asarg = e;
 +			continue;
 +		      }
++		    case 'o': /* pcurptr+N displacement, 'XpoN@S' (load Offset).  */
++		      {
++			/* The `pcurptr` base is implicit (X=0, fixed) — pure
++			   decoration; absence means this is the Hybrid form, so
++			   fall through (break) to the next opcode row silently.  */
++			size_t n, s;
++			n = strtol (oparg + 1, (char **)&oparg, 10);
++			if (*oparg != '@')
++			  goto unknown_riscv_ip_operand;
++			s = strtol (oparg + 1, (char **)&oparg, 10);
++			oparg--;
++			if (strncmp (asarg, "pcurptr", 7) != 0)
++			  break;
++			asarg += 7;
++			if (*asarg == '+')
++			  {
++			    asarg++;
++			    my_getExpression (imm_expr, asarg, force_reloc);
++			    check_absolute_expr (ip, imm_expr, false);
++			    if (!VALIDATE_U_IMM (imm_expr->X_add_number, n))
++			      as_bad (_("improper pcurptr offset (%"PRIu64")"),
++				      imm_expr->X_add_number);
++			    INSERT_IMM (n, s, *ip, imm_expr->X_add_number);
++			    imm_expr->X_op = O_absent;
++			    asarg = expr_parse_end;
++			  }
++			/* else bare `pcurptr` -> Offset 0 (already in match).  */
++			continue;
++		      }
++		    case 'a': /* paccum[i] sub-register index, 'XpaN@S' (Pos).  */
++		      {
++			size_t n, s;
++			n = strtol (oparg + 1, (char **)&oparg, 10);
++			if (*oparg != '@')
++			  goto unknown_riscv_ip_operand;
++			s = strtol (oparg + 1, (char **)&oparg, 10);
++			oparg--;
++			if (strncmp (asarg, "paccum", 6) != 0)
++			  break;      /* Hybrid form -> next opcode row.  */
++			asarg += 6;
++			if (*asarg != '[')
++			  break;
++			asarg++;
++			my_getExpression (imm_expr, asarg, force_reloc);
++			check_absolute_expr (ip, imm_expr, false);
++			if (!VALIDATE_U_IMM (imm_expr->X_add_number, n))
++			  as_bad (_("improper paccum index (%"PRIu64")"),
++				  imm_expr->X_add_number);
++			INSERT_IMM (n, s, *ip, imm_expr->X_add_number);
++			imm_expr->X_op = O_absent;
++			asarg = expr_parse_end;
++			if (*asarg != ']')
++			  break;
++			asarg++;
++			continue;
++		      }
++		    case 'm': /* value:mask, 'Xpm' -> Value[26:19] + Mask[18:11].  */
++		      my_getExpression (imm_expr, asarg, force_reloc);
++		      check_absolute_expr (ip, imm_expr, false);
++		      if (!VALIDATE_U_IMM (imm_expr->X_add_number, 8))
++			as_bad (_("improper compare value (%"PRIu64")"),
++				imm_expr->X_add_number);
++		      INSERT_IMM (8, 19, *ip, imm_expr->X_add_number);
++		      asarg = expr_parse_end;
++		      if (*asarg != ':')
++			break;
++		      asarg++;
++		      my_getExpression (imm_expr, asarg, force_reloc);
++		      check_absolute_expr (ip, imm_expr, false);
++		      if (!VALIDATE_U_IMM (imm_expr->X_add_number, 8))
++			as_bad (_("improper compare mask (%"PRIu64")"),
++				imm_expr->X_add_number);
++		      INSERT_IMM (8, 11, *ip, imm_expr->X_add_number);
++		      imm_expr->X_op = O_absent;
++		      asarg = expr_parse_end;
++		      continue;
 +		    default:
 +		      goto unknown_riscv_ip_operand;
 +		    }
@@ -68,10 +160,10 @@ index 6bcf5383..108169e7 100644
  		  goto unknown_riscv_ip_operand;
  		}
 diff --git a/opcodes/riscv-dis.c b/opcodes/riscv-dis.c
-index 03c8cf1e..b5b2eb39 100644
+index 03c8cf1..72bd0de 100644
 --- a/opcodes/riscv-dis.c
 +++ b/opcodes/riscv-dis.c
-@@ -917,6 +917,37 @@ print_insn_args (const char *oparg, insn_t l, bfd_vma pc, disassemble_info *info
+@@ -917,6 +917,77 @@ print_insn_args (const char *oparg, insn_t l, bfd_vma pc, disassemble_info *info
  		  goto undefined_modifier;
  		}
  	      break;
@@ -102,6 +194,46 @@ index 03c8cf1e..b5b2eb39 100644
 +		      print (info->stream, dis_style_register, "p%u", regno);
 +		    break;
 +		  }
++		case 'o': /* pcurptr+N displacement, 'XpoN@S' (load Offset).  */
++		  {
++		    size_t n, s;
++		    unsigned long v;
++		    n = strtol (oparg + 1, (char **)&oparg, 10);
++		    if (*oparg != '@')
++		      goto undefined_modifier;
++		    s = strtol (oparg + 1, (char **)&oparg, 10);
++		    oparg--;
++		    v = (unsigned long) EXTRACT_U_IMM (n, s, l);
++		    print (info->stream, dis_style_register, "pcurptr");
++		    if (v != 0)
++		      {
++			print (info->stream, dis_style_text, "+");
++			print (info->stream, dis_style_immediate, "%lu", v);
++		      }
++		    break;
++		  }
++		case 'a': /* paccum[i] sub-register index, 'XpaN@S' (Pos).  */
++		  {
++		    size_t n, s;
++		    n = strtol (oparg + 1, (char **)&oparg, 10);
++		    if (*oparg != '@')
++		      goto undefined_modifier;
++		    s = strtol (oparg + 1, (char **)&oparg, 10);
++		    oparg--;
++		    print (info->stream, dis_style_register, "paccum");
++		    print (info->stream, dis_style_text, "[");
++		    print (info->stream, dis_style_immediate, "%lu",
++			   (unsigned long) EXTRACT_U_IMM (n, s, l));
++		    print (info->stream, dis_style_text, "]");
++		    break;
++		  }
++		case 'm': /* value:mask -> Value[26:19] + Mask[18:11].  */
++		  print (info->stream, dis_style_immediate, "0x%lx",
++			 (unsigned long) EXTRACT_U_IMM (8, 19, l));
++		  print (info->stream, dis_style_text, ":");
++		  print (info->stream, dis_style_immediate, "0x%lx",
++			 (unsigned long) EXTRACT_U_IMM (8, 11, l));
++		  break;
 +		default:
 +		  goto undefined_modifier;
 +		}
@@ -110,10 +242,10 @@ index 03c8cf1e..b5b2eb39 100644
  	      goto undefined_modifier;
  	    }
 diff --git a/opcodes/riscv-opc.c b/opcodes/riscv-opc.c
-index 54887c97..e7c24e6e 100644
+index 54887c9..8ad7911 100644
 --- a/opcodes/riscv-opc.c
 +++ b/opcodes/riscv-opc.c
-@@ -3579,6 +3579,47 @@ const struct riscv_opcode riscv_opcodes[] =
+@@ -3579,6 +3579,69 @@ const struct riscv_opcode riscv_opcodes[] =
  {"mips.sdp", 0, INSN_CLASS_XMIPSLSP, "t,r,Xm^(s)", MATCH_MIPS_SDP, MASK_MIPS_SDP, match_opcode, 0 },
  {"mips.swp", 0, INSN_CLASS_XMIPSLSP, "t,r,Xm&(s)", MATCH_MIPS_SWP, MASK_MIPS_SWP, match_opcode, 0 },
  
@@ -123,31 +255,53 @@ index 54887c97..e7c24e6e 100644
 +   p-register operand added by this patch (gas/config/tc-riscv.c + riscv-dis.c);
 +   `XtuN@S` is binutils' stock unsigned-bitfield operand; `d`/`s` are rd/rs1.
 +   INSN_CLASS_I keeps the ops always enabled (custom-0/custom-3, no -march gate).  */
++{"prs.load.b", 0, INSN_CLASS_I, "Xtu1@20,Xpo9@11", 0x1000000b, 0xffe007ff, match_opcode, 0},
 +{"prs.load.b", 0, INSN_CLASS_I, "Xtu1@20,Xtu9@11", 0x1000000b, 0xffe007ff, match_opcode, 0},
++{"prs.load.h", 0, INSN_CLASS_I, "Xtu1@20,Xpo9@11", 0x2000000b, 0xffe007ff, match_opcode, 0},
 +{"prs.load.h", 0, INSN_CLASS_I, "Xtu1@20,Xtu9@11", 0x2000000b, 0xffe007ff, match_opcode, 0},
++{"prs.load.w", 0, INSN_CLASS_I, "Xtu1@20,Xpo9@11", 0x3000000b, 0xffe007ff, match_opcode, 0},
 +{"prs.load.w", 0, INSN_CLASS_I, "Xtu1@20,Xtu9@11", 0x3000000b, 0xffe007ff, match_opcode, 0},
++{"prs.load.d", 0, INSN_CLASS_I, "Xtu1@20,Xpo9@11", 0x0000000b, 0xffe007ff, match_opcode, 0},
 +{"prs.load.d", 0, INSN_CLASS_I, "Xtu1@20,Xtu9@11", 0x0000000b, 0xffe007ff, match_opcode, 0},
++{"prs.lencur.n", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0x0000010b, 0xb01807ff, match_opcode, 0},
 +{"prs.lencur.n", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0x0000010b, 0xb01807ff, match_opcode, 0},
++{"prs.lencur.b", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0x1000010b, 0xb01807ff, match_opcode, 0},
 +{"prs.lencur.b", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0x1000010b, 0xb01807ff, match_opcode, 0},
++{"prs.lencur.h", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0x2000010b, 0xb01807ff, match_opcode, 0},
 +{"prs.lencur.h", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0x2000010b, 0xb01807ff, match_opcode, 0},
++{"prs.lencur.w", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0x3000010b, 0xb01807ff, match_opcode, 0},
 +{"prs.lencur.w", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0x3000010b, 0xb01807ff, match_opcode, 0},
++{"prs.store.b", 0, INSN_CLASS_I, "Xpa4@24,Xtu9@11", 0x1000020b, 0xf0f007ff, match_opcode, 0},
 +{"prs.store.b", 0, INSN_CLASS_I, "Xtu4@24,Xtu9@11", 0x1000020b, 0xf0f007ff, match_opcode, 0},
++{"prs.store.h", 0, INSN_CLASS_I, "Xpa4@24,Xtu9@11", 0x2000020b, 0xf0f007ff, match_opcode, 0},
 +{"prs.store.h", 0, INSN_CLASS_I, "Xtu4@24,Xtu9@11", 0x2000020b, 0xf0f007ff, match_opcode, 0},
++{"prs.store.w", 0, INSN_CLASS_I, "Xpa4@24,Xtu9@11", 0x3000020b, 0xf0f007ff, match_opcode, 0},
 +{"prs.store.w", 0, INSN_CLASS_I, "Xtu4@24,Xtu9@11", 0x3000020b, 0xf0f007ff, match_opcode, 0},
++{"prs.store.d", 0, INSN_CLASS_I, "Xpa4@24,Xtu9@11", 0x0000020b, 0xf0f007ff, match_opcode, 0},
 +{"prs.store.d", 0, INSN_CLASS_I, "Xtu4@24,Xtu9@11", 0x0000020b, 0xf0f007ff, match_opcode, 0},
 +{"prs.storeimm.b", 0, INSN_CLASS_I, "Xtu8@20,Xtu9@11", 0x1000030b, 0xf00007ff, match_opcode, 0},
 +{"prs.storeimm.h", 0, INSN_CLASS_I, "Xtu8@20,Xtu9@11", 0x2000030b, 0xf00007ff, match_opcode, 0},
 +{"prs.storeimm.w", 0, INSN_CLASS_I, "Xtu8@20,Xtu9@11", 0x3000030b, 0xf00007ff, match_opcode, 0},
 +{"prs.storeimm.d", 0, INSN_CLASS_I, "Xtu8@20,Xtu9@11", 0x0000030b, 0xf00007ff, match_opcode, 0},
++{"prs.cam.n", 0, INSN_CLASS_I, "Xtu1@31,Xpa4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x0000040b, 0x70e007ff, match_opcode, 0},
 +{"prs.cam.n", 0, INSN_CLASS_I, "Xtu1@31,Xtu4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x0000040b, 0x70e007ff, match_opcode, 0},
++{"prs.cam.b", 0, INSN_CLASS_I, "Xtu1@31,Xpa4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x1000040b, 0x70e007ff, match_opcode, 0},
 +{"prs.cam.b", 0, INSN_CLASS_I, "Xtu1@31,Xtu4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x1000040b, 0x70e007ff, match_opcode, 0},
++{"prs.cam.h", 0, INSN_CLASS_I, "Xtu1@31,Xpa4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x2000040b, 0x70e007ff, match_opcode, 0},
 +{"prs.cam.h", 0, INSN_CLASS_I, "Xtu1@31,Xtu4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x2000040b, 0x70e007ff, match_opcode, 0},
++{"prs.cam.w", 0, INSN_CLASS_I, "Xtu1@31,Xpa4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x3000040b, 0x70e007ff, match_opcode, 0},
 +{"prs.cam.w", 0, INSN_CLASS_I, "Xtu1@31,Xtu4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x3000040b, 0x70e007ff, match_opcode, 0},
++{"prs.camnext.n", 0, INSN_CLASS_I, "Xtu1@31,Xpa4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x4000040b, 0x70e007ff, match_opcode, 0},
 +{"prs.camnext.n", 0, INSN_CLASS_I, "Xtu1@31,Xtu4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x4000040b, 0x70e007ff, match_opcode, 0},
++{"prs.camnext.b", 0, INSN_CLASS_I, "Xtu1@31,Xpa4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x5000040b, 0x70e007ff, match_opcode, 0},
 +{"prs.camnext.b", 0, INSN_CLASS_I, "Xtu1@31,Xtu4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x5000040b, 0x70e007ff, match_opcode, 0},
++{"prs.camnext.h", 0, INSN_CLASS_I, "Xtu1@31,Xpa4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x6000040b, 0x70e007ff, match_opcode, 0},
 +{"prs.camnext.h", 0, INSN_CLASS_I, "Xtu1@31,Xtu4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x6000040b, 0x70e007ff, match_opcode, 0},
++{"prs.camnext.w", 0, INSN_CLASS_I, "Xtu1@31,Xpa4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x7000040b, 0x70e007ff, match_opcode, 0},
 +{"prs.camnext.w", 0, INSN_CLASS_I, "Xtu1@31,Xtu4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x7000040b, 0x70e007ff, match_opcode, 0},
++{"prs.cmpib", 0, INSN_CLASS_I, "Xtu2@30,Xpa3@27,Xpm", 0x0000068b, 0x000007ff, match_opcode, 0},
 +{"prs.cmpib", 0, INSN_CLASS_I, "Xtu2@30,Xtu3@27,Xtu8@19,Xtu8@11", 0x0000068b, 0x000007ff, match_opcode, 0},
++{"prs.cmpneib", 0, INSN_CLASS_I, "Xtu2@30,Xpa3@27,Xpm", 0x0000070b, 0x000007ff, match_opcode, 0},
 +{"prs.cmpneib", 0, INSN_CLASS_I, "Xtu2@30,Xtu3@27,Xtu8@19,Xtu8@11", 0x0000070b, 0x000007ff, match_opcode, 0},
 +{"prs.nextnode", 0, INSN_CLASS_I, "Xtu16@11", 0x0000050b, 0xf80007ff, match_opcode, 0},
 +{"prs.setcode", 0, INSN_CLASS_I, "Xtu16@11", 0x2000050b, 0xf80007ff, match_opcode, 0},

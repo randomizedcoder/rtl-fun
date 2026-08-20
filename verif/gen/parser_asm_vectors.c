@@ -1,14 +1,19 @@
 /*
  * parser_asm_vectors.c — single source for the Phase 7 L2 assembler test.
  *
- * Emits, from ONE vector table, both a `.s` of every parser mnemonic (in the
- * Hybrid operand syntax the binutils patch adds) and the expected 32-bit word
- * for each line, computed by the GENERATED intrinsics
+ * Emits, from ONE vector table, both a `.s` of every parser mnemonic and the
+ * expected 32-bit word for each line, computed by the GENERATED intrinsics
  * (toolchain/generated/parser_intrinsics.h). scripts/parser-asm-test.sh then
  * assembles the `.s` with the patched `riscv64-none-elf-as` and checks that
  * objdump's words match these expectations — so gas == generator == model
  * (the last tie via `nix run .#parser-gen-check`). Keeping the asm text and the
  * golden word in one row makes drift between them impossible.
+ *
+ * Vectors cover BOTH operand syntaxes the binutils patch accepts: the Stage-1
+ * Hybrid form (positional immediates) and the Stage-1.5 prose sugar
+ * (`pcurptr+N`, `paccum[i]`, `value:mask`). Both assemble to the same encoding,
+ * proving the prose rows are additive; the script additionally round-trips the
+ * disassembly (objdump prints prose) back through the assembler.
  *
  * Build/run:  cc -I toolchain/generated parser_asm_vectors.c -o gen && ./gen <out.s> <out.words>
  */
@@ -48,6 +53,17 @@ int main(int argc, char **argv)
         { "prs.ld.immed p13, 6, 3",       prs_ld_immed(13, 6, 3) },
         { "prs.cam.read a5, a4, p0",      prs_cam_read(0, 14, 15) },
         { "prs.array.read a5, a4, p0",    prs_array_read(0, 14, 15) },
+
+        /* Stage-1.5 prose sugar. Same encodings as the Hybrid forms above, so
+           gas accepts both: pcurptr+N -> load Offset; paccum[i] -> Pos;
+           value:mask -> cmp Value/Mask. `pcurptr` bare == Offset 0. */
+        { "prs.load.h 1, pcurptr+12",           prs_load(2, 1, 12) },
+        { "prs.load.b 0, pcurptr",              prs_load(1, 0, 0) },
+        { "prs.store.b paccum[0], 8",           prs_store(1, 0, 8) },
+        { "prs.lencur.n 1, paccum[1], 2, 20",   prs_lencur(1, 0, 1, 2, 20) },
+        { "prs.cam.h 1, paccum[0], 0, 1, 5",    prs_cam(1, 2, 0, 0, 1, 5) },
+        { "prs.cmpib 1, paccum[0], 0x40:0xF0",  prs_cmpib(1, 0, 0x40, 0xF0) },
+        { "prs.cmpneib 0, paccum[3], 0x11:0xFF", prs_cmpneib(0, 3, 0x11, 0xFF) },
     };
     const size_t n = sizeof v / sizeof v[0];
 
