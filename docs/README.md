@@ -101,14 +101,17 @@ Phase 7 in progress — the toolchain ladder. **Level 1** (`.insn` + intrinsics,
 as/objdump — a parser-patched `riscv64-none-elf` binutils assembles the `prs.*`
 mnemonics with readable, round-tripping disassembly, generator-driven — Hybrid syntax plus
 additive prose sugar (`pcurptr+N`, `paccum[i]`, `value:mask`); `nix run .#parser-asm-test`)
-are done, and **Level 4 Spike** now runs standalone (`nix run .#parser-spike`: a runnable
+are done, **Level 4 Spike** runs standalone (`nix run .#parser-spike`: a runnable
 `spike` with the parser extension + `0x5000_0000` packet MMIO, [`nix/spike-parser.nix`](../nix/spike-parser.nix),
-runs the 22-case corpus == the golden model — distinct from the Phase-6 `spike-tandem` oracle).
+runs the 22-case corpus == the golden model — distinct from the Phase-6 `spike-tandem` oracle),
+and the **slice parser is now written in C** with the generated intrinsics
+([`tests/cva6-parser/parser_slice.c`](../tests/cva6-parser/parser_slice.c),
+`nix run .#parser-spike-slice`: byte-identical to the model ROM, 22-case corpus == model on the
+standalone Spike) — the **Spike leg of the exit criterion is closed**.
 Still open: the prose-freeze follow-on (`.stp`/`.fail` qualifiers, `mult:min`, mnemonic aliases, …),
-**LLVM MC / GCC builtins** (L3), **QEMU** modeling (L4), rewriting the slice parser in C
-intrinsics to run on Spike **and** QEMU matching the model (the Phase-7 exit criterion),
-and the heavyweight random-*instruction* checks (full upstream riscv-tests, riscv-dv —
-the latter blocked on a commercial UVM simulator).
+**LLVM MC / GCC builtins** (L3), and **QEMU** modeling (L4) — the remaining "**and** QEMU" half of
+the slice-matches-the-model exit criterion — plus the heavyweight random-*instruction* checks
+(full upstream riscv-tests, riscv-dv — the latter blocked on a commercial UVM simulator).
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 

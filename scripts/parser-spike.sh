@@ -44,9 +44,21 @@ fi
 SPIKE="${SPIKE:-${SPIKE_PARSER:+$SPIKE_PARSER/bin/}spike}"
 ISA="${PARSER_SPIKE_ISA:-rv64gc}"
 TESTDIR="$REPO_ROOT/tests/cva6-parser"
-OUT="${OUT:-$PWD/build/parser-spike}"
 
-echo "== standalone parser Spike (Phase 7 Stage 2) =="
+# SLICE=1 drives the parse block from the C-intrinsics slice (parser_slice.c,
+# Phase 7 Stage 3) instead of the model-generated prog.S .word stream (Stage 2).
+# Everything else — packet MMIO load, CAM programming, self-check — is identical.
+SLICE="${SLICE:-0}"
+if [ "$SLICE" = "1" ]; then
+  STAGE="Stage 3 (C-intrinsics slice)"
+  OUT="${OUT:-$PWD/build/parser-spike-slice}"
+  OBJDUMP="${CV_SW_PREFIX:-riscv64-none-elf-}objdump"
+else
+  STAGE="Stage 2"
+  OUT="${OUT:-$PWD/build/parser-spike}"
+fi
+
+echo "== standalone parser Spike (Phase 7 $STAGE) =="
 if ! command -v "$SPIKE" >/dev/null 2>&1; then
   echo "ERROR: parser spike not found at '$SPIKE'" >&2
   echo "       (the Nix wrapper builds + exports it; or put a parser 'spike' on PATH)" >&2
@@ -81,27 +93,72 @@ echo "  ok: parser ops execute + self-check on the standalone spike"
 # ---- 2. the 22-case packet corpus ------------------------------------------
 echo "== generating the directed suite from the golden model =="
 gen_vectors "$OUT" --suite >/dev/null
-PROG_S="$OUT/prog.S"
-emit_prog_s "$OUT" "$PROG_S"
 
-# Per case: emit case.S, link cosim_main.S + prog.S + case.S, run on spike; PASS
-# iff spike exits 0 (the in-core self-check vs the model goldens set tohost=1).
+# The parse block: either the C-intrinsics slice (SLICE=1) or the generated .word
+# stream (default). SLICE_OBJ, when set, is added to every per-case link.
+PROG_S="$OUT/prog.S"
+SLICE_OBJ=""
+if [ "$SLICE" = "1" ]; then
+  # Compile the slice at -O2: PRS_EMIT's `.insn 4, %0` uses an "i" (constant)
+  # constraint, satisfied only when the static-inline builders inline+fold — which
+  # needs -O1+ (rv_assemble's -O0 default would give "impossible constraint").
+  echo "== compiling the C-intrinsics slice (parser_slice.c, -O2) =="
+  SLICE_OBJ="$OUT/parser_slice.o"
+  # -fno-stack-protector: parse_prog is naked, but also keep the toolchain default
+  # canary out so nothing prepends bytes / references __stack_chk_fail.
+  "$GCC" -march=rv64gc -mabi=lp64d -O2 -Wall -Wextra -Werror -nostdlib \
+    -fno-stack-protector \
+    -I "$REPO_ROOT/toolchain" -I "$REPO_ROOT/model" \
+    -c "$TESTDIR/parser_slice.c" -o "$SLICE_OBJ"
+
+  # Byte-parity guard (the centerpiece): the 53 words the C slice compiles to MUST
+  # equal the model-generated ROM (enc.hex), word-for-word. This proves the C
+  # authoring encodes exactly what the golden model does — and de-risks the run,
+  # since a byte-identical drop-in for prog.S's parse block must reproduce 22/0.
+  echo "== byte-parity: parser_slice.o parse_prog == model enc.hex =="
+  "$OBJDUMP" --disassemble=parse_prog "$SLICE_OBJ" \
+    | awk -F'\t' '/^[[:space:]]+[0-9a-f]+:/{gsub(/[[:space:]]/,"",$2); print $2}' \
+    | head -n "$(wc -l < "$OUT/enc.hex")" > "$OUT/slice.words"
+  if ! diff -u "$OUT/enc.hex" "$OUT/slice.words"; then
+    echo "parser-spike-slice: the C slice does not encode == the model ROM" >&2
+    echo "  (left = model enc.hex, right = parser_slice.o parse_prog)" >&2
+    exit 1
+  fi
+  echo "  ok: $(wc -l < "$OUT/enc.hex") slice words == the golden model ROM"
+
+  # parse_prog is the C .o; the CAM table still comes from the model (data, not logic).
+  emit_cam_prog_s "$OUT" "$PROG_S"
+else
+  emit_prog_s "$OUT" "$PROG_S"
+fi
+
+# Per case: emit case.S, link cosim_main.S + [slice.o] + prog.S + case.S, run on
+# spike; PASS iff spike exits 0 (in-core self-check vs the model goldens -> tohost=1).
 spike_case() {
   local name="$1" cdir="$4"
   local case_s="$OUT/case_$name.S" elf="$OUT/cosim_$name.elf" log="$OUT/run_$name.log"
   gen_case_s "$cdir" "$case_s"
   RV_INCLUDES=("$TESTDIR" "$REPO_ROOT/toolchain")
-  rv_assemble "$elf" "$TESTDIR/link.ld" "$TESTDIR/cosim_main.S" "$PROG_S" "$case_s"
+  # shellcheck disable=SC2086  # $SLICE_OBJ is one optional path, intentional word-split
+  rv_assemble "$elf" "$TESTDIR/link.ld" "$TESTDIR/cosim_main.S" $SLICE_OBJ "$PROG_S" "$case_s"
   run_spike "$elf" "$log"
   [ "$SPIKE_RC" -eq 0 ] && return 0
   mapfile -t CASE_TRIAGE < <(tail -4 "$log" | sed 's/^/      /')
   return 1
 }
 
-if run_suite "$OUT/cases.txt" "$OUT/cases" \
-    "parser-spike: packet -> flow_keys on the standalone parser Spike" \
-    "parser-spike" spike_case; then
-  echo "== PASS: parser ELFs run on the standalone Spike == the golden model (Stage 2) =="
+if [ "$SLICE" = "1" ]; then
+  SUITE_DESC="parser-spike-slice: C-intrinsics slice -> flow_keys on the standalone parser Spike"
+  SUITE_TAG="parser-spike-slice"
+  PASS_MSG="== PASS: the C-intrinsics slice runs on the standalone Spike == the golden model (Stage 3) =="
+else
+  SUITE_DESC="parser-spike: packet -> flow_keys on the standalone parser Spike"
+  SUITE_TAG="parser-spike"
+  PASS_MSG="== PASS: parser ELFs run on the standalone Spike == the golden model (Stage 2) =="
+fi
+
+if run_suite "$OUT/cases.txt" "$OUT/cases" "$SUITE_DESC" "$SUITE_TAG" spike_case; then
+  echo "$PASS_MSG"
   exit 0
 else
   exit 1

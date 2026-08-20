@@ -33,6 +33,27 @@ emit_prog_s() {
   } > "$prog_s"
 }
 
+# emit_cam_prog_s <out_dir> <prog_s_path>
+#   Like emit_prog_s but WITHOUT the parse_prog block — only the CAM table. Used by
+#   the Stage-3 C-slice runner (SLICE=1), where parse_prog comes from the compiled
+#   parser_slice.o instead of enc.hex, but the CAM data still rides in from the model
+#   (camprog.hex). Kept byte-for-byte identical to emit_prog_s's .data half so the
+#   two paths cannot drift.
+emit_cam_prog_s() {
+  local out="$1" prog_s="$2"
+  {
+    echo '.section .data'
+    echo '.globl cam_table'
+    echo '.align 3'
+    echo 'cam_table:'
+    local ncam=0
+    while read -r w; do [ -n "$w" ] && { echo "    .dword 0x$w"; ncam=$((ncam+1)); }; done < "$out/camprog.hex"
+    echo '.globl cam_count'
+    echo 'cam_count:'
+    echo "    .dword $ncam"
+  } > "$prog_s"
+}
+
 # gen_case_s <case_dir> <case_s_path>
 #   Emit a per-case case.S: the packet bytes (padded to a multiple of 8; over-read
 #   bytes are ignored — the parse is bounded by ParseLen), packet_len, the model's

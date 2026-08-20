@@ -42,6 +42,12 @@ static inline uint32_t prs_cam_read(unsigned cpreg, unsigned rs, unsigned rd)
 static inline uint32_t prs_array_read(unsigned cpreg, unsigned rs, unsigned rd)
 { return 0x0050007bu | ((cpreg & 0x1fu) << 24) | ((rs & 0x1fu) << 15) | ((rd & 0x1fu) << 7); }
 
-#define PRS_EMIT(word) __asm__ __volatile__(".insn 4, %0" :: "i"(word))
+/* Widen to 64-bit UNSIGNED before the "i" operand: a uint32_t immediate is
+ * SImode, which gas prints as a SIGNED value, so any word with bit 31 set
+ * (e.g. camnext, 0xe001140b) becomes negative and `.insn 4, <neg>` fails with
+ * "value conflicts with instruction length". The 64-bit unsigned form prints
+ * the full positive word, which gas accepts. */
+#define PRS_EMIT(word) \
+    __asm__ __volatile__(".insn 4, %0" :: "i"((unsigned long long)(uint32_t)(word)))
 
 #endif /* PARSER_INTRINSICS_H */
