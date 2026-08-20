@@ -21,11 +21,15 @@ the cheap thing first; only add heavyweight tool support once the ISA has settle
 >   is not yet met.
 > - **Level 2 (§7.3) — done:** a parser-patched `riscv64-none-elf` binutils
 >   ([`nix/parser-binutils.nix`](../nix/parser-binutils.nix)) assembles the `prs.*`
->   mnemonics and `objdump` disassembles them (Hybrid operand syntax — see §7.3).
->   `nix run .#parser-asm-test` assembles every mnemonic and checks each word equals the
->   generated/model golden **and** that objdump renders it readably.
-> - **Open:** the full *prose* operand syntax (Stage 1.5 — `pcurptr+12`, `paccum[0]`,
->   `value:mask`, `.stp`/`.fail` qualifiers), LLVM MC + intrinsics/builtins and GCC
+>   mnemonics and `objdump` disassembles them — Hybrid operand syntax **plus** the
+>   additive Stage-1.5 prose sugar (`pcurptr+N`, `paccum[i]`, `value:mask`; see §7.3).
+>   `nix run .#parser-asm-test` assembles every mnemonic (both syntaxes) and checks each
+>   word equals the generated/model golden, that objdump renders it readably, **and** that
+>   the disassembly reassembles to the same encodings (round-trip).
+> - **Open:** the *prose-freeze* follow-on — the parts of the docs' prose that need an
+>   ISA-notation decision, not just code: the load `E` spelling, `.stp` fused onto CAM,
+>   `mult:min` (log2), the `.fail`/`.min`/`.stop` value qualifiers, store `+N`, and the
+>   `lensetmin`/`cmpi` mnemonic aliases. Then LLVM MC + intrinsics/builtins and GCC
 >   builtins (L3), **QEMU** modeling (L4), the C-intrinsics slice rewrite (task 2), and the
 >   heavyweight random-instruction checks — full upstream riscv-tests and riscv-dv (the
 >   latter blocked on a commercial UVM simulator; the Phase-6 Stage-2 campaign randomizes
@@ -77,8 +81,9 @@ simulator understands the encodings (7.5).
   **generated** by `tools/parser-gen` into
   [`toolchain/generated/parser-opc-gas.inc`](../toolchain/generated/parser-opc-gas.inc)
   and pasted into the patch; immediates ride binutils' stock `XtuN@S` bitfield operand,
-  so the only hand-written operand class is the parser p-register `Xpr` (Cpreg[28:24],
-  names from the yaml `p_registers`).
+  so the hand-written operand classes are just the parser p-register `Xpr` (Cpreg[28:24],
+  names from the yaml `p_registers`) and the three Stage-1.5 prose operands
+  (`Xpo`/`Xpa`/`Xpm`, below).
 - **Hybrid operand syntax** (the increment that landed): real register operands where they
   exist + a dotted size suffix, e.g.
 
@@ -91,11 +96,28 @@ simulator understands the encodings (7.5).
 
   Objdump round-trips the register names (`pnext`, `paccum`, …). This replaces `.insn`
   blobs for the assemblable slice.
-- **Deferred (Stage 1.5):** the richer *prose* syntax the earlier drafts sketched —
-  `prs.load.h paccum, pcurptr+12`, sub-register `paccum[0]`, `value:mask` pairs, and the
-  `.stp`/`.fail` qualifiers. Those computed pseudo-registers (`pcurptr = PktHdrBase +
-  CurHdr.Offset`) are **not** stored in the encoding, so they need new yaml/generator
-  metadata + a larger gas front-end and are their own follow-on arc.
+- **Prose operand sugar (Stage 1.5, additive) ✅:** on top of Hybrid, the lossless subset
+  of the docs' prose that maps cleanly and reversibly to encoder bits. Three forms, driven
+  by a `prose:` map in the yaml and emitted as extra opcode rows by `tools/parser-gen`:
+
+  ```asm
+  prs.load.h    1, pcurptr+12         ; Offset via pcurptr+N (bare `pcurptr` == 0)
+  prs.store.b   paccum[0], 8          ; Pos via paccum[i] sub-register index
+  prs.cmpib     1, paccum[0], 0x40:0xF0  ; Value:Mask as one value:mask pair
+  ```
+
+  Each sugared mnemonic gets a prose row **before** its Hybrid row (identical match/mask):
+  gas tries the prose row first, so `objdump` prints the sugar; the Hybrid form still
+  assembles because gas falls through when the `pcurptr`/`paccum` keyword is absent. Both
+  syntaxes hit the exact same word, and the disassembly reassembles (round-trip). The new
+  operand classes (`XpoN@S` = `pcurptr+N`, `XpaN@S` = `paccum[i]`, `Xpm` = `value:mask`)
+  live in the patch's `Xp` vendor namespace next to `Xpr`.
+- **Deferred — the prose-freeze follow-on:** the parts of the docs' prose that need an
+  ISA-notation decision, not just code, and so must be pinned in the yaml/docs first: the
+  load `E`-bit spelling; `.stp` fused onto CAM (vs the separate `prs.stp`); `mult:min` with
+  the log2 transform; the `.fail`/`.min`/`.stop`/`.stopnode` value qualifiers; store/storeimm
+  `pcurptr+N`; bare pseudo-register *destination* decoration; and the `lensetmin`/`cmpi`
+  mnemonic aliases. None of these round-trip as pure operand sugar today.
 
 ### 7.4 Level 3 — LLVM / GCC
 
@@ -134,7 +156,8 @@ No hand-copied encodings.
 1. Finalize `toolchain/parser_insn.h` (`.insn` + intrinsics) for every instruction.
 2. Rewrite the Phase-0 slice parser in C using the intrinsics.
 3. ✅ Add binutils as/objdump support (generated from the table) — Hybrid operand
-   syntax; `nix run .#parser-asm-test`. Prose syntax deferred to Stage 1.5 (§7.3).
+   syntax + additive prose sugar (`pcurptr+N`, `paccum[i]`, `value:mask`); round-tripping
+   `objdump`. `nix run .#parser-asm-test`. Prose-freeze items deferred (§7.3).
 4. Add Spike custom-extension support; validate against the Phase-2 corpus.
 5. Add QEMU modeling; validate against the corpus.
 6. (When frozen) add LLVM MC + intrinsics/builtins; optional GCC builtins.

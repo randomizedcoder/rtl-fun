@@ -70,4 +70,29 @@ if [ "$missing" -ne 0 ]; then
 fi
 echo "  ok: objdump disassembles all parser mnemonics"
 
+echo "== round-trip: reassemble objdump's disassembly, expect identical words =="
+# objdump prints the readable form (prose sugar where it exists). Feed that text
+# straight back into the assembler and require the SAME encodings — proving the
+# disassembly is itself valid assembly (the Stage-1.5 exit clause). Fields (tab
+# separated): $3 = mnemonic, $4 = operands (absent for prs.stp).
+{
+  printf '\t.text\n\t.globl _start\n_start:\n'
+  "$OBJDUMP" -d "$TMP/test.o" \
+    | awk -F'\t' '/^[[:space:]]+[0-9a-f]+:/{
+        op = $4; sub(/[[:space:]]*#.*$/, "", op);
+        if (op == "") print "\t" $3; else print "\t" $3 " " op }'
+} > "$TMP/reasm.s"
+
+"$AS" -march=rv64gc -o "$TMP/reasm.o" "$TMP/reasm.s"
+"$OBJDUMP" -d "$TMP/reasm.o" \
+  | awk -F'\t' '/^[[:space:]]+[0-9a-f]+:/{gsub(/[[:space:]]/,"",$2); print $2}' \
+  > "$TMP/reasm.words"
+
+if ! diff -u "$TMP/actual.words" "$TMP/reasm.words"; then
+  echo "parser-asm-test: objdump disassembly did not reassemble to the same words" >&2
+  echo "  (left = first assembly, right = reassembled disassembly)" >&2
+  exit 1
+fi
+echo "  ok: disassembly reassembles to identical encodings (assemble->disasm->assemble)"
+
 echo "parser-asm-test: PASS"

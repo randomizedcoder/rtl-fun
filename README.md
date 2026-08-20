@@ -109,10 +109,12 @@ complete; phases are now being built in order.
 - 🔵 **Phase 7 (in progress) — Toolchain:** the software-tooling ladder. **Level 1**
   (`.insn` + intrinsics, [`toolchain/parser_insn.h`](toolchain/parser_insn.h)) and
   **Level 2** (binutils as/objdump — a parser-patched `riscv64-none-elf` binutils
-  assembles the `prs.*` mnemonics with readable disassembly; `nix run .#parser-asm-test`)
-  are done, and a Spike custom extension implementing the Phase-2 semantics exists (built
-  as the Phase-6 lock-step oracle). Still open: the full *prose* operand syntax (Stage
-  1.5), **LLVM MC / GCC builtins** (L3), **QEMU** modeling (L4), a C-intrinsics rewrite of
+  assembles the `prs.*` mnemonics with readable, round-tripping disassembly — Hybrid
+  syntax plus additive prose sugar `pcurptr+N`/`paccum[i]`/`value:mask`;
+  `nix run .#parser-asm-test`) are done, and a Spike custom extension implementing the
+  Phase-2 semantics exists (built as the Phase-6 lock-step oracle). Still open: the
+  prose-freeze follow-on (`.stp`/`.fail` qualifiers, `mult:min`, mnemonic aliases, …),
+  **LLVM MC / GCC builtins** (L3), **QEMU** modeling (L4), a C-intrinsics rewrite of
   the slice parser running on Spike **and** QEMU matching the model (the exit criterion),
   and the heavyweight random-*instruction* checks (full upstream riscv-tests; riscv-dv,
   blocked on a commercial UVM simulator).

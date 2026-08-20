@@ -42,7 +42,7 @@ class Insn:
     """One assemblable instruction resolved from the yaml."""
 
     def __init__(self, asm, fields, fixed, operands, match, mask, opcode,
-                 size_class=None, gas_args=None):
+                 size_class=None, gas_args=None, prose=None):
         self.asm = asm                 # mnemonic, e.g. "prs.load"
         self.cname = asm.replace(".", "_")   # prs_load
         self.fields = fields           # {name: (hi, lo)} available field ranges
@@ -53,6 +53,7 @@ class Insn:
         self.opcode = opcode           # 0x0b or 0x7b
         self.size_class = size_class   # None | "loadstore" | "general" (folds Sz into a suffix)
         self.gas_args = gas_args       # custom-3 only: explicit binutils operand string
+        self.prose = prose or {}       # {field: "ptr"|"index"|"valmask"} Stage-1.5 operand sugar
 
 
 def resolve_custom0(row, groups):
@@ -70,7 +71,8 @@ def resolve_custom0(row, groups):
         match |= put(val, hi, lo)
         mask |= mask_for(hi, lo)
     return Insn(row["asm"], fields, fixed, list(row.get("operands", [])),
-                match, mask, C0_OPCODE, size_class=row.get("size_class"))
+                match, mask, C0_OPCODE, size_class=row.get("size_class"),
+                prose=row.get("prose"))
 
 
 def resolve_custom3(name, spec, cop):
@@ -171,8 +173,38 @@ def _imm_operand(hi, lo):
     return f"Xtu{hi - lo + 1}@{lo}"
 
 
-def _c0_args(insn, skip=None):
-    return ",".join(_imm_operand(*insn.fields[n]) for n in insn.operands if n != skip)
+def _prose_token(kind, hi, lo):
+    """Stage-1.5 sugar operand token (parsed by the parser-binutils `Xp*` patch)."""
+    w = hi - lo + 1
+    if kind == "ptr":      # pcurptr+N -> w-bit displacement at lo (load Offset)
+        return f"Xpo{w}@{lo}"
+    if kind == "index":    # paccum[i] -> w-bit sub-register index at lo (Pos)
+        return f"Xpa{w}@{lo}"
+    if kind == "valmask":  # value:mask -> cmp Value[26:19] + Mask[18:11] (fixed ranges)
+        return "Xpm"
+    raise ValueError(f"parser_gen: unknown prose sugar kind {kind!r}")
+
+
+def _c0_args(insn, skip=None, prose=False):
+    """binutils operand string for a custom-0 row. With prose=True, sugared operands
+    (per insn.prose) become the `Xp*` tokens; a `valmask` field also swallows the next
+    operand (Mask), which it encodes jointly. Everything else stays the stock `XtuN@S`."""
+    toks = []
+    swallow = False
+    for n in insn.operands:
+        if n == skip:
+            continue
+        if swallow:            # the Mask consumed by a preceding valmask
+            swallow = False
+            continue
+        kind = prose and insn.prose.get(n)
+        if kind:
+            toks.append(_prose_token(kind, *insn.fields[n]))
+            if kind == "valmask":
+                swallow = True
+        else:
+            toks.append(_imm_operand(*insn.fields[n]))
+    return ",".join(toks)
 
 
 # The binutils opcode `mask` must fix EVERY bit that is not consumed by an operand
@@ -189,6 +221,11 @@ def _args_bits(args):
             bits |= mask_for(19, 15)
         elif tok.startswith("Xpr"):          # parser p-register, Cpreg [28:24]
             bits |= mask_for(28, 24)
+        elif tok == "Xpm":                   # value:mask -> Value[26:19] + Mask[18:11]
+            bits |= mask_for(26, 19) | mask_for(18, 11)
+        elif tok.startswith(("Xpo", "Xpa")):  # pcurptr+N / paccum[i] -> N-bit at S
+            n, s = (int(x) for x in re.match(r"Xp[oa](\d+)@(\d+)", tok).groups())
+            bits |= mask_for(s + n - 1, s)
         elif tok.startswith(("Xtu", "Xts")):  # stock N-bit bitfield at S
             n, s = (int(x) for x in re.match(r"Xt[us](\d+)@(\d+)", tok).groups())
             bits |= mask_for(s + n - 1, s)
@@ -213,23 +250,33 @@ def emit_gas(insns, sizes):
            "/* Phase 7 §7.3: binutils riscv_opcodes[] rows for the parser ops (custom-0 + custom-3). */",
            "/* Paste inside riscv_opcodes[] (opcodes/riscv-opc.c). `Xpr` = parser p-register; */",
            "/* `XtuN@S` = binutils stock N-bit-unsigned-at-S immediate; `d`/`s` = rd/rs1 GPRs.  */",
+           "/* Stage 1.5 prose sugar (parser-binutils patch): `XpoN@S` = pcurptr+N; `XpaN@S` = */",
+           "/* paccum[i]; `Xpm` = value:mask. Each sugared op has a prose row (printed by objdump) */",
+           "/* before its Hybrid row (same match/mask); the Hybrid form still assembles.  */",
            ""]
+    def rows(name, match, hybrid, prose):
+        """The prose row (if any) then the Hybrid row for ONE mnemonic name. Prose
+        first so objdump prints the readable form; the two share match/mask. They MUST
+        be adjacent: gas's opcode hash rejects non-consecutive rows with the same name."""
+        if prose is not None:
+            out.append(GAS_ROW.format(name=name, args=prose, match=match, mask=_gas_mask(prose)))
+        out.append(GAS_ROW.format(name=name, args=hybrid, match=match, mask=_gas_mask(hybrid)))
+
     for i in insns:
         if i.opcode == C3_OPCODE:
             args = i.gas_args or ""
             out.append(GAS_ROW.format(name=i.asm, args=args,
                                       match=i.match, mask=_gas_mask(args)))
-        elif i.size_class:
+            continue
+        skip = "Sz" if i.size_class else None
+        hybrid = _c0_args(i, skip=skip)
+        prose = _c0_args(i, skip=skip, prose=True) if i.prose else None
+        if i.size_class:
             hi, lo = i.fields["Sz"]
-            args = _c0_args(i, skip="Sz")
             for suffix, szval in sizes[i.size_class].items():
-                out.append(GAS_ROW.format(
-                    name=f"{i.asm}.{suffix}", args=args,
-                    match=i.match | put(szval, hi, lo), mask=_gas_mask(args)))
+                rows(f"{i.asm}.{suffix}", i.match | put(szval, hi, lo), hybrid, prose)
         else:
-            args = _c0_args(i)
-            out.append(GAS_ROW.format(name=i.asm, args=args,
-                                      match=i.match, mask=_gas_mask(args)))
+            rows(i.asm, i.match, hybrid, prose)
     out.append("")
     return "\n".join(out)
 
