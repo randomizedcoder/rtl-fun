@@ -111,14 +111,18 @@ complete; phases are now being built in order.
   **Level 2** (binutils as/objdump — a parser-patched `riscv64-none-elf` binutils
   assembles the `prs.*` mnemonics with readable, round-tripping disassembly — Hybrid
   syntax plus additive prose sugar `pcurptr+N`/`paccum[i]`/`value:mask`;
-  `nix run .#parser-asm-test`) are done, and **Level 4 Spike** now runs standalone
+  `nix run .#parser-asm-test`) are done, **Level 4 Spike** runs standalone
   (`nix run .#parser-spike`: a runnable `spike` with the parser extension + `0x5000_0000`
   packet MMIO runs the 22-case corpus == the golden model — distinct from the Phase-6
-  `spike-tandem` oracle). Still open: the prose-freeze follow-on (`.stp`/`.fail`
-  qualifiers, `mult:min`, mnemonic aliases, …), **LLVM MC / GCC builtins** (L3), **QEMU**
-  modeling (L4), a C-intrinsics rewrite of the slice parser running on Spike **and** QEMU
-  matching the model (the exit criterion), and the heavyweight random-*instruction* checks
-  (full upstream riscv-tests; riscv-dv, blocked on a commercial UVM simulator).
+  `spike-tandem` oracle), and the **slice parser is now authored in C** with the generated
+  intrinsics ([`tests/cva6-parser/parser_slice.c`](tests/cva6-parser/parser_slice.c),
+  `nix run .#parser-spike-slice`: byte-identical to the model ROM, 22-case corpus == model
+  on the standalone Spike) — the **Spike leg of the exit criterion is closed**. Still open:
+  the prose-freeze follow-on (`.stp`/`.fail` qualifiers, `mult:min`, mnemonic aliases, …),
+  **LLVM MC / GCC builtins** (L3), and **QEMU** modeling (L4) — the remaining "**and** QEMU"
+  half of the slice-matches-the-model exit criterion — plus the heavyweight
+  random-*instruction* checks (full upstream riscv-tests; riscv-dv, blocked on a commercial
+  UVM simulator).
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its
 testbenches in [`tb/`](tb/README.md) and the vector generator + formal harness in

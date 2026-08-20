@@ -42,6 +42,7 @@
       nix run .#parser-gen-check  regenerate toolchain/generated from the ISA yaml + drift check
       nix run .#parser-asm-test   assemble every prs.* mnemonic w/ patched binutils, check words + objdump (L2)
       nix run .#parser-spike      run parser ELFs on the standalone parser Spike == golden model (Stage 2)
+      nix run .#parser-spike-slice  run the C-intrinsics slice on the standalone Spike == golden model (Stage 3)
 
     Golden model (Phase 2)
       nix run .#model-test        run the reference-model unit + corpus tests
