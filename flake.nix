@@ -58,6 +58,16 @@
           modelSrc = ./model/libparsermodel;
         };
 
+        # Phase 7 Stage 2: the RUNNABLE, standalone parser Spike (install-exes) —
+        # same customext + 0x5000_0000 MMIO injection as spike-tandem, but ships the
+        # `spike` executable so `nix run .#parser-spike` runs a bare parser ELF.
+        spike-parser = import ./nix/spike-parser.nix {
+          inherit pkgs cva6-src;
+          spikeExt = ./nix/spike-tandem;          # reuse the same ext + MMIO sources
+          modelSrc = ./model/libparsermodel;
+        };
+        parser-spike = import ./nix/parser-spike.nix { inherit pkgs spike-parser; };
+
         # Two Verilator builds from ONE builder, for easy unpatched-vs-patched
         # compare: cva6-baseline (stock) and cva6-parser (patched). Distinct work
         # dirs so they don't collide under build/.
@@ -189,6 +199,9 @@
           cva6-parser-src = cva6-parser-src;
           # The tandem-patched Spike: `nix build .#spike-tandem`.
           spike-tandem = spike-tandem;
+          # The standalone RUNNABLE parser Spike: `nix build .#spike-parser`.
+          spike-parser = spike-parser;
+          parser-spike = parser-spike;
           # The two Verilator builders as packages too.
           cva6-baseline = cva6-baseline;
           cva6-parser = cva6-parser;
@@ -341,6 +354,13 @@
         apps.parser-asm-test = {
           type = "app";
           program = "${parser-asm.parser-asm-test}/bin/parser-asm-test";
+        };
+
+        # Phase-7 Stage 2 (standalone Spike): run parser ELFs on the runnable parser
+        # Spike + check they self-report SUCCESS: `nix run .#parser-spike`.
+        apps.parser-spike = {
+          type = "app";
+          program = "${parser-spike}/bin/parser-spike";
         };
 
         # Static analysis + sanitizers for the C model: `nix run .#model-analyze`.

@@ -35,11 +35,13 @@
       nix run .#cva6-parser-tandem build patched model w/ RVFI-vs-Spike lock-step + run base-ISA tandem (Phase 7)
       nix run .#cva6-parser-tandem-campaign  random + real-corpus packets under RVFI-vs-Spike lock-step (Phase 7 Stage 2)
       nix build .#spike-tandem     source-built tandem Spike (libriscv w/ RVFI DPI; cached derivation)
+      nix build .#spike-parser     standalone runnable parser Spike (spike exe w/ parser ext + MMIO)
       nix build .#cva6-parser-src patched CVA6 source only (cached derivation)
 
     Toolchain codegen (Phase 7)
       nix run .#parser-gen-check  regenerate toolchain/generated from the ISA yaml + drift check
       nix run .#parser-asm-test   assemble every prs.* mnemonic w/ patched binutils, check words + objdump (L2)
+      nix run .#parser-spike      run parser ELFs on the standalone parser Spike == golden model (Stage 2)
 
     Golden model (Phase 2)
       nix run .#model-test        run the reference-model unit + corpus tests

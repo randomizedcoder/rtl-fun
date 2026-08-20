@@ -12,13 +12,16 @@ the cheap thing first; only add heavyweight tool support once the ISA has settle
 > - **Level 1 (§7.2) — done:** the `.insn` + intrinsics header
 >   [`toolchain/parser_insn.h`](../toolchain/parser_insn.h) emits every slice
 >   instruction from the Phase-3 table.
-> - **Level 4 Spike (§7.5) — partially satisfied, as a *verification oracle*:** a Spike
->   custom extension implementing the Phase-2 semantics (reusing `libparsermodel`) was
->   built for the [Phase-6](phase-6-verification.md) RVFI-vs-Spike lock-step
->   (`nix/spike-tandem/parser_ext.cc`). It is an *internal* cross-check, **not** the
->   Phase-7 user-facing deliverable — the exit criterion (a slice parser *written in C
->   with intrinsics* that assembles and runs on Spike **and** QEMU matching the model)
->   is not yet met.
+> - **Level 4 Spike (§7.5) — the standalone simulator now runs (Stage 2):** the parser
+>   custom extension (Phase-2 semantics, reusing `libparsermodel`, `nix/spike-tandem/parser_ext.cc`)
+>   was first built libraries-only as the [Phase-6](phase-6-verification.md) RVFI-vs-Spike
+>   lock-step oracle (`spike-tandem`). Stage 2 adds a **runnable** standalone `spike`
+>   ([`nix/spike-parser.nix`](../nix/spike-parser.nix), `install-exes`) with the same
+>   extension + the `0x5000_0000` packet MMIO device: `nix run .#parser-spike` runs the
+>   parser ELFs (a `parser_tandem.S` smoke + the 22-case packet corpus) directly on Spike,
+>   passing iff each self-checks == the golden model via HTIF. The exit criterion is still
+>   open on two fronts: the slice must be *written in C with intrinsics* (Stage 3) and it
+>   must also run on **QEMU** (L4).
 > - **Level 2 (§7.3) — done:** a parser-patched `riscv64-none-elf` binutils
 >   ([`nix/parser-binutils.nix`](../nix/parser-binutils.nix)) assembles the `prs.*`
 >   mnemonics and `objdump` disassembles them — Hybrid operand syntax **plus** the
@@ -128,11 +131,21 @@ simulator understands the encodings (7.5).
 
 ### 7.5 Level 4 — ISA simulators
 
-- **Spike:** add the parser instructions as a custom extension implementing the
-  Phase-2 semantics. Spike becomes an independent executable check of the ISA
-  (and a cross-check for Phase 6).
+- **Spike ✅ (standalone, Stage 2):** the parser instructions are a custom extension
+  (`nix/spike-tandem/parser_ext.cc`) implementing the Phase-2 semantics by reusing the
+  pure-C `libparsermodel`. [`nix/spike-parser.nix`](../nix/spike-parser.nix) builds a
+  **runnable** `spike` from the vendored CVA6 tree (`install-exes`; the executables link
+  the shared `yaml-cpp` — the one delta from the libraries-only `spike-tandem`), with the
+  `0x5000_0000` packet MMIO device registered on the bus (the same `Simulation.cc` patch
+  the tandem uses, since the `spike` main is that openhw `Simulation`). `nix run
+  .#parser-spike` runs the ELFs directly (`spike --isa=rv64gc`; the parser extension is
+  always-on via `Proc.cc`, so no `--extension` flag — passing it would double-register): a
+  `parser_tandem.S` smoke then the 22-case packet corpus, each passing iff it self-checks
+  == the golden model (HTIF `tohost=1` → exit 0). This is Spike as an **independent
+  executable** check of the ISA, distinct from the Phase-6 `spike-tandem` oracle (left
+  untouched). Stage 3 will drive it from a C-intrinsics slice.
 - **QEMU (RISC-V):** model the instructions for faster functional runs and for
-  driving larger corpora / the benchmark harness.
+  driving larger corpora / the benchmark harness. Still open.
 - Both must match the golden model bit-for-bit (reuse the Phase-2 corpus).
 
 ### 7.6 Consistency guarantee
