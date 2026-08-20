@@ -107,13 +107,15 @@ complete; phases are now being built in order.
   specified — a **cocotb + DPI-C** corpus harness — is *superseded*: its goal is met
   by the Verilator suite + in-core MMIO cosim + tandem campaign.
 - 🔵 **Phase 7 (in progress) — Toolchain:** the software-tooling ladder. **Level 1**
-  (`.insn` + intrinsics, [`toolchain/parser_insn.h`](toolchain/parser_insn.h)) is
-  done, and a Spike custom extension implementing the Phase-2 semantics exists (built
-  as the Phase-6 lock-step oracle). Still open: **binutils** as/objdump (L2), **LLVM
-  MC / GCC builtins** (L3), **QEMU** modeling (L4), a C-intrinsics rewrite of the slice
-  parser running on Spike **and** QEMU matching the model (the exit criterion), and the
-  heavyweight random-*instruction* checks (full upstream riscv-tests; riscv-dv, blocked
-  on a commercial UVM simulator).
+  (`.insn` + intrinsics, [`toolchain/parser_insn.h`](toolchain/parser_insn.h)) and
+  **Level 2** (binutils as/objdump — a parser-patched `riscv64-none-elf` binutils
+  assembles the `prs.*` mnemonics with readable disassembly; `nix run .#parser-asm-test`)
+  are done, and a Spike custom extension implementing the Phase-2 semantics exists (built
+  as the Phase-6 lock-step oracle). Still open: the full *prose* operand syntax (Stage
+  1.5), **LLVM MC / GCC builtins** (L3), **QEMU** modeling (L4), a C-intrinsics rewrite of
+  the slice parser running on Spike **and** QEMU matching the model (the exit criterion),
+  and the heavyweight random-*instruction* checks (full upstream riscv-tests; riscv-dv,
+  blocked on a commercial UVM simulator).
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its
 testbenches in [`tb/`](tb/README.md) and the vector generator + formal harness in

@@ -199,16 +199,21 @@ coprocessor:
     Rd:    [11, 7]
   encoder: prs_enc_cop
   instrs:      # S, I, R, Func3 [, D]
-    CPPRSRD:       { S: 0, I: 0, R: 0, Func3: 0, asm: "prs.mv.x.p ireg,preg" }
-    CPPRSWR:       { S: 0, I: 0, R: 0, Func3: 1, asm: "prs.mv.p.x preg,ireg" }
+    # `gas:` (in-scope moves only) is the binutils operand string for tools/parser-gen:
+    # `d`/`s` are the standard RISC-V rd/rs1 GPRs, `Xpr` is the parser p-register operand
+    # (Cpreg[28:24], names from p_registers), `XtuN@S` is binutils' stock N-bit-unsigned-at-S
+    # bitfield operand. The split-imm11 (ld.immed) is exposed as its two raw fields until the
+    # richer prose syntax (Stage 1.5) lands.
+    CPPRSRD:       { S: 0, I: 0, R: 0, Func3: 0, asm: "prs.mv.x.p ireg,preg", gas: "d,Xpr" }
+    CPPRSWR:       { S: 0, I: 0, R: 0, Func3: 1, asm: "prs.mv.p.x preg,ireg", gas: "Xpr,s" }
     # CPPRSWRIMM (I=1) reuses the R/Rs and Rd fields as a split 11-bit immediate:
     # imm = {Imm2[20:15], Imm1[11:7]} (bitgen.py CP32). Implemented in RTL (N2):
     # parser_decode extracts the imm, cva6_parser_wrap writes p[Cpreg]={53'b0,imm}
     # on the CPPRSWR commit-gate; the decode patch forces integer rs1/rd to x0.
-    CPPRSWRIMM:    { S: 0, I: 1, R: 0, Func3: 1, asm: "prs.ld.immed preg,imm11" }
-    CPPRSRDCAM:    { S: 0, I: 0, R: 1, Func3: 0, asm: "prs.cam.read ireg,ireg" }
+    CPPRSWRIMM:    { S: 0, I: 1, R: 0, Func3: 1, asm: "prs.ld.immed preg,imm11", gas: "Xpr,Xtu5@15,Xtu5@7" }
+    CPPRSRDCAM:    { S: 0, I: 0, R: 1, Func3: 0, asm: "prs.cam.read ireg,ireg", gas: "d,s,Xpr" }
     CPPRSWRCAM:    { S: 0, I: 0, R: 1, Func3: 1, D: 23, asm: "prs.cam.write/delete" }
-    CPPRSRDARRAY:  { S: 1, I: 0, R: 1, Func3: 0, asm: "prs.array.read ireg,ireg" }
+    CPPRSRDARRAY:  { S: 1, I: 0, R: 1, Func3: 0, asm: "prs.array.read ireg,ireg", gas: "d,s,Xpr" }
     CPPRSWRARRAY:  { S: 1, I: 0, R: 1, Func3: 1, D: 23, asm: "prs.array.write/delete" }
 
 # ABI-reachable parser registers (Cpreg selects one; the read/write set the CPPRSRD /
@@ -291,17 +296,26 @@ parser_codes:
 # `operands` are the remaining variable fields (each a `groups` field name), in
 # assembly order. Scope = the pm_encode custom-0 set + the custom-3 moves; the rest
 # of the ISA (arrays/counters/TLV loops/lifecycle) has no encoder yet and no row here.
+# Size-suffix -> Sz field maps (Phase 3 §Encoding; model/libparsermodel/program.c). The suffix
+# folds the Sz[29:28] field into the mnemonic (prs.load.h, prs.cam.b, ...). Two classes because
+# Sz==0 means different things: 8-byte double-word for load/store, nibble for the sub-register ops.
+sizes:
+  loadstore: { b: 1, h: 2, w: 3, d: 0 }   # 0 = double word (8 bytes)
+  general:   { n: 0, b: 1, h: 2, w: 3 }   # 0 = nibble
+
 mnemonics:
+  # `size_class` (when present) tells tools/parser-gen to fold the Sz operand into a dotted size
+  # suffix and emit one binutils row per size; without it, all `operands` become positional imms.
   custom0:
-    - { asm: prs.load,     group: load,             fixed: { X: 0, D: 0, Blen: 0, Shift: 0 }, operands: [Sz, E, Offset] }
-    - { asm: prs.lencur,   group: length,           fixed: { S: 0, F2: 0 },                   operands: [D, Sz, Pos, Shift, Len] }
-    - { asm: prs.store,    group: store,            fixed: { S: 0, F: 0, J: 0, Sind: 0 },     operands: [Sz, Pos, Offset] }
-    - { asm: prs.storeimm, group: storeimm,         fixed: { S: 0, F: 0 },                    operands: [Sz, Value, Offset] }
-    - { asm: prs.cam,      group: cam,              fixed: { D: 0, Func3: 0 },                operands: [S, Sz, Pos, F, Share, Miss] }
-    - { asm: prs.camnext,  group: cam,              fixed: { D: 1, Func3: 0 },                operands: [S, Sz, Pos, F, Share, Miss] }
+    - { asm: prs.load,     group: load,             fixed: { X: 0, D: 0, Blen: 0, Shift: 0 }, operands: [Sz, E, Offset],        size_class: loadstore }
+    - { asm: prs.lencur,   group: length,           fixed: { S: 0, F2: 0 },                   operands: [D, Sz, Pos, Shift, Len], size_class: general }
+    - { asm: prs.store,    group: store,            fixed: { S: 0, F: 0, J: 0, Sind: 0 },     operands: [Sz, Pos, Offset],      size_class: loadstore }
+    - { asm: prs.storeimm, group: storeimm,         fixed: { S: 0, F: 0 },                    operands: [Sz, Value, Offset],    size_class: loadstore }
+    - { asm: prs.cam,      group: cam,              fixed: { D: 0, Func3: 0 },                operands: [S, Sz, Pos, F, Share, Miss], size_class: general }
+    - { asm: prs.camnext,  group: cam,              fixed: { D: 1, Func3: 0 },                operands: [S, Sz, Pos, F, Share, Miss], size_class: general }
     - { asm: prs.cmpib,    group: cmp_masked_byte,  fixed: { fnc4: 0xd },                     operands: [Er, Pos, Value, Mask] }
     - { asm: prs.cmpneib,  group: cmp_masked_byte,  fixed: { fnc4: 0xe },                     operands: [Er, Pos, Value, Mask] }
     - { asm: prs.nextnode, group: next,             fixed: { S: 0, V: 0, Pos: 0, A: 0 },      operands: [Payload] }
     - { asm: prs.setcode,  group: next,             fixed: { S: 0, V: 0, Pos: 2, A: 0 },      operands: [Payload] }
     - { asm: prs.stp,      group: next,             fixed: { S: 0, V: 1, Pos: 2, A: 0, Payload: 0 }, operands: [] }
-  # custom-3 rows reuse coprocessor.instrs (already carry `asm:` there).
+  # custom-3 rows reuse coprocessor.instrs (already carry `asm:` + `gas:` there).

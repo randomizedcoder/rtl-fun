@@ -39,6 +39,7 @@
 
     Toolchain codegen (Phase 7)
       nix run .#parser-gen-check  regenerate toolchain/generated from the ISA yaml + drift check
+      nix run .#parser-asm-test   assemble every prs.* mnemonic w/ patched binutils, check words + objdump (L2)
 
     Golden model (Phase 2)
       nix run .#model-test        run the reference-model unit + corpus tests
