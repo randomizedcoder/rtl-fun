@@ -169,6 +169,10 @@
         # and verify no yaml↔C drift (`nix run .#parser-gen-check`).
         parser-gen = import ./nix/parser-gen.nix { inherit pkgs; };
 
+        # Phase-7 L2 (binutils): a parser-patched riscv64-none-elf binutils +
+        # the assembler round-trip test (`nix run .#parser-asm-test`).
+        parser-asm = import ./nix/parser-asm-test.nix { inherit pkgs; };
+
         # The default development shell (exports CVA6_SRC -> the pinned source,
         # and puts the cva6-baseline app on PATH).
         devshell = import ./nix/devshell.nix {
@@ -219,6 +223,9 @@
           parser-coverage = rtl.parser-coverage;
           # Phase-7 codegen spine check.
           parser-gen-check = parser-gen.parser-gen-check;
+          # Phase-7 L2: the parser-patched binutils + the assembler test.
+          parser-binutils = parser-asm.parser-binutils;
+          parser-asm-test = parser-asm.parser-asm-test;
         };
 
         # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
@@ -327,6 +334,13 @@
         apps.parser-gen-check = {
           type = "app";
           program = "${parser-gen.parser-gen-check}/bin/parser-gen-check";
+        };
+
+        # Phase-7 L2 (binutils): assemble every parser mnemonic with the patched
+        # binutils + check words vs goldens and readable objdump: `nix run .#parser-asm-test`.
+        apps.parser-asm-test = {
+          type = "app";
+          program = "${parser-asm.parser-asm-test}/bin/parser-asm-test";
         };
 
         # Static analysis + sanitizers for the C model: `nix run .#model-analyze`.
