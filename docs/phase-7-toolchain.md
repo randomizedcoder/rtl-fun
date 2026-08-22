@@ -8,11 +8,13 @@ Make the parser instructions usable from real code, in increasing order of
 investment: raw `.insn` → intrinsics → assembler → compiler → ISA simulators. Do
 the cheap thing first; only add heavyweight tool support once the ISA has settled.
 
-> **Status: 🔵 In progress.**
+> **Status: 🔵 In progress — the exit criterion is met** (the C slice runs on Spike **and**
+> QEMU == the golden model); the remaining work is the deferred tail (LLVM MC + GCC builtins,
+> full upstream riscv-tests, riscv-dv, the non-slice ISA groups, and the prose-freeze items).
 > - **Level 1 (§7.2) — done:** the `.insn` + intrinsics header
 >   [`toolchain/parser_insn.h`](../toolchain/parser_insn.h) emits every slice
 >   instruction from the Phase-3 table.
-> - **Level 4 Spike (§7.5) — standalone simulator (Stage 2) + C-intrinsics slice (Stage 3):**
+> - **Level 4 (§7.5) — standalone Spike (Stage 2) + C-intrinsics slice (Stage 3) + QEMU:**
 >   the parser custom extension (Phase-2 semantics, reusing `libparsermodel`,
 >   `nix/spike-tandem/parser_ext.cc`) was first built libraries-only as the
 >   [Phase-6](phase-6-verification.md) RVFI-vs-Spike lock-step oracle (`spike-tandem`). Stage 2
@@ -21,9 +23,11 @@ the cheap thing first; only add heavyweight tool support once the ISA has settle
 >   (`nix run .#parser-spike`). Stage 3 then **authors the slice in C** with the generated
 >   intrinsics ([`tests/cva6-parser/parser_slice.c`](../tests/cva6-parser/parser_slice.c)):
 >   `nix run .#parser-spike-slice` compiles it, asserts its 53 words are byte-identical to the
->   model ROM, and runs it on the standalone Spike over the 22-case corpus == model. This
->   **closes the Spike leg** of the exit criterion; the one remaining leg is running the same
->   slice on **QEMU** (L4).
+>   model ROM, and runs it on the standalone Spike over the 22-case corpus == model. The **QEMU
+>   leg** then teaches a patched `qemu-system-riscv64` the same ops + device
+>   ([`nix/qemu-parser.nix`](../nix/qemu-parser.nix)) and runs the identical ELFs and C slice on
+>   it (`nix run .#parser-qemu` / `.#parser-qemu-slice`, both 22/0 == model). With Spike **and**
+>   QEMU green, **the exit criterion is met** ✅.
 > - **Level 2 (§7.3) — done:** a parser-patched `riscv64-none-elf` binutils
 >   ([`nix/parser-binutils.nix`](../nix/parser-binutils.nix)) assembles the `prs.*`
 >   mnemonics and `objdump` disassembles them — Hybrid operand syntax **plus** the
@@ -35,7 +39,7 @@ the cheap thing first; only add heavyweight tool support once the ISA has settle
 >   ISA-notation decision, not just code: the load `E` spelling, `.stp` fused onto CAM,
 >   `mult:min` (log2), the `.fail`/`.min`/`.stop` value qualifiers, store `+N`, and the
 >   `lensetmin`/`cmpi` mnemonic aliases. Then LLVM MC + intrinsics/builtins and GCC
->   builtins (L3), **QEMU** modeling (L4), the C-intrinsics slice rewrite (task 2), and the
+>   builtins (L3), and the
 >   heavyweight random-instruction checks — full upstream riscv-tests and riscv-dv (the
 >   latter blocked on a commercial UVM simulator; the Phase-6 Stage-2 campaign randomizes
 >   only the *packet* axis).
@@ -151,20 +155,23 @@ simulator understands the encodings (7.5).
   ([`tests/cva6-parser/parser_slice.c`](../tests/cva6-parser/parser_slice.c): 53 `PRS_EMIT(
   prs_*(...))` calls, one per `pm_slice_program()` entry). `nix run .#parser-spike-slice`
   compiles it (-O2), asserts the 53 words are **byte-identical to the model ROM** (`enc.hex`),
-  and runs it on the standalone Spike over the 22-case corpus == model. The **Spike leg of the
-  exit criterion is closed**; only the QEMU leg remains.
-- **QEMU (RISC-V) 🔵 (instructions + device landed):** `nix build .#qemu-parser`
+  and runs it on the standalone Spike over the 22-case corpus == model. This **closes the Spike
+  leg** of the exit criterion.
+- **QEMU (RISC-V) ✅:** `nix build .#qemu-parser`
   ([`nix/qemu-parser.nix`](../nix/qemu-parser.nix)) patches nixpkgs `qemu` (11.0.3,
   restricted to `riscv64-softmmu`) to decode + execute the custom-0/custom-3 parser ops
   via TCG helpers ([`nix/qemu-parser/parser_helper.c`](../nix/qemu-parser/parser_helper.c),
   a port of the Spike `parser_ext.cc` reusing `libparsermodel` unchanged) and to map the
   `0x5000_0000` packet MMIO device ([`parser_mmio.c`](../nix/qemu-parser/parser_mmio.c)) on
   the `-M spike` machine — whose HTIF (`tohost=1` → exit 0) + DRAM@0x80000000 run the
-  existing self-checking ELFs unmodified. The `parser_tandem.S` smoke runs == exit 0 (and
-  traps illegal on stock QEMU — a genuine extension). Custom-3 (0x7b) aliases QEMU's RV128
-  doubleword ops, which are remapped to the unused custom-1 opcode (rv64 never uses RV128).
-  **Still open (PR B):** the 22-case corpus + the C slice == model (`nix run
-  .#parser-qemu[-slice]`), which closes the exit criterion.
+  existing self-checking ELFs unmodified. Custom-3 (0x7b) aliases QEMU's RV128 doubleword ops,
+  which are remapped to the unused custom-1 opcode (rv64 never uses RV128); on stock QEMU the
+  ops trap illegal (a genuine extension). `nix run .#parser-qemu` runs the `parser_tandem.S`
+  smoke + the **22-case corpus == model** on the patched `qemu-system-riscv64`, and `nix run
+  .#parser-qemu-slice` compiles the C slice (byte-identical to the model ROM) and runs it
+  **22/0 == model**. This **closes the QEMU leg** — the exit criterion is met on both
+  simulators. (`-nographic` wires the guest console to stdin, so the runner gives QEMU
+  `</dev/null` to avoid draining the per-case suite loop.)
 - Both must match the golden model bit-for-bit (reuse the Phase-2 corpus).
 
 ### 7.6 Consistency guarantee
@@ -191,13 +198,16 @@ No hand-copied encodings.
 2. ✅ Rewrite the Phase-0 slice parser in C using the intrinsics —
    [`tests/cva6-parser/parser_slice.c`](../tests/cva6-parser/parser_slice.c),
    `nix run .#parser-spike-slice` (byte-identical to the model ROM, 22-case corpus ==
-   model on the standalone Spike). The QEMU leg (task 5) remains.
+   model on the standalone Spike) **and** `nix run .#parser-qemu-slice` (same slice, 22/0
+   == model on QEMU).
 3. ✅ Add binutils as/objdump support (generated from the table) — Hybrid operand
    syntax + additive prose sugar (`pcurptr+N`, `paccum[i]`, `value:mask`); round-tripping
    `objdump`. `nix run .#parser-asm-test`. Prose-freeze items deferred (§7.3).
 4. ✅ Add Spike custom-extension support; validate against the Phase-2 corpus —
    standalone `nix run .#parser-spike` (Stage 2) + the C slice on it (Stage 3).
-5. Add QEMU modeling; validate against the corpus.
+5. ✅ Add QEMU modeling; validate against the corpus — patched `qemu-system-riscv64`
+   ([`nix/qemu-parser.nix`](../nix/qemu-parser.nix)), `nix run .#parser-qemu` (asm corpus)
+   + `nix run .#parser-qemu-slice` (C slice), both 22/0 == model.
 6. (When frozen) add LLVM MC + intrinsics/builtins; optional GCC builtins.
 
 ## Deliverables / artifacts
@@ -208,10 +218,11 @@ No hand-copied encodings.
 
 ## Exit criteria
 
-- The slice parser, written in C with intrinsics, assembles and runs on Spike and
-  QEMU with outputs matching the golden model. **Spike leg ✅** (`nix run
-  .#parser-spike-slice`: the C slice is byte-identical to the model ROM and runs the
-  22-case corpus == model); **QEMU leg open.**
+- ✅ **Met.** The slice parser, written in C with intrinsics, assembles and runs on Spike
+  **and** QEMU with outputs matching the golden model. **Spike leg** (`nix run
+  .#parser-spike-slice`) and **QEMU leg** (`nix run .#parser-qemu-slice`): the C slice is
+  byte-identical to the model ROM (53 words == `enc.hex`) and runs the 22-case corpus == model
+  on both simulators. The asm-corpus twins (`parser-spike` / `parser-qemu`) also pass 22/0.
 - Disassembly is human-readable (binutils/objdump). ✅ (`nix run .#parser-asm-test`)
 
 ## Open questions

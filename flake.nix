@@ -81,6 +81,12 @@
           modelSrc = ./model/libparsermodel;        # the reused pure-C model
         };
 
+        # Phase-7 QEMU leg: run the SAME self-checking ELFs on the patched
+        # qemu-system-riscv64 == the golden model (the QEMU twin of parser-spike).
+        # `nix run .#parser-qemu` (asm corpus) / `nix run .#parser-qemu-slice` (C slice).
+        parser-qemu = import ./nix/parser-qemu.nix { inherit pkgs qemu-parser; };
+        parser-qemu-slice = import ./nix/parser-qemu-slice.nix { inherit pkgs qemu-parser; };
+
         # Two Verilator builds from ONE builder, for easy unpatched-vs-patched
         # compare: cva6-baseline (stock) and cva6-parser (patched). Distinct work
         # dirs so they don't collide under build/.
@@ -217,6 +223,8 @@
           parser-spike = parser-spike;
           parser-spike-slice = parser-spike-slice;
           qemu-parser = qemu-parser;
+          parser-qemu = parser-qemu;
+          parser-qemu-slice = parser-qemu-slice;
           # The two Verilator builders as packages too.
           cva6-baseline = cva6-baseline;
           cva6-parser = cva6-parser;
@@ -383,6 +391,18 @@
         apps.parser-spike-slice = {
           type = "app";
           program = "${parser-spike-slice}/bin/parser-spike-slice";
+        };
+
+        # Phase-7 QEMU leg: run the same parser ELFs / C slice on the patched
+        # qemu-system-riscv64 == the golden model. `nix run .#parser-qemu` and
+        # `nix run .#parser-qemu-slice` — closes the exit criterion (Spike AND QEMU).
+        apps.parser-qemu = {
+          type = "app";
+          program = "${parser-qemu}/bin/parser-qemu";
+        };
+        apps.parser-qemu-slice = {
+          type = "app";
+          program = "${parser-qemu-slice}/bin/parser-qemu-slice";
         };
 
         # Static analysis + sanitizers for the C model: `nix run .#model-analyze`.

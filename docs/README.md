@@ -107,11 +107,14 @@ runs the 22-case corpus == the golden model — distinct from the Phase-6 `spike
 and the **slice parser is now written in C** with the generated intrinsics
 ([`tests/cva6-parser/parser_slice.c`](../tests/cva6-parser/parser_slice.c),
 `nix run .#parser-spike-slice`: byte-identical to the model ROM, 22-case corpus == model on the
-standalone Spike) — the **Spike leg of the exit criterion is closed**.
-Still open: the prose-freeze follow-on (`.stp`/`.fail` qualifiers, `mult:min`, mnemonic aliases, …),
-**LLVM MC / GCC builtins** (L3), and **QEMU** modeling (L4) — the remaining "**and** QEMU" half of
-the slice-matches-the-model exit criterion — plus the heavyweight random-*instruction* checks
-(full upstream riscv-tests, riscv-dv — the latter blocked on a commercial UVM simulator).
+standalone Spike). **Level 4 QEMU** teaches a patched `qemu-system-riscv64` the same ops +
+`0x5000_0000` device ([`nix/qemu-parser.nix`](../nix/qemu-parser.nix)) and runs the identical
+ELFs and C slice on it (`nix run .#parser-qemu` / `.#parser-qemu-slice`, both 22/0 == model) —
+so **the exit criterion is met: the slice runs on Spike *and* QEMU == the golden model** ✅.
+Still open (the deferred tail): the prose-freeze follow-on (`.stp`/`.fail` qualifiers,
+`mult:min`, mnemonic aliases, …), **LLVM MC / GCC builtins** (L3), plus the heavyweight
+random-*instruction* checks (full upstream riscv-tests, riscv-dv — the latter blocked on a
+commercial UVM simulator).
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 
