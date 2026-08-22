@@ -72,6 +72,15 @@
         # checked vs the model ROM: `nix run .#parser-spike-slice`.
         parser-spike-slice = import ./nix/parser-spike-slice.nix { inherit pkgs spike-parser; };
 
+        # Phase 7 QEMU leg: nixpkgs qemu patched to teach qemu-system-riscv64 the
+        # parser ISA + the 0x5000_0000 packet MMIO device, reusing the golden model.
+        # `nix build .#qemu-parser`.
+        qemu-parser = import ./nix/qemu-parser.nix {
+          inherit pkgs;
+          qemuExt = ./nix/qemu-parser;              # our QEMU-native C (helper + device)
+          modelSrc = ./model/libparsermodel;        # the reused pure-C model
+        };
+
         # Two Verilator builds from ONE builder, for easy unpatched-vs-patched
         # compare: cva6-baseline (stock) and cva6-parser (patched). Distinct work
         # dirs so they don't collide under build/.
@@ -207,6 +216,7 @@
           spike-parser = spike-parser;
           parser-spike = parser-spike;
           parser-spike-slice = parser-spike-slice;
+          qemu-parser = qemu-parser;
           # The two Verilator builders as packages too.
           cva6-baseline = cva6-baseline;
           cva6-parser = cva6-parser;
