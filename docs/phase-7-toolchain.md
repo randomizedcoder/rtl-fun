@@ -153,9 +153,18 @@ simulator understands the encodings (7.5).
   compiles it (-O2), asserts the 53 words are **byte-identical to the model ROM** (`enc.hex`),
   and runs it on the standalone Spike over the 22-case corpus == model. The **Spike leg of the
   exit criterion is closed**; only the QEMU leg remains.
-- **QEMU (RISC-V):** model the instructions for faster functional runs and for
-  driving larger corpora / the benchmark harness. Still open — the remaining leg of the
-  exit criterion (the same C slice must also run on QEMU == model).
+- **QEMU (RISC-V) 🔵 (instructions + device landed):** `nix build .#qemu-parser`
+  ([`nix/qemu-parser.nix`](../nix/qemu-parser.nix)) patches nixpkgs `qemu` (11.0.3,
+  restricted to `riscv64-softmmu`) to decode + execute the custom-0/custom-3 parser ops
+  via TCG helpers ([`nix/qemu-parser/parser_helper.c`](../nix/qemu-parser/parser_helper.c),
+  a port of the Spike `parser_ext.cc` reusing `libparsermodel` unchanged) and to map the
+  `0x5000_0000` packet MMIO device ([`parser_mmio.c`](../nix/qemu-parser/parser_mmio.c)) on
+  the `-M spike` machine — whose HTIF (`tohost=1` → exit 0) + DRAM@0x80000000 run the
+  existing self-checking ELFs unmodified. The `parser_tandem.S` smoke runs == exit 0 (and
+  traps illegal on stock QEMU — a genuine extension). Custom-3 (0x7b) aliases QEMU's RV128
+  doubleword ops, which are remapped to the unused custom-1 opcode (rv64 never uses RV128).
+  **Still open (PR B):** the 22-case corpus + the C slice == model (`nix run
+  .#parser-qemu[-slice]`), which closes the exit criterion.
 - Both must match the golden model bit-for-bit (reuse the Phase-2 corpus).
 
 ### 7.6 Consistency guarantee
