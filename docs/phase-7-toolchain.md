@@ -254,7 +254,19 @@ simulator understands the encodings (7.5).
   (0 deferred), 0 mismatches, round-trip identical — full binutils parity for the MC layer.
   Bit-identical to the model/binutils throughout (presentation-only).
 
-  Next: Clang **intrinsics/builtins**, then optional GCC builtins.
+  **Clang — C0 (build stood up) ✅.** The Clang leg (`nix/parser-clang.nix`) is a `clang`
+  built against the parser-patched **libLLVM** (`clang-unwrapped.override { libllvm = <the L3
+  llvm>; }`, RISCV-only, clang-tools-extra off). Clang's integrated assembler *is* the LLVM MC
+  layer, so this Clang parses/encodes the `prs.*` mnemonics with no extra flags — inheriting the
+  L1–L3b patch for free, with **no** clang source touched yet. `nix run .#parser-clang-check`
+  proves it: (1) clang's integrated-as assembles a spread of `prs.*` to the exact golden words
+  (`prs.load.h.be paccum, 12 → 0x2010600b`, …), and (2) the unchanged C slice (`parser_slice.c`,
+  the `.insn` intrinsics path) compiles under clang with its 53-word `parse_prog` byte-identical
+  to the model ROM (`enc.hex`). This de-risks the from-source Clang build before any codegen.
+
+  Next: **C1** — `emit_builtin` + `__builtin_riscv_prs_*` (custom-0 immediate ops, lowering to
+  operand-less inline asm via a table-driven arm in the clang patch); then the builtins slice
+  (C2) and optional GCC builtins.
 
 ### 7.5 Level 4 — ISA simulators
 
