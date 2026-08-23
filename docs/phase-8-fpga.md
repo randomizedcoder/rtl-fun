@@ -23,6 +23,14 @@ parser unit + packet buffer. **TBD** — candidates differ in MAC IP, DDR, and
 vendor flow. Bias toward one with a well-supported RISC-V + Ethernet reference
 design to minimize plumbing.
 
+A candidate under evaluation is the **Sipeed Tang Mega 138K Pro** (Gowin GW5AST-138,
+1 GB DDR3, 2× SFP+) — see the detailed bring-up plan in
+[tang-mega-138k-pro-rtl-fun-plan.md](tang-mega-138k-pro-rtl-fun-plan.md): a NixOS
+toolchain (open-source yosys / nextpnr-gowin / apicula where possible, Gowin EDA for
+hard IP), the go/no-go feasibility questions (does CVA6 synthesize/fit/route on Gowin),
+and a staged experiment ladder (smoke → LED → CVA6 baseline → BRAM packet window → one
+custom instruction end-to-end → counters → baseline-vs-custom benchmark → DDR3 → 10GbE).
+
 ### 8.2 Block design
 
 ```
