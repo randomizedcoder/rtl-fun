@@ -196,8 +196,8 @@ Mirrors patent L1904–1912.
 
 ```
 LoadReadBytes(addr, n, Shift, Blen, E):
-    v = read n bytes at addr
-    if (E && n > 1)  v = byteswap(v, n)     // big-endian → host
+    v = read_be(addr, n)                    // big-endian numeric value of the field
+    if (!E && n > 1)  v = byteswap(v, n)    // E=0: swap to the opposite order; E=1 (.be): keep big-endian
     v = v << Shift
     mask_bits = (n == 8) ? Blen*2 : Blen    // Sz==0 (8 bytes): Blen doubled (L1911)
     v = v & (ALL_ONES >> mask_bits)          // zero the top mask_bits bits
@@ -772,15 +772,15 @@ golden model runs and the RTL must reproduce.
 
 ```asm
 ether_node:
-    prs.load.h      paccum, pcurptr+12        ; EtherType @12..13 → Accum; grows CurHdr.Length→14
-    prs.cam.h.stp   pnext,  paccum[0], 1      ; shared table 1: EtherType→ipv4_node; .stp
+    prs.load.h.be   paccum, pcurptr+12        ; EtherType @12..13 (big-endian) → Accum; grows CurHdr.Length→14
+    prs.cam.h.stp   pnext,  paccum[0], 1      ; shared table 1: EtherType→ipv4_node; pnext ⇒ Next (D=1); .stp
 
 ipv4_node:
     prs.load.b      paccum, pcurptr           ; version+IHL byte → Accum
     prs.lensetmin.n pcurhdr, paccum[1], 4:20  ; CurHdr.Length = IHL×4 (min 20); sets DataHdr.Offset, DataBound
-    prs.cmpi.b.fail paccum, 0x40:0xf0         ; (byte0 & 0xf0)==0x40 (IPv4), else Fail_Parser(STOP_FAIL)
+    prs.cmpi.b.fail paccum[0], 0x40:0xf0      ; (byte0 & 0xf0)==0x40 (IPv4), else Fail_Parser(STOP_FAIL)
     prs.load.b      paccum, pcurptr+9         ; IP protocol @9 → Accum
-    prs.camnext     pnext,  paccum[0], 2      ; table 2: proto→tcp_node (into Next, no .stp yet)
+    prs.cam         pnext,  paccum[0], 2      ; table 2: proto→tcp_node; pnext ⇒ Next (D=1), no .stp yet
 
 ip_options_loop:                              ; walk IPv4 options as TLVs
     prs.loadtlvloop paccum, pdatptr           ; head: load option type; DataBound==0 ⇒ exit loop

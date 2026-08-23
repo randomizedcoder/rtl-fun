@@ -39,9 +39,9 @@ Two honesty notes on scope:
   Its Spike custom extension reuses `libparsermodel`, so the *parser* tandem proves
   **RTL executor == model** on random input; real Spike is the independent oracle for the
   surrounding RV64GC stream. See the [`In-core verification`](#in-core-verification-the-cva6-integrated-fu)
-  section and the [status tracker](analysis/cva6-implementation-status.md). Building the
-  user-facing Phase-7 Spike/QEMU toolchain (a C-intrinsics parser binary) remains
-  [Phase 7](phase-7-toolchain.md).
+  section and the [status tracker](analysis/cva6-implementation-status.md). The user-facing
+  Phase-7 Spike/QEMU toolchain (a C-intrinsics parser binary) is delivered in
+  [Phase 7](phase-7-toolchain.md) — the slice now runs on both simulators == the model.
 
 Residual items that are **not** Phase-6 blockers (deferred / other phases): G14 timing
 & DFT/POST → [Phase 8](phase-8-fpga.md); the M2 mid-parse-switch-to-a-STORE-ing/CAM

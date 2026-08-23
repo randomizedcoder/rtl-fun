@@ -9,6 +9,17 @@
 # Bit numbering: [hi, lo] inclusive, bit 0 = LSB (matches encoding.c). The
 # recovered doc draws bit 31 on the left; a field it lists [hi:lo] is [hi, lo] here.
 # Scope: 32-bit custom-0 forms + the custom-3 coprocessor R-form. 64-bit deferred.
+#
+# Assembly notation is FROZEN in docs/phase-1-isa-spec.md §1.12 (Phase-7 prose-freeze).
+# The bindings that realise it — dotted-suffix bit-folding (.be/.stp/.min + Er/Miss),
+# mnemonic aliases (prs.lenset{,min,add} / prs.cmpi{,ne}), destination pseudo-registers,
+# and the mult:min / pmeta+N operand forms — are additive and presentation-only: every
+# spelling encodes to the identical bits as its positional Hybrid form. Frozen decisions:
+#   * E-bit -> `.be` suffix = E=1 (big-endian field; the model is source of truth).
+#   * store/storeimm displacement -> `pmeta+N` (metadata frame, NOT load's packet pcurptr+N).
+#   * CAM: a single `prs.cam` mnemonic; the paccum/pnext destination selects the D bit
+#     (Accum vs Next) -- no separate `prs.camnext` (patent-faithful disassembly).
+#   * the phase-1 docs' prose spellings are the CANONICAL form objdump prints.
 
 meta:
   patent: US 12,461,885 B2
