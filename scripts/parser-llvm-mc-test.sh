@@ -8,7 +8,8 @@
 # `.s` of every mnemonic plus each expected word (from the generated, drift-checked
 # intrinsics). L1 covers the immediate-only custom-0 ops; L2 adds the custom-3 moves
 # (their GPR + p-register operands); L3a adds the destination-decorated load/cam/length
-# Hybrid forms (paccum/pnext/pcurhdr). The prose-sugar forms remain the L3b increment. So we
+# Hybrid forms (paccum/pnext/pcurhdr); L3b adds the prose-sugar operand forms (pcurptr+N /
+# pmeta+N / paccum[i] / value:mask / mult:min), each parsed alongside its Hybrid form. So we
 # CLASSIFY each vector line: llvm-mc either assembles it (then its word MUST equal the
 # golden) or rejects it as not-yet-supported (counted + listed as DEFERRED, never
 # silently dropped). A supported line whose word differs is a hard failure.
@@ -26,12 +27,13 @@ OBJDUMP="${LLVM_OBJDUMP:-llvm-objdump}"
 TRIPLE="riscv64"
 
 # L1 covered the immediate-only custom-0 ops (10 lines); L2 added the 5 custom-3 moves via
-# the PRReg register class (-> 15); L3a adds the destination-decorated load/cam/length
-# Hybrid forms via the paccum/pnext/pcurhdr dest operand classes (-> 28). This many vector
-# LINES are expected to assemble; a regression that drops below this floor fails the test,
-# and the exact deferred set is always printed. Bump when L3b adds the prose-sugar operand
-# classes (pcurptr+N / paccum[i] / value:mask / mult:min / pmeta+N).
-FLOOR="${LLVM_MC_SUPPORTED_FLOOR:-28}"
+# the PRReg register class (-> 15); L3a added the destination-decorated load/cam/length
+# Hybrid forms via the paccum/pnext/pcurhdr dest operand classes (-> 28); L3b adds the
+# prose-sugar operand classes (pcurptr+N / pmeta+N / paccum[i] / value:mask / mult:min),
+# which parse alongside the Hybrid forms — so every vector line now assembles (-> 38, the
+# full table, 0 deferred). This many vector LINES are expected to assemble; a regression
+# that drops below this floor fails the test, and the exact deferred set is always printed.
+FLOOR="${LLVM_MC_SUPPORTED_FLOOR:-38}"
 
 if [ ! -f "$VEC_SRC" ]; then
   echo "parser-llvm-mc-test: $VEC_SRC not found — run from the repo root" >&2

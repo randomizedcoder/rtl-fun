@@ -238,9 +238,23 @@ simulator understands the encodings (7.5).
   (the 13 dest-decorated load/cam/length Hybrid forms), 0 mismatches, round-trip identical.
   Bit-identical to the model/binutils.
 
-  Deferred to **L3b** (the remaining custom operand classes, mirroring binutils' `Xpo`/`Xpa`/
-  `Xpm`/`Xpl`/`Xpe`): the prose sugar (`pcurptr+N`, `paccum[i]`, `value:mask`, `mult:min`,
-  `pmeta+N`) — reaching full binutils parity. Then Clang **intrinsics/builtins**.
+  **LLVM MC — L3b (prose-sugar operands) ✅.** The rest of the custom operand family, mirroring
+  binutils' `Xpo`/`Xpe`/`Xpa`/`Xpm`/`Xpl`: `pcurptr+N` (load Offset), `pmeta+N` (store/storeimm
+  metadata Offset), `paccum[i]` (Pos), `value:mask` (cmp Value+Mask), `mult:min` (length
+  Shift=log2(mult)+Len). `emit_llvm` swaps each prose field's `uimm` for a custom
+  `AsmOperandClass` (predicates reuse RISC-V's stock `isUImmN`); the C++ adds five
+  `ParserMethod`s and three `PrintMethod`s. Each op keeps **one def** that assembles *both* the
+  prose and the Hybrid spelling — the parser dispatches the `ParserMethod` before the generic
+  immediate path, and the matcher keys only on the final operand vector. The two field-combining
+  forms (`value:mask`, `mult:min`) use a **multi-push** `ParserMethod` (one parse call emits both
+  operands; on a bare value it emits one and the next slot is parsed normally), so no second def
+  and no decoder conflict — the AsmString stays plain-comma (a glued `$a:$b` is a TableGen error),
+  which means the combining forms print positionally while the single-field forms print the
+  canonical prose keyword; every form round-trips by word. All **38** vector lines now assemble
+  (0 deferred), 0 mismatches, round-trip identical — full binutils parity for the MC layer.
+  Bit-identical to the model/binutils throughout (presentation-only).
+
+  Next: Clang **intrinsics/builtins**, then optional GCC builtins.
 
 ### 7.5 Level 4 — ISA simulators
 

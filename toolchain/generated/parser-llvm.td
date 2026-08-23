@@ -76,7 +76,31 @@ def accumdest  : PrsDestOp<AccumDestOpnd,  "printAccumDest">;
 def camdest    : PrsDestOp<CamDestOpnd,    "printCamDest">;
 def curhdrdest : PrsDestOp<CurHdrDestOpnd, "printCurHdrDest">;
 
-def PRS_LOAD_B : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+// Prose-sugar operand classes (L3b); C++ in the nix/parser-llvm patch.
+class PrsProseOpnd<string nm, string parser, string pred> : AsmOperandClass {
+  let Name = nm;
+  let RenderMethod = "addImmOperands";
+  let ParserMethod = parser;
+  let PredicateMethod = pred;
+}
+def PCurPtrOpnd : PrsProseOpnd<"PCurPtr", "parsePCurPtr",   "isUImm9">;
+def PMetaOpnd   : PrsProseOpnd<"PMeta",   "parsePMeta",     "isUImm9">;
+def PAccum3Opnd : PrsProseOpnd<"PAccum3", "parsePAccumIdx", "isUImm3">;
+def PAccum4Opnd : PrsProseOpnd<"PAccum4", "parsePAccumIdx", "isUImm4">;
+def ValMaskOpnd : PrsProseOpnd<"ValMask", "parseValueMask", "isUImm8">;
+def MultMinOpnd : PrsProseOpnd<"MultMin", "parseMultMin",   "isUImm3">;
+class PrsProseOp<AsmOperandClass mc, string pm> : Operand<i32> {
+  let ParserMatchClass = mc;
+  let PrintMethod = pm;
+}
+def pcurptroff : PrsProseOp<PCurPtrOpnd, "printPCurPtr">;
+def pmetaoff   : PrsProseOp<PMetaOpnd,   "printPMeta">;
+def paccumidx3 : PrsProseOp<PAccum3Opnd, "printPAccumIdx">;
+def paccumidx4 : PrsProseOp<PAccum4Opnd, "printPAccumIdx">;
+def valmask    : PrsProseOp<ValMaskOpnd, "printOperand">;
+def multmin    : PrsProseOp<MultMinOpnd, "printOperand">;
+
+def PRS_LOAD_B : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
                     "prs.load.b", "$dst, $offset"> {
   bits<1> dst;
   bits<9> offset;
@@ -87,7 +111,7 @@ def PRS_LOAD_B : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_LOAD_B_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+def PRS_LOAD_B_BE : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
                     "prs.load.b.be", "$dst, $offset"> {
   bits<1> dst;
   bits<9> offset;
@@ -98,7 +122,7 @@ def PRS_LOAD_B_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_LOAD_H : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+def PRS_LOAD_H : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
                     "prs.load.h", "$dst, $offset"> {
   bits<1> dst;
   bits<9> offset;
@@ -109,7 +133,7 @@ def PRS_LOAD_H : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_LOAD_H_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+def PRS_LOAD_H_BE : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
                     "prs.load.h.be", "$dst, $offset"> {
   bits<1> dst;
   bits<9> offset;
@@ -120,7 +144,7 @@ def PRS_LOAD_H_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_LOAD_W : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+def PRS_LOAD_W : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
                     "prs.load.w", "$dst, $offset"> {
   bits<1> dst;
   bits<9> offset;
@@ -131,7 +155,7 @@ def PRS_LOAD_W : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_LOAD_W_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+def PRS_LOAD_W_BE : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
                     "prs.load.w.be", "$dst, $offset"> {
   bits<1> dst;
   bits<9> offset;
@@ -142,7 +166,7 @@ def PRS_LOAD_W_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_LOAD_D : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+def PRS_LOAD_D : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
                     "prs.load.d", "$dst, $offset"> {
   bits<1> dst;
   bits<9> offset;
@@ -153,7 +177,7 @@ def PRS_LOAD_D : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_LOAD_D_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+def PRS_LOAD_D_BE : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
                     "prs.load.d.be", "$dst, $offset"> {
   bits<1> dst;
   bits<9> offset;
@@ -244,7 +268,7 @@ def PRS_LENSETCONST_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
   let Inst{18-11} = len;
 }
 
-def PRS_LENSET_N : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSET_N : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lenset.n", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -258,7 +282,7 @@ def PRS_LENSET_N : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shif
   let Inst{18-11} = len;
 }
 
-def PRS_LENSET_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSET_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lenset.n.stp", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -272,7 +296,7 @@ def PRS_LENSET_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$
   let Inst{18-11} = len;
 }
 
-def PRS_LENSET_B : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSET_B : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lenset.b", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -286,7 +310,7 @@ def PRS_LENSET_B : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shif
   let Inst{18-11} = len;
 }
 
-def PRS_LENSET_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSET_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lenset.b.stp", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -300,7 +324,7 @@ def PRS_LENSET_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$
   let Inst{18-11} = len;
 }
 
-def PRS_LENSET_H : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSET_H : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lenset.h", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -314,7 +338,7 @@ def PRS_LENSET_H : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shif
   let Inst{18-11} = len;
 }
 
-def PRS_LENSET_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSET_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lenset.h.stp", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -328,7 +352,7 @@ def PRS_LENSET_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$
   let Inst{18-11} = len;
 }
 
-def PRS_LENSET_W : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSET_W : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lenset.w", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -342,7 +366,7 @@ def PRS_LENSET_W : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shif
   let Inst{18-11} = len;
 }
 
-def PRS_LENSET_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSET_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lenset.w.stp", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -356,7 +380,7 @@ def PRS_LENSET_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$
   let Inst{18-11} = len;
 }
 
-def PRS_LENSETMIN_N : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSETMIN_N : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lensetmin.n", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -370,7 +394,7 @@ def PRS_LENSETMIN_N : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$s
   let Inst{18-11} = len;
 }
 
-def PRS_LENSETMIN_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSETMIN_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lensetmin.n.stp", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -384,7 +408,7 @@ def PRS_LENSETMIN_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm
   let Inst{18-11} = len;
 }
 
-def PRS_LENSETMIN_B : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSETMIN_B : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lensetmin.b", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -398,7 +422,7 @@ def PRS_LENSETMIN_B : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$s
   let Inst{18-11} = len;
 }
 
-def PRS_LENSETMIN_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSETMIN_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lensetmin.b.stp", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -412,7 +436,7 @@ def PRS_LENSETMIN_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm
   let Inst{18-11} = len;
 }
 
-def PRS_LENSETMIN_H : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSETMIN_H : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lensetmin.h", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -426,7 +450,7 @@ def PRS_LENSETMIN_H : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$s
   let Inst{18-11} = len;
 }
 
-def PRS_LENSETMIN_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSETMIN_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lensetmin.h.stp", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -440,7 +464,7 @@ def PRS_LENSETMIN_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm
   let Inst{18-11} = len;
 }
 
-def PRS_LENSETMIN_W : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSETMIN_W : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lensetmin.w", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -454,7 +478,7 @@ def PRS_LENSETMIN_W : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$s
   let Inst{18-11} = len;
 }
 
-def PRS_LENSETMIN_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+def PRS_LENSETMIN_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
                     "prs.lensetmin.w.stp", "$dst, $pos, $shift, $len"> {
   bits<2> dst;
   bits<4> pos;
@@ -468,7 +492,7 @@ def PRS_LENSETMIN_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm
   let Inst{18-11} = len;
 }
 
-def PRS_STORE_B : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
+def PRS_STORE_B : PrsInst<(outs), (ins paccumidx4:$pos, pmetaoff:$offset),
                     "prs.store.b", "$pos, $offset"> {
   bits<4> pos;
   bits<9> offset;
@@ -479,7 +503,7 @@ def PRS_STORE_B : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_STORE_H : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
+def PRS_STORE_H : PrsInst<(outs), (ins paccumidx4:$pos, pmetaoff:$offset),
                     "prs.store.h", "$pos, $offset"> {
   bits<4> pos;
   bits<9> offset;
@@ -490,7 +514,7 @@ def PRS_STORE_H : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_STORE_W : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
+def PRS_STORE_W : PrsInst<(outs), (ins paccumidx4:$pos, pmetaoff:$offset),
                     "prs.store.w", "$pos, $offset"> {
   bits<4> pos;
   bits<9> offset;
@@ -501,7 +525,7 @@ def PRS_STORE_W : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_STORE_D : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
+def PRS_STORE_D : PrsInst<(outs), (ins paccumidx4:$pos, pmetaoff:$offset),
                     "prs.store.d", "$pos, $offset"> {
   bits<4> pos;
   bits<9> offset;
@@ -512,7 +536,7 @@ def PRS_STORE_D : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_STOREIMM_B : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
+def PRS_STOREIMM_B : PrsInst<(outs), (ins uimm8:$value, pmetaoff:$offset),
                     "prs.storeimm.b", "$value, $offset"> {
   bits<8> value;
   bits<9> offset;
@@ -522,7 +546,7 @@ def PRS_STOREIMM_B : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_STOREIMM_H : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
+def PRS_STOREIMM_H : PrsInst<(outs), (ins uimm8:$value, pmetaoff:$offset),
                     "prs.storeimm.h", "$value, $offset"> {
   bits<8> value;
   bits<9> offset;
@@ -532,7 +556,7 @@ def PRS_STOREIMM_H : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_STOREIMM_W : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
+def PRS_STOREIMM_W : PrsInst<(outs), (ins uimm8:$value, pmetaoff:$offset),
                     "prs.storeimm.w", "$value, $offset"> {
   bits<8> value;
   bits<9> offset;
@@ -542,7 +566,7 @@ def PRS_STOREIMM_W : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_STOREIMM_D : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
+def PRS_STOREIMM_D : PrsInst<(outs), (ins uimm8:$value, pmetaoff:$offset),
                     "prs.storeimm.d", "$value, $offset"> {
   bits<8> value;
   bits<9> offset;
@@ -552,7 +576,7 @@ def PRS_STOREIMM_D : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
   let Inst{19-11} = offset;
 }
 
-def PRS_CAM_N : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+def PRS_CAM_N : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
                     "prs.cam.n", "$dst, $pos, $f, $share, $miss"> {
   bits<1> dst;
   bits<4> pos;
@@ -570,7 +594,7 @@ def PRS_CAM_N : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$
   let Inst{15-11} = miss;
 }
 
-def PRS_CAM_N_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+def PRS_CAM_N_STP : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
                     "prs.cam.n.stp", "$dst, $pos, $f, $share, $miss"> {
   bits<1> dst;
   bits<4> pos;
@@ -588,7 +612,7 @@ def PRS_CAM_N_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uim
   let Inst{15-11} = miss;
 }
 
-def PRS_CAM_B : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+def PRS_CAM_B : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
                     "prs.cam.b", "$dst, $pos, $f, $share, $miss"> {
   bits<1> dst;
   bits<4> pos;
@@ -606,7 +630,7 @@ def PRS_CAM_B : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$
   let Inst{15-11} = miss;
 }
 
-def PRS_CAM_B_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+def PRS_CAM_B_STP : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
                     "prs.cam.b.stp", "$dst, $pos, $f, $share, $miss"> {
   bits<1> dst;
   bits<4> pos;
@@ -624,7 +648,7 @@ def PRS_CAM_B_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uim
   let Inst{15-11} = miss;
 }
 
-def PRS_CAM_H : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+def PRS_CAM_H : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
                     "prs.cam.h", "$dst, $pos, $f, $share, $miss"> {
   bits<1> dst;
   bits<4> pos;
@@ -642,7 +666,7 @@ def PRS_CAM_H : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$
   let Inst{15-11} = miss;
 }
 
-def PRS_CAM_H_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+def PRS_CAM_H_STP : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
                     "prs.cam.h.stp", "$dst, $pos, $f, $share, $miss"> {
   bits<1> dst;
   bits<4> pos;
@@ -660,7 +684,7 @@ def PRS_CAM_H_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uim
   let Inst{15-11} = miss;
 }
 
-def PRS_CAM_W : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+def PRS_CAM_W : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
                     "prs.cam.w", "$dst, $pos, $f, $share, $miss"> {
   bits<1> dst;
   bits<4> pos;
@@ -678,7 +702,7 @@ def PRS_CAM_W : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$
   let Inst{15-11} = miss;
 }
 
-def PRS_CAM_W_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+def PRS_CAM_W_STP : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
                     "prs.cam.w.stp", "$dst, $pos, $f, $share, $miss"> {
   bits<1> dst;
   bits<4> pos;
@@ -696,7 +720,7 @@ def PRS_CAM_W_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uim
   let Inst{15-11} = miss;
 }
 
-def PRS_CMPIB_STOP : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
+def PRS_CMPIB_STOP : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
                     "prs.cmpib.stop", "$pos, $value, $mask"> {
   bits<3> pos;
   bits<8> value;
@@ -708,7 +732,7 @@ def PRS_CMPIB_STOP : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask)
   let Inst{18-11} = mask;
 }
 
-def PRS_CMPIB_STOPNODE : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
+def PRS_CMPIB_STOPNODE : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
                     "prs.cmpib.stopnode", "$pos, $value, $mask"> {
   bits<3> pos;
   bits<8> value;
@@ -720,7 +744,7 @@ def PRS_CMPIB_STOPNODE : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$m
   let Inst{18-11} = mask;
 }
 
-def PRS_CMPIB_STOPSUB : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
+def PRS_CMPIB_STOPSUB : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
                     "prs.cmpib.stopsub", "$pos, $value, $mask"> {
   bits<3> pos;
   bits<8> value;
@@ -732,7 +756,7 @@ def PRS_CMPIB_STOPSUB : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$ma
   let Inst{18-11} = mask;
 }
 
-def PRS_CMPIB_FAIL : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
+def PRS_CMPIB_FAIL : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
                     "prs.cmpib.fail", "$pos, $value, $mask"> {
   bits<3> pos;
   bits<8> value;
@@ -744,7 +768,7 @@ def PRS_CMPIB_FAIL : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask)
   let Inst{18-11} = mask;
 }
 
-def PRS_CMPNEIB_STOP : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
+def PRS_CMPNEIB_STOP : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
                     "prs.cmpneib.stop", "$pos, $value, $mask"> {
   bits<3> pos;
   bits<8> value;
@@ -756,7 +780,7 @@ def PRS_CMPNEIB_STOP : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mas
   let Inst{18-11} = mask;
 }
 
-def PRS_CMPNEIB_STOPNODE : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
+def PRS_CMPNEIB_STOPNODE : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
                     "prs.cmpneib.stopnode", "$pos, $value, $mask"> {
   bits<3> pos;
   bits<8> value;
@@ -768,7 +792,7 @@ def PRS_CMPNEIB_STOPNODE : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:
   let Inst{18-11} = mask;
 }
 
-def PRS_CMPNEIB_STOPSUB : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
+def PRS_CMPNEIB_STOPSUB : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
                     "prs.cmpneib.stopsub", "$pos, $value, $mask"> {
   bits<3> pos;
   bits<8> value;
@@ -780,7 +804,7 @@ def PRS_CMPNEIB_STOPSUB : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$
   let Inst{18-11} = mask;
 }
 
-def PRS_CMPNEIB_FAIL : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
+def PRS_CMPNEIB_FAIL : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
                     "prs.cmpneib.fail", "$pos, $value, $mask"> {
   bits<3> pos;
   bits<8> value;
@@ -876,6 +900,3 @@ def PRS_ARRAY_READ : PrsInst<(outs), (ins GPR:$rd, GPR:$rs1, PRReg:$preg),
   let Inst{19-15} = rs1;
   let Inst{28-24} = preg;
 }
-
-// L3b (deferred): prose sugar forms — pcurptr+N, paccum[i], value:mask,
-// mult:min, pmeta+N — additional syntaxes over the encodings emitted above.
