@@ -142,6 +142,14 @@ simulator understands the encodings (7.5).
   suffix-variant + alias rows; every spelling still encodes to identical bits and round-trips
   through objdump.
 
+  Landing incrementally: the **dotted-suffix bit-folding** mechanism (load `.be`, cam/length
+  `.stp`, and the cmp `Er` `.stop`/`.stopnode`/`.stopsub`/`.fail` suffixes) is **✅ implemented** —
+  `tools/parser-gen` cross-products each folded field with the `Sz` suffix (56 → 100 gas rows),
+  the intrinsics keep the folded field as a parameter (bits unchanged), and `parser-asm-test`
+  round-trips all spellings while `parser-spike-slice`/`parser-qemu-slice` stay byte-identical
+  (53 words) and 22/0. Still to land: mnemonic aliases + destination decoration (the single
+  `prs.cam` `D`-select collapse), and the `mult:min` / `pmeta+N` operand forms.
+
 ### 7.4 Level 3 — LLVM / GCC
 
 - **LLVM MC** layer first (assemble/disassemble), then **intrinsics/builtins** so
