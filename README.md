@@ -132,10 +132,13 @@ complete; phases are now being built in order.
   `paccum[i]`, `value:mask`, `mult:min`) to byte-identical goldens — full binutils parity for the
   MC layer (all 38 vector lines assemble + round-trip, 0 deferred). The **Clang** leg has stood up
   (C0, `nix run .#parser-clang-check`): a `clang` built against the parser-patched libLLVM whose
-  integrated assembler already assembles `prs.*` to the golden words and compiles the C slice
-  byte-identical to the model ROM — the foundation for `__builtin_riscv_prs_*`. Still open (the
-  deferred tail): the Clang builtins codegen itself (C1+) and optional GCC **builtins**, and the
-  heavyweight random-*instruction* checks (full upstream riscv-tests; riscv-dv, blocked on a
+  integrated assembler assembles `prs.*` to the golden words and compiles the C slice byte-identical
+  to the model ROM. On top of it, **C1** adds `__builtin_riscv_prs_*` — 67 first-class Clang builtins
+  (one per assembly variant) generated from the same ISA yaml, with Sema immediate-range checking,
+  each lowering to the `prs.*` mnemonic as inline asm (no IR intrinsics / ISel);
+  `nix run .#parser-clang-builtins-test` proves every one emits the exact golden encoding (67/0).
+  Still open (the deferred tail): the builtins C slice on Spike (C2) and optional GCC **builtins**,
+  and the heavyweight random-*instruction* checks (full upstream riscv-tests; riscv-dv, blocked on a
   commercial UVM simulator).
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its

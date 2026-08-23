@@ -276,6 +276,7 @@
           parser-llvm-mc-test = parser-llvm-mc.parser-llvm-mc-test;
           parser-clang = parser-clang.parser-clang;
           parser-clang-check = parser-clang.parser-clang-check;
+          parser-clang-builtins-test = parser-clang.parser-clang-builtins-test;
         };
 
         # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
@@ -407,6 +408,13 @@
         apps.parser-clang-check = {
           type = "app";
           program = "${parser-clang.parser-clang-check}/bin/parser-clang-check";
+        };
+
+        # Phase-7 C1 (Clang builtins): compile every __builtin_riscv_prs_* and check it
+        # emits the exact parser encoding: `nix run .#parser-clang-builtins-test`.
+        apps.parser-clang-builtins-test = {
+          type = "app";
+          program = "${parser-clang.parser-clang-builtins-test}/bin/parser-clang-builtins-test";
         };
 
         # Phase-7 Stage 2 (standalone Spike): run parser ELFs on the runnable parser
