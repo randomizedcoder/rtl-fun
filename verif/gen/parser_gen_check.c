@@ -30,7 +30,9 @@ int main(void)
     /* generated builder  vs  model encoder (same field values) */
     chk("prs.load",     prs_load(2, 1, 12),          prs_enc_load(0, 0, 2, 0, 0, 1, 12));
     chk("prs.load.b",   prs_load(1, 0, 0),           prs_enc_load(0, 0, 1, 0, 0, 0, 0));
-    chk("prs.lencur",   prs_lencur(1, 0, 1, 2, 20),  prs_enc_len(0, 1, 0, 1, 2, 0, 20));
+    chk("prs.lenset",      prs_lenset(1, 0, 3, 8),      prs_enc_len(0, 0, 1, 0, 3, 0, 8));
+    chk("prs.lensetmin",   prs_lensetmin(0, 1, 2, 20),  prs_enc_len(0, 1, 0, 1, 2, 0, 20));
+    chk("prs.lensetconst", prs_lensetconst(0, 40),      prs_enc_len(0, 0, 0, 0, 7, 0, 40));
     chk("prs.store",    prs_store(3, 0, 8),          prs_enc_store(0, 0, 3, 0, 0, 0, 8));
     chk("prs.storeimm", prs_storeimm(1, 4, 16),      prs_enc_storeimm(0, 0, 1, 4, 16));
     chk("prs.cam paccum",  prs_cam(0, 1, 2, 0, 0, 1, 5),   prs_enc_cam(1, 0, 2, 0, 0, 0, 1, 5));

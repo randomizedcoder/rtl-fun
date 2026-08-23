@@ -325,7 +325,15 @@ mnemonics:
   # Kinds:  ptr = `pcurptr+N` displacement (load Offset);  index = `paccum[i]` sub-register index
   # (Pos);  valmask = `value:mask` (cmp Value+Mask, consumes the field named here plus Mask);
   # metaptr = `pmeta+N` displacement into the metadata frame (store/storeimm Offset — a distinct
-  # base from load's packet `pcurptr+N`, since a store targets ps->meta, not the packet).
+  # base from load's packet `pcurptr+N`, since a store targets ps->meta, not the packet);
+  # multmin = `mult:min` (length Shift+Len; assembler sets Shift=log2(mult), mult in {1,2,..,64},
+  # and Len=min; it consumes the field named here plus Len, like valmask consumes Mask).
+  #
+  # `dest: { token: NAME }` (cosmetic-fixed form of `dest`) prints a required leading pseudo-register
+  # that maps to NO field (the discriminator is already pinned in `fixed`): the length family always
+  # targets the current header, spelled `pcurhdr`. Rendered as the `Xph` gas operand (prints the
+  # keyword, consumes no bits); it round-trips but adds no intrinsic parameter. (Contrast the
+  # selecting `dest: { field, map }` on prs.cam, where the keyword picks the D bit.)
   #
   # `suffixes` (Phase-7 prose-freeze) folds an attribute/discriminator FIELD into a dotted mnemonic
   # suffix, exactly like `size_class` folds Sz (§1.12 of phase-1-isa-spec.md). Each entry is
@@ -343,7 +351,12 @@ mnemonics:
   # ⇒ Accum (D=0), `pnext` ⇒ Next (D=1), matching the patent's disassembly (§1.12). Bits unchanged.
   custom0:
     - { asm: prs.load,     group: load,             fixed: { X: 0, D: 0, Blen: 0, Shift: 0 }, operands: [Sz, E, Offset],        size_class: loadstore, prose: { Offset: ptr }, suffixes: [ { field: E, bare: 0, map: { be: 1 } } ] }
-    - { asm: prs.lencur,   group: length,           fixed: { F2: 0 },                         operands: [D, Sz, Pos, Shift, Len], size_class: general, prose: { Pos: index }, suffixes: [ { field: S, bare: 0, map: { stp: 1 } } ] }
+    # lensetconst (Shift=7) MUST precede lenset (Shift is an operand there): a Shift=7 word also
+    # matches lenset's mask, so the more-specific const row must come first for objdump to prefer it
+    # (else it would print mult=2^7=128, which mult:min rejects on reassembly).
+    - { asm: prs.lensetconst, group: length,        fixed: { F2: 0, D: 0, Pos: 0, Shift: 7 }, operands: [Sz, Len],             size_class: general, dest: { token: pcurhdr }, suffixes: [ { field: S, bare: 0, map: { stp: 1 } } ] }
+    - { asm: prs.lenset,      group: length,        fixed: { F2: 0, D: 0 },                   operands: [Sz, Pos, Shift, Len], size_class: general, dest: { token: pcurhdr }, prose: { Pos: index, Shift: multmin }, suffixes: [ { field: S, bare: 0, map: { stp: 1 } } ] }
+    - { asm: prs.lensetmin,   group: length,        fixed: { F2: 0, D: 1 },                   operands: [Sz, Pos, Shift, Len], size_class: general, dest: { token: pcurhdr }, prose: { Pos: index, Shift: multmin }, suffixes: [ { field: S, bare: 0, map: { stp: 1 } } ] }
     - { asm: prs.store,    group: store,            fixed: { S: 0, F: 0, J: 0, Sind: 0 },     operands: [Sz, Pos, Offset],      size_class: loadstore, prose: { Pos: index, Offset: metaptr } }
     - { asm: prs.storeimm, group: storeimm,         fixed: { S: 0, F: 0 },                    operands: [Sz, Value, Offset],    size_class: loadstore, prose: { Offset: metaptr } }
     - { asm: prs.cam,      group: cam,              fixed: { Func3: 0 },                      operands: [D, S, Sz, Pos, F, Share, Miss], size_class: general, dest: { field: D, map: { paccum: 0, pnext: 1 } }, prose: { Pos: index }, suffixes: [ { field: S, bare: 0, map: { stp: 1 } } ] }

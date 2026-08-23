@@ -159,12 +159,23 @@ simulator understands the encodings (7.5).
   **`pmeta+N` store displacement** is **✅ implemented**: the store/storeimm `Offset` now takes the
   `pmeta+N` prose form (a new `metaptr` kind → the `Xpe` binutils operand), a base distinct from
   load's packet `pcurptr+N` because a store targets the metadata frame (`ps->meta`), not the packet.
-  Bits unchanged (same `Offset` field). Still to land, as a single length-family increment so
-  objdump reaches the frozen canonical (`prs.lensetmin.n pcurhdr, paccum[1], 4:20`) in one step: the
-  `prs.lenset{,min,add}` aliases, the `pcurhdr`/`pdathdr` length dest, and the `mult:min` operand
-  (`Shift`=log2(mult), `Len`=min) — these are coupled in the canonical spelling. Also pending: the
-  cosmetic-fixed `paccum` dest on load, and the `prs.cmpi{,ne}` aliases (which target compare
-  variants without an encoder yet).
+  Bits unchanged (same `Offset` field).
+
+  **Length-family notation** is **✅ implemented** — the coupled pieces land together so objdump
+  reaches the frozen canonical `prs.lensetmin.n pcurhdr, paccum[1], 4:20` in one step: (a) the
+  `prs.lenset` (`D`=0) / `prs.lensetmin` (`D`=1) mnemonic aliases fold `D` into the name, replacing
+  `prs.lencur`; (b) a **cosmetic-fixed** `dest: { token: pcurhdr }` prints the required `pcurhdr`
+  destination via the new `Xph` operand (consumes no bits — the length family always targets the
+  current header, `F2`=0); (c) the `mult:min` operand (`Xpl`) sets `Shift`=log2(mult) (mult ∈
+  {1,2,…,64}) and `Len`=min; and (d) `Shift`=7 (constant length) is spelled `prs.lensetconst` (a
+  distinct mnemonic pinning `Shift`=7/`Pos`=0), ordered before `prs.lenset` so objdump prefers it.
+  The `prs_lencur` intrinsic splits into `prs_lenset`/`prs_lensetmin`/`prs_lensetconst` (names track
+  the canonical mnemonics); bits unchanged (byte-parity holds).
+
+  Out of the encoder's scope (no model/encoder, like the TLV loops), so **not** frozen into gas:
+  `PLENDATA`/`PLENDATABND` (the `pdathdr`/`pdatabnd` `F2`=1/2 targets), any `lensetadd`, and the
+  `prs.cmpi{,ne}` compare-with-size aliases. Still pending (presentation only): the cosmetic-fixed
+  `paccum` dest on load.
 
 ### 7.4 Level 3 — LLVM / GCC
 

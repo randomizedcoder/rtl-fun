@@ -2,7 +2,7 @@ diff --git a/gas/config/tc-riscv.c b/gas/config/tc-riscv.c
 index 6bcf538..6b9be82 100644
 --- a/gas/config/tc-riscv.c
 +++ b/gas/config/tc-riscv.c
-@@ -1771,6 +1771,32 @@ validate_riscv_insn (const struct riscv_opcode *opc, int length)
+@@ -1771,6 +1771,37 @@ validate_riscv_insn (const struct riscv_opcode *opc, int length)
  		    goto unknown_validate_operand;
  		}
  		break;
@@ -11,6 +11,11 @@ index 6bcf538..6b9be82 100644
 +		{
 +		case 'r': USE_IMM (5, 24); break; /* p-register, Cpreg[28:24].  */
 +		case 'c': USE_IMM (1, 30); break; /* cam dest paccum/pnext -> D[30].  */
++		case 'h': break;                  /* cosmetic pcurhdr dest (no bits).  */
++		case 'l':                         /* mult:min -> Shift[23:21] + Len[18:11].  */
++		  USE_IMM (3, 21);
++		  USE_IMM (8, 11);
++		  break;
 +		case 'o': /* pcurptr+N displacement, 'XpoN@S' (load Offset).  */
 +		case 'a': /* paccum[i] index, 'XpaN@S' (Pos).  */
 +		case 'e': /* pmeta+N displacement, 'XpeN@S' (store Offset).  */
@@ -35,7 +40,7 @@ index 6bcf538..6b9be82 100644
  	    default:
  	      goto unknown_validate_operand;
  	    }
-@@ -4287,6 +4313,171 @@ riscv_ip (char *str, struct riscv_cl_insn *ip, expressionS *imm_expr,
+@@ -4287,6 +4318,205 @@ riscv_ip (char *str, struct riscv_cl_insn *ip, expressionS *imm_expr,
  		    }
  		  break;
  
@@ -92,6 +97,40 @@ index 6bcf538..6b9be82 100644
 +			else
 +			  break;
 +			INSERT_IMM (1, 30, *ip, d);
++			continue;
++		      }
++		    case 'h': /* cosmetic pcurhdr dest (length family, F2 fixed).  */
++		      /* Required leading keyword that consumes no bits — absence
++			 falls through (break) to the next opcode row.  */
++		      if (strncmp (asarg, "pcurhdr", 7) != 0
++			  || ISALNUM ((unsigned char) asarg[7]))
++			break;
++		      asarg += 7;
++		      continue;
++		    case 'l': /* mult:min -> Shift[23:21]=log2(mult) + Len[18:11]=min.  */
++		      {
++			unsigned mult, shift = 0;
++			my_getExpression (imm_expr, asarg, force_reloc);
++			check_absolute_expr (ip, imm_expr, false);
++			mult = (unsigned) imm_expr->X_add_number;
++			if (mult == 0 || (mult & (mult - 1)) != 0 || mult > 64)
++			  as_bad (_("length mult must be a power of two in 1..64 (%"PRIu64")"),
++				  imm_expr->X_add_number);
++			else
++			  while (mult > 1) { mult >>= 1; shift++; }
++			INSERT_IMM (3, 21, *ip, shift);
++			asarg = expr_parse_end;
++			if (*asarg != ':')
++			  break;
++			asarg++;
++			my_getExpression (imm_expr, asarg, force_reloc);
++			check_absolute_expr (ip, imm_expr, false);
++			if (!VALIDATE_U_IMM (imm_expr->X_add_number, 8))
++			  as_bad (_("improper length min (%"PRIu64")"),
++				  imm_expr->X_add_number);
++			INSERT_IMM (8, 11, *ip, imm_expr->X_add_number);
++			imm_expr->X_op = O_absent;
++			asarg = expr_parse_end;
 +			continue;
 +		      }
 +		    case 'o': /* pcurptr+N displacement, 'XpoN@S' (load Offset).  */
@@ -211,7 +250,7 @@ diff --git a/opcodes/riscv-dis.c b/opcodes/riscv-dis.c
 index 03c8cf1..72bd0de 100644
 --- a/opcodes/riscv-dis.c
 +++ b/opcodes/riscv-dis.c
-@@ -917,6 +917,99 @@ print_insn_args (const char *oparg, insn_t l, bfd_vma pc, disassemble_info *info
+@@ -917,6 +917,109 @@ print_insn_args (const char *oparg, insn_t l, bfd_vma pc, disassemble_info *info
  		  goto undefined_modifier;
  		}
  	      break;
@@ -245,6 +284,16 @@ index 03c8cf1..72bd0de 100644
 +		case 'c': /* cam destination paccum/pnext -> D[30].  */
 +		  print (info->stream, dis_style_register, "%s",
 +			 EXTRACT_U_IMM (1, 30, l) ? "pnext" : "paccum");
++		  break;
++		case 'h': /* cosmetic pcurhdr dest (length family).  */
++		  print (info->stream, dis_style_register, "pcurhdr");
++		  break;
++		case 'l': /* mult:min -> 2^Shift[23:21] : Len[18:11].  */
++		  print (info->stream, dis_style_immediate, "%u",
++			 1u << (unsigned) EXTRACT_U_IMM (3, 21, l));
++		  print (info->stream, dis_style_text, ":");
++		  print (info->stream, dis_style_immediate, "%lu",
++			 (unsigned long) EXTRACT_U_IMM (8, 11, l));
 +		  break;
 +		case 'o': /* pcurptr+N displacement, 'XpoN@S' (load Offset).  */
 +		  {
@@ -315,7 +364,7 @@ diff --git a/opcodes/riscv-opc.c b/opcodes/riscv-opc.c
 index 54887c9..8ad7911 100644
 --- a/opcodes/riscv-opc.c
 +++ b/opcodes/riscv-opc.c
-@@ -3579,6 +3579,101 @@ const struct riscv_opcode riscv_opcodes[] =
+@@ -3579,6 +3579,125 @@ const struct riscv_opcode riscv_opcodes[] =
  {"mips.sdp", 0, INSN_CLASS_XMIPSLSP, "t,r,Xm^(s)", MATCH_MIPS_SDP, MASK_MIPS_SDP, match_opcode, 0 },
  {"mips.swp", 0, INSN_CLASS_XMIPSLSP, "t,r,Xm&(s)", MATCH_MIPS_SWP, MASK_MIPS_SWP, match_opcode, 0 },
  
@@ -341,22 +390,46 @@ index 54887c9..8ad7911 100644
 +{"prs.load.d", 0, INSN_CLASS_I, "Xtu9@11", 0x0000000b, 0xfff007ff, match_opcode, 0},
 +{"prs.load.d.be", 0, INSN_CLASS_I, "Xpo9@11", 0x0010000b, 0xfff007ff, match_opcode, 0},
 +{"prs.load.d.be", 0, INSN_CLASS_I, "Xtu9@11", 0x0010000b, 0xfff007ff, match_opcode, 0},
-+{"prs.lencur.n", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0x0000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.n", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0x0000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.n.stp", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0x8000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.n.stp", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0x8000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.b", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0x1000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.b", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0x1000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.b.stp", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0x9000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.b.stp", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0x9000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.h", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0x2000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.h", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0x2000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.h.stp", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0xa000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.h.stp", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0xa000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.w", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0x3000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.w", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0x3000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.w.stp", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0xb000010b, 0xb01807ff, match_opcode, 0},
-+{"prs.lencur.w.stp", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0xb000010b, 0xb01807ff, match_opcode, 0},
++{"prs.lensetconst.n", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0x00e0010b, 0xfff807ff, match_opcode, 0},
++{"prs.lensetconst.n.stp", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0x80e0010b, 0xfff807ff, match_opcode, 0},
++{"prs.lensetconst.b", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0x10e0010b, 0xfff807ff, match_opcode, 0},
++{"prs.lensetconst.b.stp", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0x90e0010b, 0xfff807ff, match_opcode, 0},
++{"prs.lensetconst.h", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0x20e0010b, 0xfff807ff, match_opcode, 0},
++{"prs.lensetconst.h.stp", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0xa0e0010b, 0xfff807ff, match_opcode, 0},
++{"prs.lensetconst.w", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0x30e0010b, 0xfff807ff, match_opcode, 0},
++{"prs.lensetconst.w.stp", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0xb0e0010b, 0xfff807ff, match_opcode, 0},
++{"prs.lenset.n", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0x0000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.n", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0x0000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.n.stp", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0x8000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.n.stp", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0x8000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.b", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0x1000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.b", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0x1000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.b.stp", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0x9000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.b.stp", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0x9000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.h", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0x2000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.h", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0x2000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.h.stp", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0xa000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.h.stp", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0xa000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.w", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0x3000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.w", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0x3000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.w.stp", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0xb000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lenset.w.stp", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0xb000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.n", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0x4000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.n", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0x4000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.n.stp", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0xc000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.n.stp", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0xc000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.b", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0x5000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.b", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0x5000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.b.stp", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0xd000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.b.stp", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0xd000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.h", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0x6000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.h", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0x6000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.h.stp", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0xe000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.h.stp", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0xe000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.w", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0x7000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.w", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0x7000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.w.stp", 0, INSN_CLASS_I, "Xph,Xpa4@24,Xpl", 0xf000010b, 0xf01807ff, match_opcode, 0},
++{"prs.lensetmin.w.stp", 0, INSN_CLASS_I, "Xph,Xtu4@24,Xtu3@21,Xtu8@11", 0xf000010b, 0xf01807ff, match_opcode, 0},
 +{"prs.store.b", 0, INSN_CLASS_I, "Xpa4@24,Xpe9@11", 0x1000020b, 0xf0f007ff, match_opcode, 0},
 +{"prs.store.b", 0, INSN_CLASS_I, "Xtu4@24,Xtu9@11", 0x1000020b, 0xf0f007ff, match_opcode, 0},
 +{"prs.store.h", 0, INSN_CLASS_I, "Xpa4@24,Xpe9@11", 0x2000020b, 0xf0f007ff, match_opcode, 0},

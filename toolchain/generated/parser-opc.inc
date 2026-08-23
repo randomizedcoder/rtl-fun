@@ -3,8 +3,12 @@
 
 #define MATCH_PRS_LOAD 0x0000000b
 #define MASK_PRS_LOAD 0xcfe007ff
-#define MATCH_PRS_LENCUR 0x0000010b
-#define MASK_PRS_LENCUR 0x001807ff
+#define MATCH_PRS_LENSETCONST 0x00e0010b
+#define MASK_PRS_LENSETCONST 0x4ff807ff
+#define MATCH_PRS_LENSET 0x0000010b
+#define MASK_PRS_LENSET 0x401807ff
+#define MATCH_PRS_LENSETMIN 0x4000010b
+#define MASK_PRS_LENSETMIN 0x401807ff
 #define MATCH_PRS_STORE 0x0000020b
 #define MASK_PRS_STORE 0xc0f007ff
 #define MATCH_PRS_STOREIMM 0x0000030b
@@ -35,7 +39,9 @@
 /* PARSER_OPS(X): X(mnemonic, cname, match, mask, operand-count) */
 #define PARSER_OPS(X) \
   X("prs.load", prs_load, MATCH_PRS_LOAD, MASK_PRS_LOAD, 3) \
-  X("prs.lencur", prs_lencur, MATCH_PRS_LENCUR, MASK_PRS_LENCUR, 5) \
+  X("prs.lensetconst", prs_lensetconst, MATCH_PRS_LENSETCONST, MASK_PRS_LENSETCONST, 2) \
+  X("prs.lenset", prs_lenset, MATCH_PRS_LENSET, MASK_PRS_LENSET, 4) \
+  X("prs.lensetmin", prs_lensetmin, MATCH_PRS_LENSETMIN, MASK_PRS_LENSETMIN, 4) \
   X("prs.store", prs_store, MATCH_PRS_STORE, MASK_PRS_STORE, 3) \
   X("prs.storeimm", prs_storeimm, MATCH_PRS_STOREIMM, MASK_PRS_STOREIMM, 3) \
   X("prs.cam", prs_cam, MATCH_PRS_CAM, MASK_PRS_CAM, 7) \
