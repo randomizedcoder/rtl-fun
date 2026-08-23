@@ -129,7 +129,9 @@ Loads 1/2/4/**8** bytes (per `Sz`; load `Sz==0` = 8 bytes) from the packet buffe
 into a register. Attributes:
 - **X-bit** — source: X set → data pointer `pdatptr+Offset`; clear → current pointer
   `pcurptr+Offset`.
-- **E-bit** — endian swap (big-endian byte-swap before storing).
+- **E-bit / `.be`** — field byte order. Network fields are big-endian; `E=1` (assembler suffix
+  `.be`) keeps the big-endian value (its true numeric value — the common case), `E=0` (bare
+  mnemonic) byte-swaps to the opposite order. (Model: `read_be` then `E ? keep : byteswap`.)
 - **Shift** — left shift after the optional swap.
 - **Blen** — number of high-order bits masked to zero (doubled when `Sz==0`).
 
@@ -224,20 +226,70 @@ the text: `OKAY_RET`, `STOP_OKAY`, `STOP_NODE_OKAY`, `STOP_SUB_NODE_OKAY`,
 
 ```asm
 ether_node:
-    prs.load.h     paccum, pcurptr+12          ; EtherType; last off=13 ⇒ CurHdr.Length=14
-    prs.cam.h.stp  pnext,  paccum[0], 1         ; shared table 1: EtherType→node; end-of-node
+    prs.load.h.be  paccum, pcurptr+12          ; EtherType (big-endian); last off=13 ⇒ CurHdr.Length=14
+    prs.cam.h.stp  pnext,  paccum[0], 1         ; shared table 1: EtherType→node; pnext ⇒ Next (D=1); end-of-node
 ipv4_node:
-    prs.load.b     paccum, pcurptr             ; version + IHL
+    prs.load.b     paccum, pcurptr             ; version + IHL (single byte, no .be)
     prs.lensetmin.n pcurhdr, paccum[1], 4:20    ; CurHdr.Length = IHL×4, min 20; sets DataBound
-    prs.cmpi.b.fail paccum, 0x40:0xf0           ; version nibble == 4 (value:mask), else exit
-    prs.load.b     paccum, pcurptr+9           ; IP protocol
-    prs.cam.b.stp  pnext,  paccum[0], 2         ; table 2: proto→node; end-of-node
+    prs.cmpi.b.fail paccum[0], 0x40:0xf0        ; version nibble == 4 (value:mask), else exit
+    prs.load.b     paccum, pcurptr+9           ; IP protocol (single byte, no .be)
+    prs.cam.b.stp  pnext,  paccum[0], 2         ; table 2: proto→node; pnext ⇒ Next (D=1); end-of-node
 ```
 
 The patent's fuller worked program (Ethernet/IPv4/TCP-options/GRE flag-fields, ~20
 instructions using `prs.tlvfastloop`, `prs.flagsloop.rev`, `prs.camjumploop`,
 `prs.runthread`) is the reference to grow the slice toward — see the patent text
 around its multi-protocol example.
+
+### 1.12 Assembly notation (frozen)
+
+The assembler/disassembler notation is **frozen** here (Phase-7 prose-freeze). Every spelling below
+encodes to the exact same bits as the positional "Hybrid" form; `objdump` prints the canonical
+spelling and it reassembles unchanged. Implemented by `tools/parser-gen` + the binutils patch
+(see [phase-7-toolchain.md](phase-7-toolchain.md) §7.3).
+
+**Dotted suffixes** — fold an attribute/discriminator bit into the mnemonic, exactly like the size
+suffix `.b/.h/.w/.n/.d`:
+
+| Suffix | Field → value | Meaning | Applies to |
+|--------|---------------|---------|------------|
+| `.be` | `E`=1 | field is big-endian — keep its numeric value (bare = `E`=0 = byte-swap) | load |
+| `.stp` | `S`=1 | end-of-node (set the group's S bit) | cam, length family |
+| `.min` | `D`=1 | `Len` is a minimum (see `mult:min`) | length family |
+| `.stop`/`.stopnode`/`.stopsub`/`.fail` | `Er`=0/1/2/3 | compare on-false action (bare = `.fail` = 3) | cmp family |
+| `.wild`/`.alt`/`.stop`/`.stopsub`/`.fail`/`.failsub` | `Miss` | CAM miss disposition | cam |
+
+**Mnemonic aliases** — fold bits into the mnemonic name:
+
+| Alias | Canonical encoding |
+|-------|--------------------|
+| `prs.lenset` / `prs.lensetmin` / `prs.lensetadd` | the length op (`prs.lencur`) with `D`=0 / `D`=1 / the add-form |
+| `prs.cmpi.<sz>[.action]` / `prs.cmpine.<sz>[.action]` | the compare family with `Sz` + `Er` folded into the name |
+
+**Operands:**
+
+| Form | Field(s) | Meaning |
+|------|----------|---------|
+| `pcurptr+N` | load `Offset` | packet displacement from the current pointer (bare `pcurptr` = 0) |
+| `pmeta+N` | store/storeimm `Offset` | displacement into the **metadata frame** (store targets the metadata, not the packet) |
+| `paccum[i]` | `Pos` | Accum sub-register index |
+| `value:mask` | cmp `Value`+`Mask` | joint immediate pair |
+| `mult:min` | length `Shift`+`Len` | `Shift = log2(mult)`, mult ∈ {1,2,4,…,64}; `Len = min`. `Shift==7` is the constant-length sentinel, spelled separately. |
+
+**Destination decoration** — each op names its destination pseudo-register as the leading operand.
+For most ops it is fixed by the opcode (disassembly derives it); for `prs.cam` the destination
+**selects** the `D` bit — a single `prs.cam` mnemonic (there is no separate `prs.camnext`), matching
+the patent's disassembly:
+
+| Pseudo-reg | Meaning |
+|------------|---------|
+| `paccum` | load destination (fixed); `prs.cam … paccum` ⇒ Accum (`D`=0) |
+| `pnext` | `prs.cam … pnext` ⇒ Next (`D`=1) — the destination selects the CAM `D` bit |
+| `pcurhdr` / `pdathdr` | length family: CurHdr vs DataHdr target |
+
+Note: `prs.cam…stp` (the S bit inside the CAM word) and a standalone `prs.stp` (a `next`-group word)
+have the same run-time effect (end-of-node) but are **different encodings** — not interchangeable at
+the bit level.
 
 ## Step-by-step tasks
 

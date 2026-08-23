@@ -35,10 +35,14 @@ the cheap thing first; only add heavyweight tool support once the ISA has settle
 >   `nix run .#parser-asm-test` assembles every mnemonic (both syntaxes) and checks each
 >   word equals the generated/model golden, that objdump renders it readably, **and** that
 >   the disassembly reassembles to the same encodings (round-trip).
-> - **Open:** the *prose-freeze* follow-on — the parts of the docs' prose that need an
->   ISA-notation decision, not just code: the load `E` spelling, `.stp` fused onto CAM,
->   `mult:min` (log2), the `.fail`/`.min`/`.stop` value qualifiers, store `+N`, and the
->   `lensetmin`/`cmpi` mnemonic aliases. Then LLVM MC + intrinsics/builtins and GCC
+> - **In progress — the *prose-freeze* follow-on:** the notation items that needed an
+>   ISA-notation decision (not just code) are now **frozen** in
+>   [phase-1-isa-spec.md](phase-1-isa-spec.md) §1.12: the load `E` → `.be` (E=1 = big-endian),
+>   `.stp` = the group S bit, `mult:min` (log2), the `.stop`/`.stopnode`/`.stopsub`/`.fail`
+>   (cmp `Er`) + CAM `Miss` + `.min` (length `D`) suffixes, store/storeimm `pmeta+N`, required
+>   destination pseudo-registers, and the `prs.lenset{,min,add}` / `prs.cmpi{,ne}` aliases —
+>   being implemented as suffix-variant + alias rows in `tools/parser-gen` + the binutils patch
+>   (bits unchanged; §7.3). Then LLVM MC + intrinsics/builtins and GCC
 >   builtins (L3), and the
 >   heavyweight random-instruction checks — full upstream riscv-tests and riscv-dv (the
 >   latter blocked on a commercial UVM simulator; the Phase-6 Stage-2 campaign randomizes
@@ -121,12 +125,22 @@ simulator understands the encodings (7.5).
   syntaxes hit the exact same word, and the disassembly reassembles (round-trip). The new
   operand classes (`XpoN@S` = `pcurptr+N`, `XpaN@S` = `paccum[i]`, `Xpm` = `value:mask`)
   live in the patch's `Xp` vendor namespace next to `Xpr`.
-- **Deferred — the prose-freeze follow-on:** the parts of the docs' prose that need an
-  ISA-notation decision, not just code, and so must be pinned in the yaml/docs first: the
-  load `E`-bit spelling; `.stp` fused onto CAM (vs the separate `prs.stp`); `mult:min` with
-  the log2 transform; the `.fail`/`.min`/`.stop`/`.stopnode` value qualifiers; store/storeimm
-  `pcurptr+N`; bare pseudo-register *destination* decoration; and the `lensetmin`/`cmpi`
-  mnemonic aliases. None of these round-trip as pure operand sugar today.
+- **Prose-freeze (pinned; implementing):** the notation items that needed an ISA-notation
+  *decision*, not just code, are now **frozen** in
+  [phase-1-isa-spec.md](phase-1-isa-spec.md) §1.12 "Assembly notation (frozen)": the load
+  `E`-bit → `.be` suffix (E=1 = big-endian; the model is the source of truth and the polarity
+  prose was corrected to it); `.stp` = the group S bit on cam/camnext + the length family
+  (distinct from the standalone `prs.stp` `next`-group word — same effect, different encoding);
+  `mult:min` (assembler sets `Shift=log2(mult)`); the `.stop`/`.stopnode`/`.stopsub`/`.fail`
+  (cmp `Er`), CAM `Miss`, and `.min` (length `D`) suffixes; store/storeimm `pmeta+N` (a
+  metadata-frame displacement, distinct from load's packet `pcurptr+N`); required destination
+  pseudo-register decoration (`paccum`/`pnext`/`pcurhdr`/`pdathdr`), where for CAM the
+  `paccum`/`pnext` destination **selects** the `D` bit — a single `prs.cam` mnemonic (no separate
+  `prs.camnext`), matching the patent's disassembly; and the
+  `prs.lenset{,min,add}` / `prs.cmpi{,ne}` mnemonic aliases. Unlike Stage-1.5 these fold bits
+  into the mnemonic/aliases (not pure operand sugar), so they extend `tools/parser-gen` with
+  suffix-variant + alias rows; every spelling still encodes to identical bits and round-trips
+  through objdump.
 
 ### 7.4 Level 3 — LLVM / GCC
 
