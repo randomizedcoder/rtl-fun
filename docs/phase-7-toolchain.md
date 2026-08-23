@@ -172,10 +172,15 @@ simulator understands the encodings (7.5).
   The `prs_lencur` intrinsic splits into `prs_lenset`/`prs_lensetmin`/`prs_lensetconst` (names track
   the canonical mnemonics); bits unchanged (byte-parity holds).
 
+  **Load destination decoration** is **✅ implemented** — a **cosmetic-fixed** `dest: { token: paccum }`
+  prints the required leading `paccum` on every `prs.load` via the new `Xpp` operand (consumes no bits —
+  a load always targets the accumulator), completing the §1.12 rule that *every* op names its
+  destination. Mirrors the length family's `Xph`/`pcurhdr`; `prs_load`'s intrinsic signature is
+  unchanged (bits identical, byte-parity holds). This closes the prose-freeze notation arc.
+
   Out of the encoder's scope (no model/encoder, like the TLV loops), so **not** frozen into gas:
   `PLENDATA`/`PLENDATABND` (the `pdathdr`/`pdatabnd` `F2`=1/2 targets), any `lensetadd`, and the
-  `prs.cmpi{,ne}` compare-with-size aliases. Still pending (presentation only): the cosmetic-fixed
-  `paccum` dest on load.
+  `prs.cmpi{,ne}` compare-with-size aliases.
 
 ### 7.4 Level 3 — LLVM / GCC
 
