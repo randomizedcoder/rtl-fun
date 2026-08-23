@@ -29,19 +29,71 @@
     ]
   },
   {
-    "asm": "prs.lencur",
+    "asm": "prs.lensetconst",
     "opcode": 11,
-    "match": 267,
-    "mask": 1574911,
+    "match": 14680331,
+    "mask": 1341655039,
     "fixed": {
-      "F2": 0
+      "F2": 0,
+      "D": 0,
+      "Pos": 0,
+      "Shift": 7
     },
     "operands": [
       {
-        "name": "D",
-        "hi": 30,
-        "lo": 30
+        "name": "Sz",
+        "hi": 29,
+        "lo": 28
       },
+      {
+        "name": "Len",
+        "hi": 18,
+        "lo": 11
+      }
+    ]
+  },
+  {
+    "asm": "prs.lenset",
+    "opcode": 11,
+    "match": 267,
+    "mask": 1075316735,
+    "fixed": {
+      "F2": 0,
+      "D": 0
+    },
+    "operands": [
+      {
+        "name": "Sz",
+        "hi": 29,
+        "lo": 28
+      },
+      {
+        "name": "Pos",
+        "hi": 27,
+        "lo": 24
+      },
+      {
+        "name": "Shift",
+        "hi": 23,
+        "lo": 21
+      },
+      {
+        "name": "Len",
+        "hi": 18,
+        "lo": 11
+      }
+    ]
+  },
+  {
+    "asm": "prs.lensetmin",
+    "opcode": 11,
+    "match": 1073742091,
+    "mask": 1075316735,
+    "fixed": {
+      "F2": 0,
+      "D": 1
+    },
+    "operands": [
       {
         "name": "Sz",
         "hi": 29,

@@ -42,8 +42,14 @@ int main(int argc, char **argv)
         { "prs.load.b 0",                 prs_load(1, 0, 0) },
         { "prs.load.w.be 4",              prs_load(3, 1, 4) },
         { "prs.load.d 8",                 prs_load(0, 0, 8) },
-        { "prs.lencur.n 1, 1, 2, 20",     prs_lencur(1, 0, 1, 2, 20) },
-        { "prs.lencur.n.stp 1, 1, 2, 20", prs_lencur(1, 0, 1, 2, 20) | (1u << 31) }, /* S=1 via .stp (bit 31) */
+        /* Length family (Hybrid): prs.lenset (D=0) / prs.lensetmin (D=1) fold D into the
+           name; prs.lensetconst pins Shift=7 (constant length); pcurhdr is the required
+           cosmetic dest; Hybrid gives Pos/Shift/Len positionally (prose uses paccum[i]/mult:min). */
+        { "prs.lensetmin.n pcurhdr, 1, 2, 20",     prs_lensetmin(0, 1, 2, 20) },
+        { "prs.lensetmin.n.stp pcurhdr, 1, 2, 20", prs_lensetmin(0, 1, 2, 20) | (1u << 31) }, /* S=1 via .stp */
+        { "prs.lenset.b pcurhdr, 0, 3, 8",         prs_lenset(1, 0, 3, 8) },
+        { "prs.lensetconst.n pcurhdr, 40",         prs_lensetconst(0, 40) },
+        { "prs.lensetconst.b.stp pcurhdr, 8",      prs_lensetconst(1, 8) | (1u << 31) },
         { "prs.store.b 0, 8",             prs_store(1, 0, 8) },
         { "prs.store.h 0, 8",             prs_store(2, 0, 8) },
         { "prs.storeimm.b 4, 3",          prs_storeimm(1, 4, 3) },
@@ -74,7 +80,8 @@ int main(int argc, char **argv)
         { "prs.store.b paccum[0], pmeta+8",     prs_store(1, 0, 8) },
         { "prs.store.h paccum[1], pmeta",       prs_store(2, 1, 0) },
         { "prs.storeimm.b 4, pmeta+3",          prs_storeimm(1, 4, 3) },
-        { "prs.lencur.n 1, paccum[1], 2, 20",   prs_lencur(1, 0, 1, 2, 20) },
+        { "prs.lensetmin.n pcurhdr, paccum[1], 4:20",  prs_lensetmin(0, 1, 2, 20) }, /* mult=4 (Shift=2), min=20 */
+        { "prs.lenset.b pcurhdr, paccum[0], 8:8",      prs_lenset(1, 0, 3, 8) },     /* mult=8 (Shift=3), min=8 */
         { "prs.cam.h.stp pnext, paccum[0], 0, 1, 5",   prs_cam(1, 1, 2, 0, 0, 1, 5) },
         { "prs.cmpib.stopnode paccum[0], 0x40:0xF0",  prs_cmpib(1, 0, 0x40, 0xF0) },
         { "prs.cmpneib.stop paccum[3], 0x11:0xFF",    prs_cmpneib(0, 3, 0x11, 0xFF) },

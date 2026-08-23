@@ -199,7 +199,21 @@ def _prose_token(kind, hi, lo):
         return "Xpm"
     if kind == "metaptr":  # pmeta+N -> w-bit displacement at lo (store/storeimm Offset)
         return f"Xpe{w}@{lo}"
+    if kind == "multmin":  # mult:min -> length Shift[23:21] + Len[18:11] (fixed ranges)
+        return "Xpl"
     raise ValueError(f"parser_gen: unknown prose sugar kind {kind!r}")
+
+
+# Cosmetic-fixed destination pseudo-registers (dest.token): a required leading operand
+# that prints a keyword but consumes no encoding bits (the discriminator is in `fixed`).
+_DEST_TOKENS = {"pcurhdr": "Xph"}
+
+
+def _dest_token(name):
+    try:
+        return _DEST_TOKENS[name]
+    except KeyError:
+        raise ValueError(f"parser_gen: unknown cosmetic dest token {name!r}")
 
 
 def _c0_args(insn, skip=(), prose=False):
@@ -210,11 +224,13 @@ def _c0_args(insn, skip=(), prose=False):
     Everything else stays the stock `XtuN@S`."""
     toks = []
     swallow = False
-    dest_field = insn.dest["field"] if insn.dest else None
+    dest_field = insn.dest.get("field") if insn.dest else None
+    if insn.dest and "token" in insn.dest:  # cosmetic-fixed leading dest (pcurhdr -> Xph)
+        toks.append(_dest_token(insn.dest["token"]))
     for n in insn.operands:
         if n in skip:
             continue
-        if swallow:            # the Mask consumed by a preceding valmask
+        if swallow:            # the field consumed by a preceding valmask/multmin
             swallow = False
             continue
         if n == dest_field:    # leading destination pseudo-register (paccum/pnext -> D)
@@ -223,7 +239,7 @@ def _c0_args(insn, skip=(), prose=False):
         kind = prose and insn.prose.get(n)
         if kind:
             toks.append(_prose_token(kind, *insn.fields[n]))
-            if kind == "valmask":
+            if kind in ("valmask", "multmin"):
                 swallow = True
         else:
             toks.append(_imm_operand(*insn.fields[n]))
@@ -248,6 +264,10 @@ def _args_bits(args):
             bits |= mask_for(26, 19) | mask_for(18, 11)
         elif tok == "Xpc":                   # cam dest paccum/pnext -> D[30]
             bits |= mask_for(30, 30)
+        elif tok == "Xpl":                   # mult:min -> length Shift[23:21] + Len[18:11]
+            bits |= mask_for(23, 21) | mask_for(18, 11)
+        elif tok == "Xph":                   # cosmetic dest pcurhdr -> no bits (F2 fixed)
+            pass
         elif tok.startswith(("Xpo", "Xpa", "Xpe")):  # pcurptr+N / paccum[i] / pmeta+N -> N-bit at S
             n, s = (int(x) for x in re.match(r"Xp[oae](\d+)@(\d+)", tok).groups())
             bits |= mask_for(s + n - 1, s)
@@ -309,6 +329,7 @@ def emit_gas(insns, sizes):
            "/* the mnemonic; each (size × suffix) combination is its own {prose,Hybrid} row pair. */",
            "/* `Xpc` = cam destination pseudo-register (paccum⇒D=0 / pnext⇒D=1), the leading operand */",
            "/* that selects the CAM D bit — the single prs.cam mnemonic (no prs.camnext). */",
+           "/* `Xpl` = mult:min (length Shift[23:21]+Len[18:11]); `Xph` = cosmetic pcurhdr dest. */",
            ""]
     def rows(name, match, hybrid, prose):
         """The prose row (if any) then the Hybrid row for ONE mnemonic name. Prose

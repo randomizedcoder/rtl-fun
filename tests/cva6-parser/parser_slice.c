@@ -78,7 +78,7 @@ void parse_prog(void)
 
     /* ---- ipv4_node @3 ---- */
     PRS_EMIT(prs_load(SZ_B, 0, 0));                   /* [3]  version+IHL byte          */
-    PRS_EMIT(prs_lencur(1, SZ_N, 1, 2, 20));          /* [4]  CurHdr.Length = IHL*4,>=20 */
+    PRS_EMIT(prs_lensetmin(SZ_N, 1, 2, 20));          /* [4]  CurHdr.Length = IHL*4,>=20 */
     PRS_EMIT(prs_cmpib(ER_FAIL, 0, 0x40, 0xF0));      /* [5]  version == 4              */
     PRS_EMIT(prs_load(SZ_W, 1, 12));                  /* [6]  src addr                  */
     PRS_EMIT(prs_store(SZ_W, 0, OFF(ipv4_src)));      /* [7]                            */
@@ -90,7 +90,7 @@ void parse_prog(void)
     PRS_EMIT(prs_cam(1, 1, SZ_B, 0, 0, 2, MISS_STOP)); /* [13] proto_tbl (share 2)     */
 
     /* ---- ipv6_node @14 (fixed 40-byte header; ext headers via ip6nh_tbl) ---- */
-    PRS_EMIT(prs_lencur(0, 0, 0, 7, 40));             /* [14] constant length 40        */
+    PRS_EMIT(prs_lensetconst(0, 40));             /* [14] constant length 40        */
     PRS_EMIT(prs_storeimm(SZ_B, 6, OFF(addr_type)));  /* [15] addr_type = 6             */
     PRS_EMIT(prs_load(SZ_DW, 0, 8));                  /* [16] src[0..7]                 */
     PRS_EMIT(prs_store(SZ_DW, 0, OFF(ipv6_src)));     /* [17]                           */
@@ -121,21 +121,21 @@ void parse_prog(void)
     /* ---- vlan_node @37 (802.1Q/802.1ad; loops back through eth_tbl) ---- */
     PRS_EMIT(prs_load(SZ_H, 1, 2));                   /* [37] inner EtherType           */
     PRS_EMIT(prs_store(SZ_H, 0, OFF(n_proto)));       /* [38]                           */
-    PRS_EMIT(prs_lencur(0, 0, 0, 7, 4));              /* [39] tag remainder = 4 bytes   */
+    PRS_EMIT(prs_lensetconst(0, 4));              /* [39] tag remainder = 4 bytes   */
     PRS_EMIT(prs_cam(1, 1, SZ_H, 0, 0, 1, MISS_STOP)); /* [40] eth_tbl (share 1)       */
 
     /* ---- ip6ext_node @41 (HBH / routing / dest-opts: len = (ExtLen+1)*8) ---- */
     PRS_EMIT(prs_load(SZ_B, 0, 0));                   /* [41] Next Header               */
     PRS_EMIT(prs_store(SZ_B, 0, OFF(ip_proto)));      /* [42] track final proto         */
     PRS_EMIT(prs_load(SZ_B, 0, 1));                   /* [43] Hdr Ext Len               */
-    PRS_EMIT(prs_lencur(0, SZ_B, 0, 3, 8));           /* [44] (ExtLen<<3)+8             */
+    PRS_EMIT(prs_lenset(SZ_B, 0, 3, 8));           /* [44] (ExtLen<<3)+8             */
     PRS_EMIT(prs_load(SZ_B, 0, 0));                   /* [45] reload NH for CAM key     */
     PRS_EMIT(prs_cam(1, 1, SZ_B, 0, 0, 3, MISS_STOP)); /* [46] ip6nh_tbl (share 3)     */
 
     /* ---- ip6frag_node @47 (fragment header: fixed 8 bytes) ---- */
     PRS_EMIT(prs_load(SZ_B, 0, 0));                   /* [47] Next Header               */
     PRS_EMIT(prs_store(SZ_B, 0, OFF(ip_proto)));      /* [48]                           */
-    PRS_EMIT(prs_lencur(0, 0, 0, 7, 8));              /* [49] constant length 8         */
+    PRS_EMIT(prs_lensetconst(0, 8));              /* [49] constant length 8         */
     PRS_EMIT(prs_load(SZ_B, 0, 0));                   /* [50] reload NH for CAM key     */
     PRS_EMIT(prs_cam(1, 1, SZ_B, 0, 0, 3, MISS_STOP)); /* [51] ip6nh_tbl (share 3)     */
 

@@ -255,7 +255,6 @@ suffix `.b/.h/.w/.n/.d`:
 |--------|---------------|---------|------------|
 | `.be` | `E`=1 | field is big-endian — keep its numeric value (bare = `E`=0 = byte-swap) | load |
 | `.stp` | `S`=1 | end-of-node (set the group's S bit) | cam, length family |
-| `.min` | `D`=1 | `Len` is a minimum (see `mult:min`) | length family |
 | `.stop`/`.stopnode`/`.stopsub`/`.fail` | `Er`=0/1/2/3 | compare on-false action (bare = `.fail` = 3) | cmp family |
 | `.wild`/`.alt`/`.stop`/`.stopsub`/`.fail`/`.failsub` | `Miss` | CAM miss disposition | cam |
 
@@ -263,8 +262,12 @@ suffix `.b/.h/.w/.n/.d`:
 
 | Alias | Canonical encoding |
 |-------|--------------------|
-| `prs.lenset` / `prs.lensetmin` / `prs.lensetadd` | the length op (`prs.lencur`) with `D`=0 / `D`=1 / the add-form |
-| `prs.cmpi.<sz>[.action]` / `prs.cmpine.<sz>[.action]` | the compare family with `Sz` + `Er` folded into the name |
+| `prs.lenset` / `prs.lensetmin` | the length op with `D`=0 / `D`=1 folded into the name (replaces `prs.lencur`); `D`=1 is thus the alias, **not** a `.min` suffix |
+| `prs.lensetconst` | the length op with `Shift`=7 (constant length) + `Pos`=0 pinned — the separate spelling for the `mult:min` constant-length sentinel |
+| `prs.cmpi.<sz>[.action]` / `prs.cmpine.<sz>[.action]` | the compare family with `Sz` + `Er` folded into the name — **deferred** (targets compare variants with no encoder yet) |
+
+`prs.lensetadd` and the `pdathdr`/`pdatabnd` (`F2`=1/2) length targets are out of the current
+encoder's scope (no golden-model op) and are not part of the frozen gas set.
 
 **Operands:**
 
@@ -274,7 +277,7 @@ suffix `.b/.h/.w/.n/.d`:
 | `pmeta+N` | store/storeimm `Offset` | displacement into the **metadata frame** (store targets the metadata, not the packet) |
 | `paccum[i]` | `Pos` | Accum sub-register index |
 | `value:mask` | cmp `Value`+`Mask` | joint immediate pair |
-| `mult:min` | length `Shift`+`Len` | `Shift = log2(mult)`, mult ∈ {1,2,4,…,64}; `Len = min`. `Shift==7` is the constant-length sentinel, spelled separately. |
+| `mult:min` | length `Shift`+`Len` | `Shift = log2(mult)`, mult ∈ {1,2,4,…,64}; `Len = min`. `Shift==7` is the constant-length sentinel, spelled `prs.lensetconst` (see above). |
 
 **Destination decoration** — each op names its destination pseudo-register as the leading operand.
 For most ops it is fixed by the opcode (disassembly derives it); for `prs.cam` the destination
@@ -285,7 +288,7 @@ the patent's disassembly:
 |------------|---------|
 | `paccum` | load destination (fixed); `prs.cam … paccum` ⇒ Accum (`D`=0) |
 | `pnext` | `prs.cam … pnext` ⇒ Next (`D`=1) — the destination selects the CAM `D` bit |
-| `pcurhdr` / `pdathdr` | length family: CurHdr vs DataHdr target |
+| `pcurhdr` | length family (in scope): required cosmetic dest, always `F2`=0 (CurHdr). `pdathdr` (`F2`=1, DataHdr) is deferred — no encoder yet |
 
 Note: `prs.cam…stp` (the S bit inside the CAM word) and a standalone `prs.stp` (a `next`-group word)
 have the same run-time effect (end-of-node) but are **different encodings** — not interchangeable at

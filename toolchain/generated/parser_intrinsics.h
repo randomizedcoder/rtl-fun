@@ -11,8 +11,12 @@
 
 static inline uint32_t prs_load(unsigned sz, unsigned e, unsigned offset)
 { return 0x0000000bu | ((sz & 0x3u) << 28) | ((e & 0x1u) << 20) | ((offset & 0x1ffu) << 11); }
-static inline uint32_t prs_lencur(unsigned d, unsigned sz, unsigned pos, unsigned shift, unsigned len)
-{ return 0x0000010bu | ((d & 0x1u) << 30) | ((sz & 0x3u) << 28) | ((pos & 0xfu) << 24) | ((shift & 0x7u) << 21) | ((len & 0xffu) << 11); }
+static inline uint32_t prs_lensetconst(unsigned sz, unsigned len)
+{ return 0x00e0010bu | ((sz & 0x3u) << 28) | ((len & 0xffu) << 11); }
+static inline uint32_t prs_lenset(unsigned sz, unsigned pos, unsigned shift, unsigned len)
+{ return 0x0000010bu | ((sz & 0x3u) << 28) | ((pos & 0xfu) << 24) | ((shift & 0x7u) << 21) | ((len & 0xffu) << 11); }
+static inline uint32_t prs_lensetmin(unsigned sz, unsigned pos, unsigned shift, unsigned len)
+{ return 0x4000010bu | ((sz & 0x3u) << 28) | ((pos & 0xfu) << 24) | ((shift & 0x7u) << 21) | ((len & 0xffu) << 11); }
 static inline uint32_t prs_store(unsigned sz, unsigned pos, unsigned offset)
 { return 0x0000020bu | ((sz & 0x3u) << 28) | ((pos & 0xfu) << 24) | ((offset & 0x1ffu) << 11); }
 static inline uint32_t prs_storeimm(unsigned sz, unsigned value, unsigned offset)
