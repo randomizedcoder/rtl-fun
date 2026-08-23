@@ -202,6 +202,10 @@
         # the assembler round-trip test (`nix run .#parser-asm-test`).
         parser-asm = import ./nix/parser-asm-test.nix { inherit pkgs; };
 
+        # Phase-7 L3 (LLVM MC): a parser-patched llvm (RISCV-only) + the llvm-mc
+        # assemble/disassemble round-trip test (`nix run .#parser-llvm-mc-test`).
+        parser-llvm-mc = import ./nix/parser-llvm-mc-test.nix { inherit pkgs; };
+
         # The default development shell (exports CVA6_SRC -> the pinned source,
         # and puts the cva6-baseline app on PATH).
         devshell = import ./nix/devshell.nix {
@@ -262,6 +266,9 @@
           # Phase-7 L2: the parser-patched binutils + the assembler test.
           parser-binutils = parser-asm.parser-binutils;
           parser-asm-test = parser-asm.parser-asm-test;
+          # Phase-7 L3: the parser-patched llvm + the llvm-mc test.
+          parser-llvm = parser-llvm-mc.parser-llvm;
+          parser-llvm-mc-test = parser-llvm-mc.parser-llvm-mc-test;
         };
 
         # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
@@ -377,6 +384,14 @@
         apps.parser-asm-test = {
           type = "app";
           program = "${parser-asm.parser-asm-test}/bin/parser-asm-test";
+        };
+
+        # Phase-7 L3 (LLVM MC): assemble + disassemble the parser mnemonics with the
+        # patched llvm-mc/llvm-objdump == the generated/model goldens (round-trip):
+        # `nix run .#parser-llvm-mc-test`.
+        apps.parser-llvm-mc-test = {
+          type = "app";
+          program = "${parser-llvm-mc.parser-llvm-mc-test}/bin/parser-llvm-mc-test";
         };
 
         # Phase-7 Stage 2 (standalone Spike): run parser ELFs on the runnable parser

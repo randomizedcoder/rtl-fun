@@ -187,7 +187,32 @@ simulator understands the encodings (7.5).
 - **LLVM MC** layer first (assemble/disassemble), then **intrinsics/builtins** so
   the parser unit is reachable from Clang without inline asm.
 - GCC builtins optional/parallel.
-- Only worthwhile once encodings are frozen — churn here is expensive.
+- Only worthwhile once encodings are frozen — churn here is expensive. (The notation
+  freeze is now complete, so this leg is unblocked.)
+
+  **LLVM MC — L1 (immediate-only ops) ✅.** The LLVM twin of the binutils leg (§7.3),
+  generated from the same `isa/parser-opcodes.yaml`. `tools/parser-gen`'s `emit_llvm`
+  writes a TableGen fragment ([`toolchain/generated/parser-llvm.td`](../toolchain/generated/parser-llvm.td));
+  [`nix/parser-llvm.nix`](../nix/parser-llvm.nix) patches the in-tree RISC-V target
+  (`RISCVInstrInfoXparser.td`, included from `RISCVInstrInfo.td`) with it, scoped to
+  `LLVM_TARGETS_TO_BUILD=RISCV` to keep the from-source rebuild small. The ops live in the
+  **default RISCV decoder namespace with no predicate** — always assemblable, the analogue
+  of the binutils `INSN_CLASS_I` rows (custom-0 `0x0b` / custom-3 `0x7b` are unused by the
+  base ISA, so there is no matcher/decoder conflict and no `-mattr` gate; assembly **and**
+  disassembly work with zero custom C++). `nix run .#parser-llvm-mc-test`
+  ([`scripts/parser-llvm-mc-test.sh`](../scripts/parser-llvm-mc-test.sh)) drives the SAME
+  `verif/gen/parser_asm_vectors.c` vectors through `llvm-mc`/`llvm-objdump`: it classifies
+  each line (assembled → its word MUST equal the golden; rejected → logged as DEFERRED,
+  never silently dropped) and round-trips the disassembly. L1 covers the **immediate-only**
+  custom-0 ops (`store`/`storeimm`/`cmpib`/`cmpneib`/`nextnode`/`setcode`/`stp`) — every
+  operand is a stock `uimmN`, so no custom operand class is needed (10 vector lines, 0
+  mismatches). Bit-identical to the model/binutils (same `match | suffix-delta` word).
+
+  Deferred to later L increments (need custom operand classes, mirroring the binutils `Xp*`
+  family): **L2** the p-register `RegisterClass` → the custom-3 moves + `Xpr`; **L3** the
+  destination decoration (`paccum`/`pnext`/`pcurhdr` on load/cam/length) and the prose sugar
+  (`pcurptr+N`, `paccum[i]`, `value:mask`, `mult:min`, `pmeta+N`) — reaching full binutils
+  parity. Then Clang **intrinsics/builtins**.
 
 ### 7.5 Level 4 — ISA simulators
 
