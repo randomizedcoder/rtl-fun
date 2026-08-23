@@ -32,9 +32,8 @@
     "asm": "prs.lencur",
     "opcode": 11,
     "match": 267,
-    "mask": 2149058559,
+    "mask": 1574911,
     "fixed": {
-      "S": 0,
       "F2": 0
     },
     "operands": [

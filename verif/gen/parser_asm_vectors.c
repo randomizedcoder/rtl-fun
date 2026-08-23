@@ -33,18 +33,27 @@ int main(int argc, char **argv)
     /* asm operands and intrinsic args correspond field-for-field; the dotted size
        suffix folds Sz (loadstore: b=1,h=2,w=3,d=0; general: n=0,b=1,h=2,w=3). */
     const struct vec v[] = {
-        { "prs.load.h 1, 12",             prs_load(2, 1, 12) },
-        { "prs.load.b 0, 0",              prs_load(1, 0, 0) },
-        { "prs.load.w 1, 4",              prs_load(3, 1, 4) },
-        { "prs.load.d 0, 8",              prs_load(0, 0, 8) },
+        /* Dotted suffixes fold a field into the mnemonic (Phase-7 prose-freeze):
+           load E -> .be (bare = E=0); cam/length S -> .stp; cmp Er ->
+           .stop/.stopnode/.stopsub/.fail. The intrinsic still takes the folded field
+           as a parameter, so the expected word is unchanged (bits identical). */
+        { "prs.load.h.be 12",             prs_load(2, 1, 12) },   /* E=1 via .be */
+        { "prs.load.h 12",                prs_load(2, 0, 12) },   /* E=0 bare */
+        { "prs.load.b 0",                 prs_load(1, 0, 0) },
+        { "prs.load.w.be 4",              prs_load(3, 1, 4) },
+        { "prs.load.d 8",                 prs_load(0, 0, 8) },
         { "prs.lencur.n 1, 1, 2, 20",     prs_lencur(1, 0, 1, 2, 20) },
+        { "prs.lencur.n.stp 1, 1, 2, 20", prs_lencur(1, 0, 1, 2, 20) | (1u << 31) }, /* S=1 via .stp (bit 31) */
         { "prs.store.b 0, 8",             prs_store(1, 0, 8) },
         { "prs.store.h 0, 8",             prs_store(2, 0, 8) },
         { "prs.storeimm.b 4, 3",          prs_storeimm(1, 4, 3) },
-        { "prs.cam.h 1, 0, 0, 1, 5",      prs_cam(1, 2, 0, 0, 1, 5) },
-        { "prs.camnext.h 1, 0, 0, 1, 5",  prs_camnext(1, 2, 0, 0, 1, 5) },
-        { "prs.cmpib 1, 0, 0x40, 0xF0",   prs_cmpib(1, 0, 0x40, 0xF0) },
-        { "prs.cmpneib 0, 3, 0x11, 0xFF", prs_cmpneib(0, 3, 0x11, 0xFF) },
+        { "prs.cam.h.stp 0, 0, 1, 5",     prs_cam(1, 2, 0, 0, 1, 5) },   /* S=1 via .stp */
+        { "prs.cam.h 0, 0, 1, 5",         prs_cam(0, 2, 0, 0, 1, 5) },   /* S=0 bare */
+        { "prs.camnext.h.stp 0, 0, 1, 5", prs_camnext(1, 2, 0, 0, 1, 5) },
+        { "prs.cmpib.stopnode 0, 0x40, 0xF0", prs_cmpib(1, 0, 0x40, 0xF0) },
+        { "prs.cmpib.fail 0, 0x40, 0xF0",     prs_cmpib(3, 0, 0x40, 0xF0) },
+        { "prs.cmpneib.stop 3, 0x11, 0xFF",   prs_cmpneib(0, 3, 0x11, 0xFF) },
+        { "prs.cmpneib.stopsub 3, 0x11, 0xFF", prs_cmpneib(2, 3, 0x11, 0xFF) },
         { "prs.nextnode 0x1234",          prs_nextnode(0x1234) },
         { "prs.setcode 0xF4",             prs_setcode(0xF4) },
         { "prs.stp",                      prs_stp() },
@@ -54,16 +63,16 @@ int main(int argc, char **argv)
         { "prs.cam.read a5, a4, p0",      prs_cam_read(0, 14, 15) },
         { "prs.array.read a5, a4, p0",    prs_array_read(0, 14, 15) },
 
-        /* Stage-1.5 prose sugar. Same encodings as the Hybrid forms above, so
-           gas accepts both: pcurptr+N -> load Offset; paccum[i] -> Pos;
-           value:mask -> cmp Value/Mask. `pcurptr` bare == Offset 0. */
-        { "prs.load.h 1, pcurptr+12",           prs_load(2, 1, 12) },
-        { "prs.load.b 0, pcurptr",              prs_load(1, 0, 0) },
+        /* Stage-1.5 prose sugar, now combined with the freeze suffixes. Same
+           encodings as the Hybrid forms above: pcurptr+N -> load Offset; paccum[i]
+           -> Pos; value:mask -> cmp Value/Mask. `pcurptr` bare == Offset 0. */
+        { "prs.load.h.be pcurptr+12",           prs_load(2, 1, 12) },
+        { "prs.load.b pcurptr",                 prs_load(1, 0, 0) },
         { "prs.store.b paccum[0], 8",           prs_store(1, 0, 8) },
         { "prs.lencur.n 1, paccum[1], 2, 20",   prs_lencur(1, 0, 1, 2, 20) },
-        { "prs.cam.h 1, paccum[0], 0, 1, 5",    prs_cam(1, 2, 0, 0, 1, 5) },
-        { "prs.cmpib 1, paccum[0], 0x40:0xF0",  prs_cmpib(1, 0, 0x40, 0xF0) },
-        { "prs.cmpneib 0, paccum[3], 0x11:0xFF", prs_cmpneib(0, 3, 0x11, 0xFF) },
+        { "prs.cam.h.stp paccum[0], 0, 1, 5",   prs_cam(1, 2, 0, 0, 1, 5) },
+        { "prs.cmpib.stopnode paccum[0], 0x40:0xF0",  prs_cmpib(1, 0, 0x40, 0xF0) },
+        { "prs.cmpneib.stop paccum[3], 0x11:0xFF",    prs_cmpneib(0, 3, 0x11, 0xFF) },
     };
     const size_t n = sizeof v / sizeof v[0];
 
