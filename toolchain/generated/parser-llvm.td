@@ -58,6 +58,416 @@ class PrsInst<dag outs, dag ins, string opcodestr, string argstr>
   let hasNoSchedulingInfo = 1;
 }
 
+// Destination pseudo-registers (L3a); C++ in the nix/parser-llvm patch.
+class PrsDestOpnd<string nm, string parser, string pred> : AsmOperandClass {
+  let Name = nm;
+  let RenderMethod = "addImmOperands";
+  let ParserMethod = parser;
+  let PredicateMethod = pred;
+}
+def AccumDestOpnd  : PrsDestOpnd<"AccumDest",  "parseAccumDest",  "isAccumDest">;
+def CamDestOpnd    : PrsDestOpnd<"CamDest",    "parseCamDest",    "isCamDest">;
+def CurHdrDestOpnd : PrsDestOpnd<"CurHdrDest", "parseCurHdrDest", "isCurHdrDest">;
+class PrsDestOp<AsmOperandClass mc, string pm> : Operand<i32> {
+  let ParserMatchClass = mc;
+  let PrintMethod = pm;
+}
+def accumdest  : PrsDestOp<AccumDestOpnd,  "printAccumDest">;
+def camdest    : PrsDestOp<CamDestOpnd,    "printCamDest">;
+def curhdrdest : PrsDestOp<CurHdrDestOpnd, "printCurHdrDest">;
+
+def PRS_LOAD_B : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+                    "prs.load.b", "$dst, $offset"> {
+  bits<1> dst;
+  bits<9> offset;
+  let Inst{10-0} = 0xb;
+  let Inst{29-20} = 0x100;
+  let Inst{31} = 0x0;
+  let Inst{30-30} = dst;
+  let Inst{19-11} = offset;
+}
+
+def PRS_LOAD_B_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+                    "prs.load.b.be", "$dst, $offset"> {
+  bits<1> dst;
+  bits<9> offset;
+  let Inst{10-0} = 0xb;
+  let Inst{29-20} = 0x101;
+  let Inst{31} = 0x0;
+  let Inst{30-30} = dst;
+  let Inst{19-11} = offset;
+}
+
+def PRS_LOAD_H : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+                    "prs.load.h", "$dst, $offset"> {
+  bits<1> dst;
+  bits<9> offset;
+  let Inst{10-0} = 0xb;
+  let Inst{29-20} = 0x200;
+  let Inst{31} = 0x0;
+  let Inst{30-30} = dst;
+  let Inst{19-11} = offset;
+}
+
+def PRS_LOAD_H_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+                    "prs.load.h.be", "$dst, $offset"> {
+  bits<1> dst;
+  bits<9> offset;
+  let Inst{10-0} = 0xb;
+  let Inst{29-20} = 0x201;
+  let Inst{31} = 0x0;
+  let Inst{30-30} = dst;
+  let Inst{19-11} = offset;
+}
+
+def PRS_LOAD_W : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+                    "prs.load.w", "$dst, $offset"> {
+  bits<1> dst;
+  bits<9> offset;
+  let Inst{10-0} = 0xb;
+  let Inst{29-20} = 0x300;
+  let Inst{31} = 0x0;
+  let Inst{30-30} = dst;
+  let Inst{19-11} = offset;
+}
+
+def PRS_LOAD_W_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+                    "prs.load.w.be", "$dst, $offset"> {
+  bits<1> dst;
+  bits<9> offset;
+  let Inst{10-0} = 0xb;
+  let Inst{29-20} = 0x301;
+  let Inst{31} = 0x0;
+  let Inst{30-30} = dst;
+  let Inst{19-11} = offset;
+}
+
+def PRS_LOAD_D : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+                    "prs.load.d", "$dst, $offset"> {
+  bits<1> dst;
+  bits<9> offset;
+  let Inst{10-0} = 0xb;
+  let Inst{29-20} = 0x0;
+  let Inst{31} = 0x0;
+  let Inst{30-30} = dst;
+  let Inst{19-11} = offset;
+}
+
+def PRS_LOAD_D_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
+                    "prs.load.d.be", "$dst, $offset"> {
+  bits<1> dst;
+  bits<9> offset;
+  let Inst{10-0} = 0xb;
+  let Inst{29-20} = 0x1;
+  let Inst{31} = 0x0;
+  let Inst{30-30} = dst;
+  let Inst{19-11} = offset;
+}
+
+def PRS_LENSETCONST_N : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
+                    "prs.lensetconst.n", "$dst, $len"> {
+  bits<2> dst;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-21} = 0x7;
+  let Inst{20-19} = dst;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETCONST_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
+                    "prs.lensetconst.n.stp", "$dst, $len"> {
+  bits<2> dst;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-21} = 0x407;
+  let Inst{20-19} = dst;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETCONST_B : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
+                    "prs.lensetconst.b", "$dst, $len"> {
+  bits<2> dst;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-21} = 0x87;
+  let Inst{20-19} = dst;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETCONST_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
+                    "prs.lensetconst.b.stp", "$dst, $len"> {
+  bits<2> dst;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-21} = 0x487;
+  let Inst{20-19} = dst;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETCONST_H : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
+                    "prs.lensetconst.h", "$dst, $len"> {
+  bits<2> dst;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-21} = 0x107;
+  let Inst{20-19} = dst;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETCONST_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
+                    "prs.lensetconst.h.stp", "$dst, $len"> {
+  bits<2> dst;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-21} = 0x507;
+  let Inst{20-19} = dst;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETCONST_W : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
+                    "prs.lensetconst.w", "$dst, $len"> {
+  bits<2> dst;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-21} = 0x187;
+  let Inst{20-19} = dst;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETCONST_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
+                    "prs.lensetconst.w.stp", "$dst, $len"> {
+  bits<2> dst;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-21} = 0x587;
+  let Inst{20-19} = dst;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSET_N : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lenset.n", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0x0;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSET_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lenset.n.stp", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0x8;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSET_B : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lenset.b", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0x1;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSET_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lenset.b.stp", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0x9;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSET_H : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lenset.h", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0x2;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSET_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lenset.h.stp", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0xa;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSET_W : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lenset.w", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0x3;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSET_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lenset.w.stp", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0xb;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETMIN_N : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lensetmin.n", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0x4;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETMIN_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lensetmin.n.stp", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0xc;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETMIN_B : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lensetmin.b", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0x5;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETMIN_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lensetmin.b.stp", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0xd;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETMIN_H : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lensetmin.h", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0x6;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETMIN_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lensetmin.h.stp", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0xe;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETMIN_W : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lensetmin.w", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0x7;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
+def PRS_LENSETMIN_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
+                    "prs.lensetmin.w.stp", "$dst, $pos, $shift, $len"> {
+  bits<2> dst;
+  bits<4> pos;
+  bits<3> shift;
+  bits<8> len;
+  let Inst{10-0} = 0x10b;
+  let Inst{31-28} = 0xf;
+  let Inst{20-19} = dst;
+  let Inst{27-24} = pos;
+  let Inst{23-21} = shift;
+  let Inst{18-11} = len;
+}
+
 def PRS_STORE_B : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
                     "prs.store.b", "$pos, $offset"> {
   bits<4> pos;
@@ -140,6 +550,150 @@ def PRS_STOREIMM_D : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
   let Inst{31-28} = 0x0;
   let Inst{27-20} = value;
   let Inst{19-11} = offset;
+}
+
+def PRS_CAM_N : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+                    "prs.cam.n", "$dst, $pos, $f, $share, $miss"> {
+  bits<1> dst;
+  bits<4> pos;
+  bits<1> f;
+  bits<4> share;
+  bits<5> miss;
+  let Inst{10-0} = 0x40b;
+  let Inst{23-21} = 0x0;
+  let Inst{29-28} = 0x0;
+  let Inst{31} = 0x0;
+  let Inst{30-30} = dst;
+  let Inst{27-24} = pos;
+  let Inst{20-20} = f;
+  let Inst{19-16} = share;
+  let Inst{15-11} = miss;
+}
+
+def PRS_CAM_N_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+                    "prs.cam.n.stp", "$dst, $pos, $f, $share, $miss"> {
+  bits<1> dst;
+  bits<4> pos;
+  bits<1> f;
+  bits<4> share;
+  bits<5> miss;
+  let Inst{10-0} = 0x40b;
+  let Inst{23-21} = 0x0;
+  let Inst{29-28} = 0x0;
+  let Inst{31} = 0x1;
+  let Inst{30-30} = dst;
+  let Inst{27-24} = pos;
+  let Inst{20-20} = f;
+  let Inst{19-16} = share;
+  let Inst{15-11} = miss;
+}
+
+def PRS_CAM_B : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+                    "prs.cam.b", "$dst, $pos, $f, $share, $miss"> {
+  bits<1> dst;
+  bits<4> pos;
+  bits<1> f;
+  bits<4> share;
+  bits<5> miss;
+  let Inst{10-0} = 0x40b;
+  let Inst{23-21} = 0x0;
+  let Inst{29-28} = 0x1;
+  let Inst{31} = 0x0;
+  let Inst{30-30} = dst;
+  let Inst{27-24} = pos;
+  let Inst{20-20} = f;
+  let Inst{19-16} = share;
+  let Inst{15-11} = miss;
+}
+
+def PRS_CAM_B_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+                    "prs.cam.b.stp", "$dst, $pos, $f, $share, $miss"> {
+  bits<1> dst;
+  bits<4> pos;
+  bits<1> f;
+  bits<4> share;
+  bits<5> miss;
+  let Inst{10-0} = 0x40b;
+  let Inst{23-21} = 0x0;
+  let Inst{29-28} = 0x1;
+  let Inst{31} = 0x1;
+  let Inst{30-30} = dst;
+  let Inst{27-24} = pos;
+  let Inst{20-20} = f;
+  let Inst{19-16} = share;
+  let Inst{15-11} = miss;
+}
+
+def PRS_CAM_H : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+                    "prs.cam.h", "$dst, $pos, $f, $share, $miss"> {
+  bits<1> dst;
+  bits<4> pos;
+  bits<1> f;
+  bits<4> share;
+  bits<5> miss;
+  let Inst{10-0} = 0x40b;
+  let Inst{23-21} = 0x0;
+  let Inst{29-28} = 0x2;
+  let Inst{31} = 0x0;
+  let Inst{30-30} = dst;
+  let Inst{27-24} = pos;
+  let Inst{20-20} = f;
+  let Inst{19-16} = share;
+  let Inst{15-11} = miss;
+}
+
+def PRS_CAM_H_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+                    "prs.cam.h.stp", "$dst, $pos, $f, $share, $miss"> {
+  bits<1> dst;
+  bits<4> pos;
+  bits<1> f;
+  bits<4> share;
+  bits<5> miss;
+  let Inst{10-0} = 0x40b;
+  let Inst{23-21} = 0x0;
+  let Inst{29-28} = 0x2;
+  let Inst{31} = 0x1;
+  let Inst{30-30} = dst;
+  let Inst{27-24} = pos;
+  let Inst{20-20} = f;
+  let Inst{19-16} = share;
+  let Inst{15-11} = miss;
+}
+
+def PRS_CAM_W : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+                    "prs.cam.w", "$dst, $pos, $f, $share, $miss"> {
+  bits<1> dst;
+  bits<4> pos;
+  bits<1> f;
+  bits<4> share;
+  bits<5> miss;
+  let Inst{10-0} = 0x40b;
+  let Inst{23-21} = 0x0;
+  let Inst{29-28} = 0x3;
+  let Inst{31} = 0x0;
+  let Inst{30-30} = dst;
+  let Inst{27-24} = pos;
+  let Inst{20-20} = f;
+  let Inst{19-16} = share;
+  let Inst{15-11} = miss;
+}
+
+def PRS_CAM_W_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
+                    "prs.cam.w.stp", "$dst, $pos, $f, $share, $miss"> {
+  bits<1> dst;
+  bits<4> pos;
+  bits<1> f;
+  bits<4> share;
+  bits<5> miss;
+  let Inst{10-0} = 0x40b;
+  let Inst{23-21} = 0x0;
+  let Inst{29-28} = 0x3;
+  let Inst{31} = 0x1;
+  let Inst{30-30} = dst;
+  let Inst{27-24} = pos;
+  let Inst{20-20} = f;
+  let Inst{19-16} = share;
+  let Inst{15-11} = miss;
 }
 
 def PRS_CMPIB_STOP : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
@@ -323,6 +877,5 @@ def PRS_ARRAY_READ : PrsInst<(outs), (ins GPR:$rd, GPR:$rs1, PRReg:$preg),
   let Inst{28-24} = preg;
 }
 
-// Deferred to Phase-7 L3 (need custom operand classes: cam/length/load
-// destination decoration + prose sugar):
-//   prs.cam, prs.lenset, prs.lensetconst, prs.lensetmin, prs.load
+// L3b (deferred): prose sugar forms — pcurptr+N, paccum[i], value:mask,
+// mult:min, pmeta+N — additional syntaxes over the encodings emitted above.

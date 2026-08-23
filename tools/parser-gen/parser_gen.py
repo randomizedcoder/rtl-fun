@@ -413,6 +413,54 @@ def _llvm_pregisters(pregs):
     return out
 
 
+def _llvm_dest_classes():
+    """The L3a destination-pseudo-register operand classes (custom-0 load/cam/length).
+
+    paccum/pnext ride the cam/load D bit; pcurhdr rides the length F2 field. The keywords
+    collide with the L2 p-register alt-names, so each has a custom ParserMethod that consumes
+    the keyword before the generic register fallback, and a PrintMethod that prints it back
+    from the decoded field bit (LLVM decodes printed operands from real bits). The C++ for
+    those methods lives in the nix/parser-llvm patch (RISCVAsmParser/RISCVInstPrinter)."""
+    return [
+        "// Destination pseudo-registers (L3a); C++ in the nix/parser-llvm patch.",
+        "class PrsDestOpnd<string nm, string parser, string pred> : AsmOperandClass {",
+        "  let Name = nm;",
+        '  let RenderMethod = "addImmOperands";',
+        "  let ParserMethod = parser;",
+        "  let PredicateMethod = pred;",
+        "}",
+        'def AccumDestOpnd  : PrsDestOpnd<"AccumDest",  "parseAccumDest",  "isAccumDest">;',
+        'def CamDestOpnd    : PrsDestOpnd<"CamDest",    "parseCamDest",    "isCamDest">;',
+        'def CurHdrDestOpnd : PrsDestOpnd<"CurHdrDest", "parseCurHdrDest", "isCurHdrDest">;',
+        "class PrsDestOp<AsmOperandClass mc, string pm> : Operand<i32> {",
+        "  let ParserMatchClass = mc;",
+        "  let PrintMethod = pm;",
+        "}",
+        'def accumdest  : PrsDestOp<AccumDestOpnd,  "printAccumDest">;',
+        'def camdest    : PrsDestOp<CamDestOpnd,    "printCamDest">;',
+        'def curhdrdest : PrsDestOp<CurHdrDestOpnd, "printCurHdrDest">;',
+        "",
+    ]
+
+
+# dest operand class per dest kind: cam map -> camdest; cosmetic token -> by keyword.
+_DEST_LLVM_CLASS = {"paccum": "accumdest", "pcurhdr": "curhdrdest"}
+
+
+def _llvm_dest_op(insn):
+    """The leading destination-pseudo-register operand (L3a), riding a real discriminator
+    bit so the disassembler can reconstruct + print it. Returns (ins, var, hi, lo) or None."""
+    d = insn.dest
+    if not d:
+        return None
+    hi, lo = insn.fields[d["field"]]
+    if "map" in d:                       # prs.cam: paccum=0 / pnext=1 select the D bit
+        cls = "camdest"
+    else:                                # cosmetic token riding its fixed field bit
+        cls = _DEST_LLVM_CLASS[d["token"]]
+    return (f"{cls}:$dst", "dst", hi, lo)
+
+
 def _llvm_c3_ops(insn):
     """Translate a custom-3 `gas:` operand string into LLVM (ins ...) operands.
 
@@ -499,30 +547,35 @@ def emit_llvm(insns, sizes, pregs):
             "  let hasNoSchedulingInfo = 1;",
             "}",
             ""]
+    out += _llvm_dest_classes()
     deferred = []
     for i in insns:
         if i.opcode == C3_OPCODE:
             _emit_prs_def(out, _llvm_record(i.cname, ""), i.asm, i.match, _llvm_c3_ops(i))
-            continue
-        if i.dest:
-            deferred.append(i.asm)   # custom-0 dest decoration (load/cam/length) -> L3
             continue
         skip = set()
         if i.size_class:
             skip.add("Sz")
         for grp in i.suffixes:
             skip.add(grp["field"])
+        dest_op = _llvm_dest_op(i)     # None if no dest; else rides i.dest["field"]
+        if dest_op:
+            skip.add(i.dest["field"])  # the dest carries this field, not a plain operand
+        # Prose-only forms (paccum[i]/mult:min/value:mask/pmeta+N) are the L3b increment; here
+        # we emit the Hybrid form (plain uimm operands) — the same encoding, positional syntax.
         names = [n for n in i.operands if n not in skip]
         for name_sfx, match_delta in _suffix_variants(i, sizes):
-            ops = [(f"uimm{i.fields[n][0] - i.fields[n][1] + 1}:${n.lower()}",
+            ops = ([dest_op] if dest_op else []) + \
+                  [(f"uimm{i.fields[n][0] - i.fields[n][1] + 1}:${n.lower()}",
                     n.lower(), i.fields[n][0], i.fields[n][1]) for n in names]
             _emit_prs_def(out, _llvm_record(i.cname, name_sfx),
                           f"{i.asm}{name_sfx}", i.match | match_delta, ops)
-    if deferred:
-        out.append("// Deferred to Phase-7 L3 (need custom operand classes: cam/length/load")
-        out.append("// destination decoration + prose sugar):")
-        out.append("//   " + ", ".join(sorted(set(deferred))))
-        out.append("")
+    # Still deferred to L3b: the prose sugar spellings (pcurptr+N / paccum[i] / value:mask /
+    # mult:min / pmeta+N) — additional defs over the same encodings, needing their own operand
+    # classes. parser-llvm-mc-test lists them as DEFERRED (never silently dropped).
+    out.append("// L3b (deferred): prose sugar forms — pcurptr+N, paccum[i], value:mask,")
+    out.append("// mult:min, pmeta+N — additional syntaxes over the encodings emitted above.")
+    out.append("")
     return "\n".join(out)
 
 
