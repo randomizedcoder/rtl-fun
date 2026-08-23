@@ -74,7 +74,7 @@ void parse_prog(void)
     /* ---- ether_node @0 ---- */
     PRS_EMIT(prs_load(SZ_H, 1, 12));                  /* [0]  EtherType -> Accum        */
     PRS_EMIT(prs_store(SZ_H, 0, OFF(n_proto)));       /* [1]  -> flow_keys.n_proto      */
-    PRS_EMIT(prs_camnext(1, SZ_H, 0, 0, 1, MISS_STOP)); /* [2] eth_tbl (share 1)        */
+    PRS_EMIT(prs_cam(1, 1, SZ_H, 0, 0, 1, MISS_STOP)); /* [2] eth_tbl (share 1)        */
 
     /* ---- ipv4_node @3 ---- */
     PRS_EMIT(prs_load(SZ_B, 0, 0));                   /* [3]  version+IHL byte          */
@@ -87,7 +87,7 @@ void parse_prog(void)
     PRS_EMIT(prs_storeimm(SZ_B, 4, OFF(addr_type)));  /* [10] addr_type = 4             */
     PRS_EMIT(prs_load(SZ_B, 0, 9));                   /* [11] IP protocol               */
     PRS_EMIT(prs_store(SZ_B, 0, OFF(ip_proto)));      /* [12]                           */
-    PRS_EMIT(prs_camnext(1, SZ_B, 0, 0, 2, MISS_STOP)); /* [13] proto_tbl (share 2)     */
+    PRS_EMIT(prs_cam(1, 1, SZ_B, 0, 0, 2, MISS_STOP)); /* [13] proto_tbl (share 2)     */
 
     /* ---- ipv6_node @14 (fixed 40-byte header; ext headers via ip6nh_tbl) ---- */
     PRS_EMIT(prs_lencur(0, 0, 0, 7, 40));             /* [14] constant length 40        */
@@ -102,7 +102,7 @@ void parse_prog(void)
     PRS_EMIT(prs_store(SZ_DW, 0, OFF(ipv6_dst) + 8)); /* [23]                           */
     PRS_EMIT(prs_load(SZ_B, 0, 6));                   /* [24] Next Header               */
     PRS_EMIT(prs_store(SZ_B, 0, OFF(ip_proto)));      /* [25]                           */
-    PRS_EMIT(prs_camnext(1, SZ_B, 0, 0, 3, MISS_STOP)); /* [26] ip6nh_tbl (share 3)     */
+    PRS_EMIT(prs_cam(1, 1, SZ_B, 0, 0, 3, MISS_STOP)); /* [26] ip6nh_tbl (share 3)     */
 
     /* ---- tcp_node @27 ---- */
     PRS_EMIT(prs_load(SZ_H, 1, 0));                   /* [27] sport                     */
@@ -122,7 +122,7 @@ void parse_prog(void)
     PRS_EMIT(prs_load(SZ_H, 1, 2));                   /* [37] inner EtherType           */
     PRS_EMIT(prs_store(SZ_H, 0, OFF(n_proto)));       /* [38]                           */
     PRS_EMIT(prs_lencur(0, 0, 0, 7, 4));              /* [39] tag remainder = 4 bytes   */
-    PRS_EMIT(prs_camnext(1, SZ_H, 0, 0, 1, MISS_STOP)); /* [40] eth_tbl (share 1)       */
+    PRS_EMIT(prs_cam(1, 1, SZ_H, 0, 0, 1, MISS_STOP)); /* [40] eth_tbl (share 1)       */
 
     /* ---- ip6ext_node @41 (HBH / routing / dest-opts: len = (ExtLen+1)*8) ---- */
     PRS_EMIT(prs_load(SZ_B, 0, 0));                   /* [41] Next Header               */
@@ -130,14 +130,14 @@ void parse_prog(void)
     PRS_EMIT(prs_load(SZ_B, 0, 1));                   /* [43] Hdr Ext Len               */
     PRS_EMIT(prs_lencur(0, SZ_B, 0, 3, 8));           /* [44] (ExtLen<<3)+8             */
     PRS_EMIT(prs_load(SZ_B, 0, 0));                   /* [45] reload NH for CAM key     */
-    PRS_EMIT(prs_camnext(1, SZ_B, 0, 0, 3, MISS_STOP)); /* [46] ip6nh_tbl (share 3)     */
+    PRS_EMIT(prs_cam(1, 1, SZ_B, 0, 0, 3, MISS_STOP)); /* [46] ip6nh_tbl (share 3)     */
 
     /* ---- ip6frag_node @47 (fragment header: fixed 8 bytes) ---- */
     PRS_EMIT(prs_load(SZ_B, 0, 0));                   /* [47] Next Header               */
     PRS_EMIT(prs_store(SZ_B, 0, OFF(ip_proto)));      /* [48]                           */
     PRS_EMIT(prs_lencur(0, 0, 0, 7, 8));              /* [49] constant length 8         */
     PRS_EMIT(prs_load(SZ_B, 0, 0));                   /* [50] reload NH for CAM key     */
-    PRS_EMIT(prs_camnext(1, SZ_B, 0, 0, 3, MISS_STOP)); /* [51] ip6nh_tbl (share 3)     */
+    PRS_EMIT(prs_cam(1, 1, SZ_B, 0, 0, 3, MISS_STOP)); /* [51] ip6nh_tbl (share 3)     */
 
     /* ---- done_node @52 ("no next header") ---- */
     PRS_EMIT(prs_stp());                              /* [52] clean STOP_OKAY           */

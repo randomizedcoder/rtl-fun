@@ -147,8 +147,17 @@ simulator understands the encodings (7.5).
   `tools/parser-gen` cross-products each folded field with the `Sz` suffix (56 → 100 gas rows),
   the intrinsics keep the folded field as a parameter (bits unchanged), and `parser-asm-test`
   round-trips all spellings while `parser-spike-slice`/`parser-qemu-slice` stay byte-identical
-  (53 words) and 22/0. Still to land: mnemonic aliases + destination decoration (the single
-  `prs.cam` `D`-select collapse), and the `mult:min` / `pmeta+N` operand forms.
+  (53 words) and 22/0.
+
+  **Destination decoration — the single `prs.cam`** is **✅ implemented**: a `dest:` binding folds
+  the CAM `D` bit into a leading destination pseudo-register (`paccum` ⇒ `D`=0 Accum, `pnext` ⇒
+  `D`=1 Next), rendered by the new `Xpc` binutils operand class and printed by objdump — so there is
+  a single `prs.cam` mnemonic and no `prs.camnext` (matching the patent). The generated `prs_camnext`
+  intrinsic is subsumed by `prs_cam`'s new leading `d` parameter; `parser_slice.c` and the vectors
+  use `prs_cam(1, …)`; bits are unchanged (byte-parity holds). Still to land: the mnemonic aliases
+  (`prs.lenset{,min,add}`, `prs.cmpi{,ne}` — some target ISA groups without an encoder yet), the
+  cosmetic-fixed leading dest on load/length (`paccum`/`pcurhdr`), and the `mult:min` / `pmeta+N`
+  operand forms.
 
 ### 7.4 Level 3 — LLVM / GCC
 
