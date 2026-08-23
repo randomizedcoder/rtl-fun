@@ -112,7 +112,7 @@ def load(yaml_path):
         if "/" in spec.get("asm", ""):
             continue
         insns.append(resolve_custom3(name, spec, cop))
-    return insns, doc.get("sizes", {})
+    return insns, doc.get("sizes", {}), doc.get("p_registers", {})
 
 
 def emit_json(insns):
@@ -387,7 +387,84 @@ def _llvm_record(cname, name_sfx):
     return (cname + name_sfx.replace(".", "_")).upper()
 
 
-def emit_llvm(insns, sizes):
+def _llvm_pregisters(pregs):
+    """The PRReg register class = the custom-3 Cpreg[28:24] selector, p0..p31.
+
+    Registers are named `pNN`; the 11 ABI-style aliases (paccum, pnext, ...) come from
+    isa/parser-opcodes.yaml `p_registers.*.alias` and are the canonical assembler spellings.
+    They ride RISC-V's existing ABIRegAltName index, so `llvm-mc` accepts both `p15` and
+    `paccum` (MatchRegisterName / MatchRegisterAltName) and `llvm-objdump` prints the alias.
+    Registers p0..p31 are defined consecutively so the disassembler's `RISCV::P0 + RegNo`
+    (nix/parser-llvm patch, DecodePRRegRegisterClass) is well-formed."""
+    alias = {int(k[1:]): v["alias"] for k, v in pregs.items() if v.get("alias")}
+    out = ["// Parser p-registers (custom-3 Cpreg[28:24]); aliases from p_registers.*.alias.",
+           'let Namespace = "RISCV" in {',
+           "class PReg<bits<5> enc, string n, list<string> alt> : Register<n> {",
+           "  let HWEncoding{4-0} = enc;",
+           "  let AltNames = alt;",
+           "  let RegAltNameIndices = [ABIRegAltName];",
+           "}"]
+    for num in range(32):
+        alt = alias.get(num, f"p{num}")   # unnamed regs alias to their own numeric name
+        out.append(f'def P{num} : PReg<{num}, "p{num}", ["{alt}"]>;')
+    out.append("}")
+    out.append('def PRReg : RegisterClass<"RISCV", [i64], 64, (add (sequence "P%u", 0, 31))>;')
+    out.append("")
+    return out
+
+
+def _llvm_c3_ops(insn):
+    """Translate a custom-3 `gas:` operand string into LLVM (ins ...) operands.
+
+    Returns [(ins_operand, var, hi, lo)] in asm order — the LLVM twin of the binutils
+    `d`/`s`/`Xpr`/`XtuN@S` tokens: `d`->GPR rd[11:7], `s`->GPR rs1[19:15],
+    `Xpr`->PRReg preg (Cpreg[28:24]), `XtuN@S`->uimmN at [S+N-1:S] (the ld.immed split
+    imm). The non-operand selector fields (S/I/R/Func3/CoP) stay in the fixed word."""
+    out = []
+    imm_idx = 0
+    for tok in [t for t in (insn.gas_args or "").split(",") if t]:
+        if tok == "d":
+            hi, lo = insn.fields["Rd"]
+            out.append(("GPR:$rd", "rd", hi, lo))
+        elif tok == "s":
+            hi, lo = insn.fields["Rs"]
+            out.append(("GPR:$rs1", "rs1", hi, lo))
+        elif tok == "Xpr":
+            hi, lo = insn.fields["Cpreg"]
+            out.append(("PRReg:$preg", "preg", hi, lo))
+        elif tok.startswith("Xtu"):
+            m = re.match(r"Xtu(\d+)@(\d+)$", tok)
+            if not m:
+                raise ValueError(f"parser_gen: bad custom-3 imm token {tok!r}")
+            w, s = int(m.group(1)), int(m.group(2))
+            var = f"imm{imm_idx}"
+            imm_idx += 1
+            out.append((f"uimm{w}:${var}", var, s + w - 1, s))
+        else:
+            raise ValueError(f"parser_gen: unhandled custom-3 gas token {tok!r}")
+    return out
+
+
+def _emit_prs_def(out, rec, asm, full_match, ops):
+    """Emit one `def <rec> : PrsInst<...>` from resolved operands [(ins, var, hi, lo)].
+    Fixed bits (everything an operand does not cover) come from `full_match`; each operand
+    binds its bit range by name — the per-field `let Inst{}` idiom shared with emit_gas."""
+    ins_dag = ("(ins " + ", ".join(o[0] for o in ops) + ")") if ops else "(ins)"
+    argstr = ", ".join(f"${o[1]}" for o in ops)
+    out.append(f'def {rec} : PrsInst<(outs), {ins_dag},')
+    out.append(f'                    "{asm}", "{argstr}"> {{')
+    for _ins, var, hi, lo in ops:
+        out.append(f"  bits<{hi - lo + 1}> {var};")
+    for hi, lo, val in _fixed_bit_runs(full_match, [(o[2], o[3]) for o in ops]):
+        span = f"{hi}-{lo}" if hi != lo else f"{hi}"
+        out.append(f"  let Inst{{{span}}} = 0x{val:x};")
+    for _ins, var, hi, lo in ops:
+        out.append(f"  let Inst{{{hi}-{lo}}} = {var};")
+    out.append("}")
+    out.append("")
+
+
+def emit_llvm(insns, sizes, pregs):
     """TableGen fragment (RISCVInstrInfoXparser.td) for the LLVM MC layer, Phase 7 L3.
 
     The LLVM twin of emit_gas. Instructions sit in the DEFAULT RISCV decoder namespace
@@ -395,12 +472,14 @@ def emit_llvm(insns, sizes):
     analogue of the binutils INSN_CLASS_I rows (custom-0 0x0b / custom-3 0x7b are unused
     by the base ISA, so there is no matcher/decoder conflict and no -mattr gate).
 
-    Phase L1 emits the immediate-only custom-0 ops (store/storeimm/cmp*/nextnode/setcode/
-    stp): every operand is a stock uimmN, so no custom AsmParser/InstPrinter C++ is needed.
-    Ops with a destination pseudo-register (load/cam/length) or p-register operands
-    (custom-3) need custom operand classes and are DEFERRED (listed in a trailing comment,
-    not silently dropped); later L phases add them. Bits are identical to emit_gas — the
-    fixed word (match | suffix delta) plus each operand mapped to its field range."""
+    L1 emits the immediate-only custom-0 ops (store/storeimm/cmp*/nextnode/setcode/stp):
+    every operand is a stock uimmN, so no custom C++ is needed. L2 adds the custom-3 moves
+    (mv.x.p/mv.p.x/ld.immed/cam.read/array.read): their GPR + p-register operands match and
+    encode entirely from TableGen (register-class membership + HWEncoding are automatic);
+    only the disassembler needs one small `DecodePRRegRegisterClass` helper (nix/parser-llvm
+    patch), the generated decoder's reference. Custom-0 ops with a destination pseudo-register
+    (load/cam/length) still need custom operand classes and are DEFERRED to L3 (listed in a
+    trailing comment, not silently dropped). Bits are identical to emit_gas."""
     out = ["//===-- RISCVInstrInfoXparser.td ---------------------------*- tablegen -*-===//",
            "//",
            "// GENERATED by tools/parser-gen from isa/parser-opcodes.yaml -- do not edit.",
@@ -410,49 +489,38 @@ def emit_llvm(insns, sizes):
            "// llvm-mc assembles + disassembles them to the exact isa/parser-opcodes.yaml bits.",
            "//",
            "//===----------------------------------------------------------------------===//",
-           "",
-           "class PrsInst<dag outs, dag ins, string opcodestr, string argstr>",
-           "    : RVInst<outs, ins, opcodestr, argstr, [], InstFormatOther> {",
-           "  let hasSideEffects = 1;",
-           "  let mayLoad = 0;",
-           "  let mayStore = 0;",
-           "  let hasNoSchedulingInfo = 1;",
-           "}",
            ""]
+    out += _llvm_pregisters(pregs)
+    out += ["class PrsInst<dag outs, dag ins, string opcodestr, string argstr>",
+            "    : RVInst<outs, ins, opcodestr, argstr, [], InstFormatOther> {",
+            "  let hasSideEffects = 1;",
+            "  let mayLoad = 0;",
+            "  let mayStore = 0;",
+            "  let hasNoSchedulingInfo = 1;",
+            "}",
+            ""]
     deferred = []
     for i in insns:
-        if i.opcode != C0_OPCODE or i.dest:
-            deferred.append(i.asm)   # custom-3 moves + dest-bearing ops -> later L phase
+        if i.opcode == C3_OPCODE:
+            _emit_prs_def(out, _llvm_record(i.cname, ""), i.asm, i.match, _llvm_c3_ops(i))
+            continue
+        if i.dest:
+            deferred.append(i.asm)   # custom-0 dest decoration (load/cam/length) -> L3
             continue
         skip = set()
         if i.size_class:
             skip.add("Sz")
         for grp in i.suffixes:
             skip.add(grp["field"])
-        ops = [n for n in i.operands if n not in skip]
-        opranges = [i.fields[n] for n in ops]
+        names = [n for n in i.operands if n not in skip]
         for name_sfx, match_delta in _suffix_variants(i, sizes):
-            rec = _llvm_record(i.cname, name_sfx)
-            full_match = i.match | match_delta
-            ins_dag = ("(ins " + ", ".join(f"uimm{i.fields[n][0] - i.fields[n][1] + 1}:${n.lower()}"
-                                           for n in ops) + ")") if ops else "(ins)"
-            argstr = ", ".join(f"${n.lower()}" for n in ops)
-            out.append(f'def {rec} : PrsInst<(outs), {ins_dag},')
-            out.append(f'                    "{i.asm}{name_sfx}", "{argstr}"> {{')
-            for n in ops:
-                hi, lo = i.fields[n]
-                out.append(f"  bits<{hi - lo + 1}> {n.lower()};")
-            for hi, lo, val in _fixed_bit_runs(full_match, opranges):
-                span = f"{hi}-{lo}" if hi != lo else f"{hi}"
-                out.append(f"  let Inst{{{span}}} = 0x{val:x};")
-            for n in ops:
-                hi, lo = i.fields[n]
-                out.append(f"  let Inst{{{hi}-{lo}}} = {n.lower()};")
-            out.append("}")
-            out.append("")
+            ops = [(f"uimm{i.fields[n][0] - i.fields[n][1] + 1}:${n.lower()}",
+                    n.lower(), i.fields[n][0], i.fields[n][1]) for n in names]
+            _emit_prs_def(out, _llvm_record(i.cname, name_sfx),
+                          f"{i.asm}{name_sfx}", i.match | match_delta, ops)
     if deferred:
-        out.append("// Deferred to a later Phase-7 L increment (need custom operand classes:")
-        out.append("// p-registers, cam/length/load destination decoration, prose sugar):")
+        out.append("// Deferred to Phase-7 L3 (need custom operand classes: cam/length/load")
+        out.append("// destination decoration + prose sugar):")
         out.append("//   " + ", ".join(sorted(set(deferred))))
         out.append("")
     return "\n".join(out)
@@ -462,7 +530,7 @@ def main():
     if len(sys.argv) != 3:
         sys.exit("usage: parser_gen.py <parser-opcodes.yaml> <out-dir>")
     yaml_path, out_dir = sys.argv[1], sys.argv[2]
-    insns, sizes = load(yaml_path)
+    insns, sizes, pregs = load(yaml_path)
     import os
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "parser-opc.json"), "w") as f:
@@ -474,7 +542,7 @@ def main():
     with open(os.path.join(out_dir, "parser_intrinsics.h"), "w") as f:
         f.write(emit_intrinsics(insns))
     with open(os.path.join(out_dir, "parser-llvm.td"), "w") as f:
-        f.write(emit_llvm(insns, sizes))
+        f.write(emit_llvm(insns, sizes, pregs))
     print(f"parser_gen: emitted {len(insns)} instructions to {out_dir}")
 
 

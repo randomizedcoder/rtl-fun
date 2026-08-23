@@ -244,17 +244,22 @@ coprocessor:
 # custom-3 restore path and stay the deferred M2 residual (a mid-parse switch to a STORE-ing /
 # CAM-programming parse).
 p_registers:
-  p1:  { name: CurHdr,      fields: { cur_len: [17, 9], cur_off: [8, 0] }, access: rw }  # M1: was ro
-  p2:  { name: DataHdr,     fields: { dat_len: [17, 9], dat_off: [8, 0] }, access: rw }  # M1: was ro
-  p6:  { name: NodeLoopCnt, fields: { node_cnt: [15, 0] },                 access: rw }  # M1
-  p7:  { name: Counters,    fields: { encap: [7, 0] },                     access: rw }  # M1
-  p8:  { name: NextPc,      fields: { next_pc: [9, 0] },  access: rw, note: "free slot (no patent p-index)" }  # M1
-  p9:  { name: Done,        fields: { done: [0, 0] },     access: ro, note: "free slot; read-only status flag (observed, not restored)" }  # M1
-  p11: { name: Next,          fields: { next: [31, 0] },                        access: rw, extend: sign }
-  p13: { name: DataBndLoop,   fields: { loop: [63, 32], databound: [31, 0] },   access: rw }
-  p14: { name: ParserExitCode, fields: { code: [31, 0] },                       access: rw, extend: sign }
-  p15: { name: Accum,         fields: { accum: [63, 0] },                       access: rw }
-  p16: { name: Flags,         fields: { flags: [63, 0] },                       access: rw }
+  # `alias:` is the canonical assembler spelling of the p-register (Cpreg selector), the
+  # SINGLE SOURCE for the register alt-names emitted into the LLVM MC layer (parser-gen ->
+  # RISCVInstrInfoXparser.td PRReg AltNames) and hand-mirrored in the binutils `Xpr` name
+  # table (nix/parser-binutils/parser-binutils.patch — keep the two in sync). Registers with
+  # no alias are addressed only by their numeric `pNN` form (Cpreg value).
+  p1:  { name: CurHdr,      alias: pcurhdr,   fields: { cur_len: [17, 9], cur_off: [8, 0] }, access: rw }  # M1: was ro
+  p2:  { name: DataHdr,     alias: pdathdr,   fields: { dat_len: [17, 9], dat_off: [8, 0] }, access: rw }  # M1: was ro
+  p6:  { name: NodeLoopCnt, alias: pnodeloop, fields: { node_cnt: [15, 0] },                 access: rw }  # M1
+  p7:  { name: Counters,    alias: pcounters, fields: { encap: [7, 0] },                     access: rw }  # M1
+  p8:  { name: NextPc,      alias: pnextpc,   fields: { next_pc: [9, 0] },  access: rw, note: "free slot (no patent p-index)" }  # M1
+  p9:  { name: Done,        alias: pdone,     fields: { done: [0, 0] },     access: ro, note: "free slot; read-only status flag (observed, not restored)" }  # M1
+  p11: { name: Next,          alias: pnext,      fields: { next: [31, 0] },                        access: rw, extend: sign }
+  p13: { name: DataBndLoop,   alias: pdatabnd,   fields: { loop: [63, 32], databound: [31, 0] },   access: rw }
+  p14: { name: ParserExitCode, alias: pexitcode, fields: { code: [31, 0] },                       access: rw, extend: sign }
+  p15: { name: Accum,         alias: paccum,     fields: { accum: [63, 0] },                       access: rw }
+  p16: { name: Flags,         alias: pflags,     fields: { flags: [63, 0] },                       access: rw }
 
 # Next-node address/code word (data in Next/Loop/CAM targets, NOT the instr).
 next_word:

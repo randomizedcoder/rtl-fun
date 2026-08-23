@@ -8,6 +8,48 @@
 //
 //===----------------------------------------------------------------------===//
 
+// Parser p-registers (custom-3 Cpreg[28:24]); aliases from p_registers.*.alias.
+let Namespace = "RISCV" in {
+class PReg<bits<5> enc, string n, list<string> alt> : Register<n> {
+  let HWEncoding{4-0} = enc;
+  let AltNames = alt;
+  let RegAltNameIndices = [ABIRegAltName];
+}
+def P0 : PReg<0, "p0", ["p0"]>;
+def P1 : PReg<1, "p1", ["pcurhdr"]>;
+def P2 : PReg<2, "p2", ["pdathdr"]>;
+def P3 : PReg<3, "p3", ["p3"]>;
+def P4 : PReg<4, "p4", ["p4"]>;
+def P5 : PReg<5, "p5", ["p5"]>;
+def P6 : PReg<6, "p6", ["pnodeloop"]>;
+def P7 : PReg<7, "p7", ["pcounters"]>;
+def P8 : PReg<8, "p8", ["pnextpc"]>;
+def P9 : PReg<9, "p9", ["pdone"]>;
+def P10 : PReg<10, "p10", ["p10"]>;
+def P11 : PReg<11, "p11", ["pnext"]>;
+def P12 : PReg<12, "p12", ["p12"]>;
+def P13 : PReg<13, "p13", ["pdatabnd"]>;
+def P14 : PReg<14, "p14", ["pexitcode"]>;
+def P15 : PReg<15, "p15", ["paccum"]>;
+def P16 : PReg<16, "p16", ["pflags"]>;
+def P17 : PReg<17, "p17", ["p17"]>;
+def P18 : PReg<18, "p18", ["p18"]>;
+def P19 : PReg<19, "p19", ["p19"]>;
+def P20 : PReg<20, "p20", ["p20"]>;
+def P21 : PReg<21, "p21", ["p21"]>;
+def P22 : PReg<22, "p22", ["p22"]>;
+def P23 : PReg<23, "p23", ["p23"]>;
+def P24 : PReg<24, "p24", ["p24"]>;
+def P25 : PReg<25, "p25", ["p25"]>;
+def P26 : PReg<26, "p26", ["p26"]>;
+def P27 : PReg<27, "p27", ["p27"]>;
+def P28 : PReg<28, "p28", ["p28"]>;
+def P29 : PReg<29, "p29", ["p29"]>;
+def P30 : PReg<30, "p30", ["p30"]>;
+def P31 : PReg<31, "p31", ["p31"]>;
+}
+def PRReg : RegisterClass<"RISCV", [i64], 64, (add (sequence "P%u", 0, 31))>;
+
 class PrsInst<dag outs, dag ins, string opcodestr, string argstr>
     : RVInst<outs, ins, opcodestr, argstr, [], InstFormatOther> {
   let hasSideEffects = 1;
@@ -217,6 +259,70 @@ def PRS_STP : PrsInst<(outs), (ins),
   let Inst{31-0} = 0x6000050b;
 }
 
-// Deferred to a later Phase-7 L increment (need custom operand classes:
-// p-registers, cam/length/load destination decoration, prose sugar):
-//   prs.array.read, prs.cam, prs.cam.read, prs.ld.immed, prs.lenset, prs.lensetconst, prs.lensetmin, prs.load, prs.mv.p.x, prs.mv.x.p
+def PRS_MV_X_P : PrsInst<(outs), (ins GPR:$rd, PRReg:$preg),
+                    "prs.mv.x.p", "$rd, $preg"> {
+  bits<5> rd;
+  bits<5> preg;
+  let Inst{6-0} = 0x7b;
+  let Inst{23-12} = 0x0;
+  let Inst{31-29} = 0x0;
+  let Inst{11-7} = rd;
+  let Inst{28-24} = preg;
+}
+
+def PRS_MV_P_X : PrsInst<(outs), (ins PRReg:$preg, GPR:$rs1),
+                    "prs.mv.p.x", "$preg, $rs1"> {
+  bits<5> preg;
+  bits<5> rs1;
+  let Inst{14-0} = 0x107b;
+  let Inst{23-20} = 0x0;
+  let Inst{31-29} = 0x0;
+  let Inst{28-24} = preg;
+  let Inst{19-15} = rs1;
+}
+
+def PRS_LD_IMMED : PrsInst<(outs), (ins PRReg:$preg, uimm5:$imm0, uimm5:$imm1),
+                    "prs.ld.immed", "$preg, $imm0, $imm1"> {
+  bits<5> preg;
+  bits<5> imm0;
+  bits<5> imm1;
+  let Inst{6-0} = 0x7b;
+  let Inst{14-12} = 0x1;
+  let Inst{23-20} = 0x2;
+  let Inst{31-29} = 0x0;
+  let Inst{28-24} = preg;
+  let Inst{19-15} = imm0;
+  let Inst{11-7} = imm1;
+}
+
+def PRS_CAM_READ : PrsInst<(outs), (ins GPR:$rd, GPR:$rs1, PRReg:$preg),
+                    "prs.cam.read", "$rd, $rs1, $preg"> {
+  bits<5> rd;
+  bits<5> rs1;
+  bits<5> preg;
+  let Inst{6-0} = 0x7b;
+  let Inst{14-12} = 0x0;
+  let Inst{23-20} = 0x1;
+  let Inst{31-29} = 0x0;
+  let Inst{11-7} = rd;
+  let Inst{19-15} = rs1;
+  let Inst{28-24} = preg;
+}
+
+def PRS_ARRAY_READ : PrsInst<(outs), (ins GPR:$rd, GPR:$rs1, PRReg:$preg),
+                    "prs.array.read", "$rd, $rs1, $preg"> {
+  bits<5> rd;
+  bits<5> rs1;
+  bits<5> preg;
+  let Inst{6-0} = 0x7b;
+  let Inst{14-12} = 0x0;
+  let Inst{23-20} = 0x5;
+  let Inst{31-29} = 0x0;
+  let Inst{11-7} = rd;
+  let Inst{19-15} = rs1;
+  let Inst{28-24} = preg;
+}
+
+// Deferred to Phase-7 L3 (need custom operand classes: cam/length/load
+// destination decoration + prose sugar):
+//   prs.cam, prs.lenset, prs.lensetconst, prs.lensetmin, prs.load

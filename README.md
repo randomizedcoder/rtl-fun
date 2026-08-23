@@ -124,11 +124,12 @@ complete; phases are now being built in order.
   the golden model** ✅. The prose-freeze follow-on is now **complete** too — the frozen §1.12
   notation (`.be`/`.stp`/`.fail` qualifiers, `mult:min`, the `prs.lenset{,min,const}` aliases, and
   the `paccum`/`pnext`/`pcurhdr` destination decoration) assembles, disassembles to the canonical
-  prose, and round-trips, all bit-identical to the model. **LLVM MC** has begun (`nix run
+  prose, and round-trips, all bit-identical to the model. **LLVM MC** is progressing (`nix run
   .#parser-llvm-mc-test`): a RISCV-only patched `llvm-mc`/`llvm-objdump`, generated from the same
-  ISA yaml, assembles + disassembles the immediate-only parser ops to byte-identical goldens (L1;
-  p-registers/destination decoration/prose sugar are later L increments). Still open (the deferred
-  tail): the rest of **LLVM MC + GCC builtins** (L2/L3), and the heavyweight random-*instruction*
+  ISA yaml, assembles + disassembles the immediate-only custom-0 ops (L1) plus the custom-3 moves
+  via a generated `PRReg` register class (L2) to byte-identical goldens; destination decoration /
+  prose sugar are the remaining L3 increment. Still open (the deferred
+  tail): the rest of **LLVM MC + GCC builtins** (L3), and the heavyweight random-*instruction*
   checks (full upstream riscv-tests; riscv-dv, blocked on a commercial UVM simulator).
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its

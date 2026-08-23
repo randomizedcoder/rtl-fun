@@ -208,8 +208,22 @@ simulator understands the encodings (7.5).
   operand is a stock `uimmN`, so no custom operand class is needed (10 vector lines, 0
   mismatches). Bit-identical to the model/binutils (same `match | suffix-delta` word).
 
-  Deferred to later L increments (need custom operand classes, mirroring the binutils `Xp*`
-  family): **L2** the p-register `RegisterClass` → the custom-3 moves + `Xpr`; **L3** the
+  **LLVM MC — L2 (custom-3 moves) ✅.** `emit_llvm` now also emits a `PRReg`
+  **`RegisterClass`** (the Cpreg[28:24] p-register file, `p0`..`p31`) whose ABI-style
+  aliases — `paccum`, `pnext`, `pcurhdr`, … — are single-sourced from the new
+  `p_registers.*.alias` yaml field and ride RISC-V's existing `ABIRegAltName` index, so
+  `llvm-mc` accepts both `p15` and `paccum` and `llvm-objdump` prints the alias. With that,
+  the five custom-3 moves (`prs.mv.x.p`, `prs.mv.p.x`, `prs.ld.immed`, `prs.cam.read`,
+  `prs.array.read`) assemble and encode **entirely from TableGen** — register-class
+  membership and `HWEncoding` are automatic, and the stock `RISCVAsmParser::parseOperand`
+  already falls back to generic register parsing (`matchRegisterNameHelper`), so **no
+  matcher/parser/printer C++** is needed. The one exception is the disassembler: the
+  generated decoder references `Decode<RC>RegisterClass`, so the patch adds a **6-line
+  `DecodePRRegRegisterClass`** to `RISCVDisassembler.cpp` (mirroring `DecodeGPRRegisterClass`
+  and the binutils leg's hand-written disasm). 15 vector lines now assemble, 0 mismatches,
+  round-trip identical. Bit-identical to the model/binutils.
+
+  Deferred to **L3** (needs the custom `Xp*`-style operand classes, mirroring binutils): the
   destination decoration (`paccum`/`pnext`/`pcurhdr` on load/cam/length) and the prose sugar
   (`pcurptr+N`, `paccum[i]`, `value:mask`, `mult:min`, `pmeta+N`) — reaching full binutils
   parity. Then Clang **intrinsics/builtins**.

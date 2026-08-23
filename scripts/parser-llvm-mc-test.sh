@@ -6,9 +6,9 @@
 #
 # The SAME vector table (verif/gen/parser_asm_vectors.c) drives both legs: it emits a
 # `.s` of every mnemonic plus each expected word (from the generated, drift-checked
-# intrinsics). L1 of the LLVM leg covers the immediate-only custom-0 ops (the ones whose
-# TableGen needs no custom operand class — see toolchain/generated/parser-llvm.td); the
-# p-register / destination-decoration / prose forms are a later L increment. So we
+# intrinsics). L1 covers the immediate-only custom-0 ops; L2 adds the custom-3 moves
+# (their GPR + p-register operands — see the PRReg class in parser-llvm.td). The
+# destination-decoration / prose forms remain a later L increment. So we
 # CLASSIFY each vector line: llvm-mc either assembles it (then its word MUST equal the
 # golden) or rejects it as not-yet-supported (counted + listed as DEFERRED, never
 # silently dropped). A supported line whose word differs is a hard failure.
@@ -25,10 +25,12 @@ MC="${LLVM_MC:-llvm-mc}"
 OBJDUMP="${LLVM_OBJDUMP:-llvm-objdump}"
 TRIPLE="riscv64"
 
-# L1 covers the immediate-only ops; this many vector LINES are expected to assemble.
-# A regression that drops support below this floor fails the test; the exact deferred
-# set is always printed. Bump when a later L increment adds operand classes.
-FLOOR="${LLVM_MC_SUPPORTED_FLOOR:-10}"
+# L1 covered the immediate-only custom-0 ops (10 lines); L2 adds the 5 custom-3 moves
+# (mv.x.p/mv.p.x/ld.immed/cam.read/array.read) via the PRReg register class -> 15. This
+# many vector LINES are expected to assemble; a regression that drops below this floor
+# fails the test, and the exact deferred set is always printed. Bump when a later L
+# increment adds operand classes (the L3 destination-decoration / prose forms).
+FLOOR="${LLVM_MC_SUPPORTED_FLOOR:-15}"
 
 if [ ! -f "$VEC_SRC" ]; then
   echo "parser-llvm-mc-test: $VEC_SRC not found — run from the repo root" >&2
