@@ -117,9 +117,10 @@ decoration) assembles, disassembles to the canonical prose, and round-trips, all
 the model. **LLVM MC** is progressing (`nix run .#parser-llvm-mc-test`): a RISCV-only patched
 `llvm-mc`/`llvm-objdump`, generated from the same ISA yaml, assembles + disassembles the
 immediate-only custom-0 ops (L1), the custom-3 moves via a generated `PRReg` register class (L2),
-and the destination-decorated load/cam/length forms (L3a: `paccum`/`pnext`/`pcurhdr`) to
-byte-identical goldens; the prose-sugar forms are the remaining L3b increment. Still open (the
-deferred tail): the rest of **LLVM MC + GCC builtins** (L3b), plus
+the destination-decorated load/cam/length forms (L3a: `paccum`/`pnext`/`pcurhdr`), and the
+prose-sugar operands (L3b: `pcurptr+N`, `pmeta+N`, `paccum[i]`, `value:mask`, `mult:min`) to
+byte-identical goldens — full binutils parity for the MC layer (all 38 vector lines assemble +
+round-trip, 0 deferred). Still open (the deferred tail): Clang/GCC **intrinsics/builtins**, plus
 the heavyweight random-*instruction* checks (full upstream riscv-tests, riscv-dv — the latter
 blocked on a commercial UVM simulator).
 Deferred slices: 64-bit instruction form; encoders/execution for the array /

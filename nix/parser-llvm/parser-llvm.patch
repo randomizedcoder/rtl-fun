@@ -1,8 +1,8 @@
 diff --git a/lib/Target/RISCV/AsmParser/RISCVAsmParser.cpp b/lib/Target/RISCV/AsmParser/RISCVAsmParser.cpp
-index a143d85..43e8d42 100644
+index a143d85..8e96ebf 100644
 --- a/lib/Target/RISCV/AsmParser/RISCVAsmParser.cpp
 +++ b/lib/Target/RISCV/AsmParser/RISCVAsmParser.cpp
-@@ -199,6 +199,11 @@ class RISCVAsmParser : public MCTargetAsmParser {
+@@ -199,6 +199,17 @@ class RISCVAsmParser : public MCTargetAsmParser {
    ParseStatus parseRegister(OperandVector &Operands, bool AllowParens = false);
    ParseStatus parseMemOpBaseReg(OperandVector &Operands);
    ParseStatus parseZeroOffsetMemOp(OperandVector &Operands);
@@ -11,10 +11,16 @@ index a143d85..43e8d42 100644
 +  ParseStatus parseAccumDest(OperandVector &Operands);
 +  ParseStatus parseCamDest(OperandVector &Operands);
 +  ParseStatus parseCurHdrDest(OperandVector &Operands);
++  ParseStatus parseProseDisp(OperandVector &Operands, StringRef Kw);
++  ParseStatus parsePCurPtr(OperandVector &Operands);
++  ParseStatus parsePMeta(OperandVector &Operands);
++  ParseStatus parsePAccumIdx(OperandVector &Operands);
++  ParseStatus parseValueMask(OperandVector &Operands);
++  ParseStatus parseMultMin(OperandVector &Operands);
    ParseStatus parseOperandWithSpecifier(OperandVector &Operands);
    ParseStatus parseBareSymbol(OperandVector &Operands);
    ParseStatus parseCallSymbol(OperandVector &Operands);
-@@ -523,6 +528,17 @@ public:
+@@ -523,6 +534,17 @@ public:
    bool isGPRAsFPR32() const { return isGPRF32() && Reg.IsGPRAsFPR; }
    bool isGPRPairAsFPR64() const { return isGPRPair() && Reg.IsGPRAsFPR; }
  
@@ -32,7 +38,7 @@ index a143d85..43e8d42 100644
    static bool evaluateConstantImm(const MCExpr *Expr, int64_t &Imm) {
      if (auto CE = dyn_cast<MCConstantExpr>(Expr)) {
        Imm = CE->getValue();
-@@ -2319,6 +2335,39 @@ bool RISCVAsmParser::parseVTypeToken(const AsmToken &Tok, VTypeState &State,
+@@ -2319,6 +2341,146 @@ bool RISCVAsmParser::parseVTypeToken(const AsmToken &Tok, VTypeState &State,
    return true;
  }
  
@@ -69,6 +75,113 @@ index a143d85..43e8d42 100644
 +  return parseParserDest(Operands, "pcurhdr", 0);
 +}
 +
++// rtl-fun parser-unit L3b: the prose-sugar operand forms on the custom-0 ops. Each
++// rides a real field bit (a plain immediate — encode/decode stay automatic) but is
++// spelled either as prose or as the bare Hybrid immediate. parseOperand tries these
++// ParserMethods (via MatchOperandParserImpl) before the generic immediate path.
++
++// pcurptr+N / pmeta+N (or the base keyword alone == +0), else a bare Hybrid immediate.
++ParseStatus RISCVAsmParser::parseProseDisp(OperandVector &Operands, StringRef Kw) {
++  SMLoc S = getLoc();
++  int64_t Val = 0;
++  if (getLexer().is(AsmToken::Identifier) && getTok().getIdentifier() == Kw) {
++    getLexer().Lex(); // eat the base keyword
++    if (parseOptionalToken(AsmToken::Plus) &&
++        getParser().parseIntToken(Val, "expected integer after '+'"))
++      return ParseStatus::Failure;
++  } else if (getTok().is(AsmToken::Integer)) {
++    Val = getTok().getIntVal(); // bare Hybrid displacement
++    getLexer().Lex();
++  } else {
++    return ParseStatus::NoMatch;
++  }
++  Operands.push_back(RISCVOperand::createImm(
++      MCConstantExpr::create(Val, getContext()), S, getLoc(), isRV64()));
++  return ParseStatus::Success;
++}
++
++ParseStatus RISCVAsmParser::parsePCurPtr(OperandVector &Operands) {
++  return parseProseDisp(Operands, "pcurptr");
++}
++
++ParseStatus RISCVAsmParser::parsePMeta(OperandVector &Operands) {
++  return parseProseDisp(Operands, "pmeta");
++}
++
++// paccum[i] (a packet-accumulator sub-register index), else a bare Hybrid immediate.
++ParseStatus RISCVAsmParser::parsePAccumIdx(OperandVector &Operands) {
++  SMLoc S = getLoc();
++  int64_t Val = 0;
++  if (getLexer().is(AsmToken::Identifier) && getTok().getIdentifier() == "paccum") {
++    getLexer().Lex(); // eat 'paccum'
++    if (getParser().parseToken(AsmToken::LBrac, "expected '[' after 'paccum'") ||
++        getParser().parseIntToken(Val, "expected index after '['") ||
++        getParser().parseToken(AsmToken::RBrac, "expected ']'"))
++      return ParseStatus::Failure;
++  } else if (getTok().is(AsmToken::Integer)) {
++    Val = getTok().getIntVal(); // bare Hybrid position
++    getLexer().Lex();
++  } else {
++    return ParseStatus::NoMatch;
++  }
++  Operands.push_back(RISCVOperand::createImm(
++      MCConstantExpr::create(Val, getContext()), S, getLoc(), isRV64()));
++  return ParseStatus::Success;
++}
++
++// value:mask (compare) — a MULTI-PUSH parser: `V:M` emits both the Value and Mask
++// operands; a bare `V` emits only Value (the Mask slot is parsed as the next operand),
++// so one def accepts both the prose and the Hybrid spelling.
++ParseStatus RISCVAsmParser::parseValueMask(OperandVector &Operands) {
++  SMLoc S = getLoc();
++  if (getTok().isNot(AsmToken::Integer))
++    return ParseStatus::NoMatch;
++  int64_t V = getTok().getIntVal();
++  getLexer().Lex();
++  Operands.push_back(RISCVOperand::createImm(
++      MCConstantExpr::create(V, getContext()), S, getLoc(), isRV64()));
++  if (parseOptionalToken(AsmToken::Colon)) { // prose value:mask -> push Mask too
++    SMLoc MS = getLoc();
++    int64_t M = 0;
++    if (getParser().parseIntToken(M, "expected mask after ':'"))
++      return ParseStatus::Failure;
++    Operands.push_back(RISCVOperand::createImm(
++        MCConstantExpr::create(M, getContext()), MS, getLoc(), isRV64()));
++  }
++  return ParseStatus::Success;
++}
++
++// mult:min (length) — a MULTI-PUSH parser: `mult:min` sets Shift=log2(mult) (mult a
++// power of two in [1,64]) and Len=min; a bare value is the raw Hybrid Shift field.
++ParseStatus RISCVAsmParser::parseMultMin(OperandVector &Operands) {
++  SMLoc S = getLoc();
++  if (getTok().isNot(AsmToken::Integer))
++    return ParseStatus::NoMatch;
++  int64_t A = getTok().getIntVal();
++  getLexer().Lex();
++  if (parseOptionalToken(AsmToken::Colon)) { // prose mult:min
++    if (A <= 0 || (A & (A - 1)) != 0 || A > 64) {
++      Error(S, "prs mult must be a power of two in [1,64]");
++      return ParseStatus::Failure;
++    }
++    int64_t Shift = 0;
++    while ((int64_t(1) << Shift) < A)
++      ++Shift;
++    Operands.push_back(RISCVOperand::createImm(
++        MCConstantExpr::create(Shift, getContext()), S, getLoc(), isRV64()));
++    SMLoc MS = getLoc();
++    int64_t Len = 0;
++    if (getParser().parseIntToken(Len, "expected min after ':'"))
++      return ParseStatus::Failure;
++    Operands.push_back(RISCVOperand::createImm(
++        MCConstantExpr::create(Len, getContext()), MS, getLoc(), isRV64()));
++  } else { // bare Hybrid: A is the raw Shift value
++    Operands.push_back(RISCVOperand::createImm(
++        MCConstantExpr::create(A, getContext()), S, getLoc(), isRV64()));
++  }
++  return ParseStatus::Success;
++}
++
  ParseStatus RISCVAsmParser::parseVTypeI(OperandVector &Operands) {
    SMLoc S = getLoc();
  
@@ -98,10 +211,10 @@ index fa7bcfa..ae0bdc9 100644
                                                uint64_t Address,
                                                const MCDisassembler *Decoder) {
 diff --git a/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.cpp b/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.cpp
-index 8c9ab8e..42bce64 100644
+index 8c9ab8e..2f1dd3f 100644
 --- a/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.cpp
 +++ b/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.cpp
-@@ -212,6 +212,26 @@ void RISCVInstPrinter::printZeroOffsetMemOp(const MCInst *MI, unsigned OpNo,
+@@ -212,6 +212,52 @@ void RISCVInstPrinter::printZeroOffsetMemOp(const MCInst *MI, unsigned OpNo,
    O << ")";
  }
  
@@ -125,14 +238,40 @@ index 8c9ab8e..42bce64 100644
 +  markup(O, Markup::Register) << "pcurhdr";
 +}
 +
++// rtl-fun parser-unit L3b: the single-field prose forms print the canonical prose
++// keyword (the value rides a real field bit; pcurptr/pmeta bare == displacement 0).
++// The combined forms (value:mask, mult:min) keep the stock numeric printer and render
++// positionally — they still round-trip by word through the multi-push parser.
++void RISCVInstPrinter::printPCurPtr(const MCInst *MI, unsigned OpNo,
++                                    const MCSubtargetInfo &STI, raw_ostream &O) {
++  int64_t Off = MI->getOperand(OpNo).getImm();
++  markup(O, Markup::Register) << "pcurptr";
++  if (Off)
++    O << "+" << Off;
++}
++
++void RISCVInstPrinter::printPMeta(const MCInst *MI, unsigned OpNo,
++                                  const MCSubtargetInfo &STI, raw_ostream &O) {
++  int64_t Off = MI->getOperand(OpNo).getImm();
++  markup(O, Markup::Register) << "pmeta";
++  if (Off)
++    O << "+" << Off;
++}
++
++void RISCVInstPrinter::printPAccumIdx(const MCInst *MI, unsigned OpNo,
++                                      const MCSubtargetInfo &STI, raw_ostream &O) {
++  markup(O, Markup::Register) << "paccum";
++  O << "[" << MI->getOperand(OpNo).getImm() << "]";
++}
++
  void RISCVInstPrinter::printVTypeI(const MCInst *MI, unsigned OpNo,
                                     const MCSubtargetInfo &STI, raw_ostream &O) {
    unsigned Imm = MI->getOperand(OpNo).getImm();
 diff --git a/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.h b/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.h
-index f8b8fd3..3bdf098 100644
+index f8b8fd3..bd4070d 100644
 --- a/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.h
 +++ b/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.h
-@@ -46,6 +46,12 @@ public:
+@@ -46,6 +46,18 @@ public:
                           const MCSubtargetInfo &STI, raw_ostream &O);
    void printZeroOffsetMemOp(const MCInst *MI, unsigned OpNo,
                              const MCSubtargetInfo &STI, raw_ostream &O);
@@ -142,6 +281,12 @@ index f8b8fd3..3bdf098 100644
 +                    raw_ostream &O);
 +  void printCurHdrDest(const MCInst *MI, unsigned OpNo,
 +                       const MCSubtargetInfo &STI, raw_ostream &O);
++  void printPCurPtr(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
++                    raw_ostream &O);
++  void printPMeta(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
++                  raw_ostream &O);
++  void printPAccumIdx(const MCInst *MI, unsigned OpNo,
++                      const MCSubtargetInfo &STI, raw_ostream &O);
    void printVTypeI(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
                     raw_ostream &O);
    void printXSfmmVType(const MCInst *MI, unsigned OpNo,
@@ -160,10 +305,10 @@ index f63531a..9c6f447 100644
  //===----------------------------------------------------------------------===//
 diff --git a/lib/Target/RISCV/RISCVInstrInfoXparser.td b/lib/Target/RISCV/RISCVInstrInfoXparser.td
 new file mode 100644
-index 0000000..00c0411
+index 0000000..c810fe0
 --- /dev/null
 +++ b/lib/Target/RISCV/RISCVInstrInfoXparser.td
-@@ -0,0 +1,881 @@
+@@ -0,0 +1,902 @@
 +//===-- RISCVInstrInfoXparser.td ---------------------------*- tablegen -*-===//
 +//
 +// GENERATED by tools/parser-gen from isa/parser-opcodes.yaml -- do not edit.
@@ -242,7 +387,31 @@ index 0000000..00c0411
 +def camdest    : PrsDestOp<CamDestOpnd,    "printCamDest">;
 +def curhdrdest : PrsDestOp<CurHdrDestOpnd, "printCurHdrDest">;
 +
-+def PRS_LOAD_B : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++// Prose-sugar operand classes (L3b); C++ in the nix/parser-llvm patch.
++class PrsProseOpnd<string nm, string parser, string pred> : AsmOperandClass {
++  let Name = nm;
++  let RenderMethod = "addImmOperands";
++  let ParserMethod = parser;
++  let PredicateMethod = pred;
++}
++def PCurPtrOpnd : PrsProseOpnd<"PCurPtr", "parsePCurPtr",   "isUImm9">;
++def PMetaOpnd   : PrsProseOpnd<"PMeta",   "parsePMeta",     "isUImm9">;
++def PAccum3Opnd : PrsProseOpnd<"PAccum3", "parsePAccumIdx", "isUImm3">;
++def PAccum4Opnd : PrsProseOpnd<"PAccum4", "parsePAccumIdx", "isUImm4">;
++def ValMaskOpnd : PrsProseOpnd<"ValMask", "parseValueMask", "isUImm8">;
++def MultMinOpnd : PrsProseOpnd<"MultMin", "parseMultMin",   "isUImm3">;
++class PrsProseOp<AsmOperandClass mc, string pm> : Operand<i32> {
++  let ParserMatchClass = mc;
++  let PrintMethod = pm;
++}
++def pcurptroff : PrsProseOp<PCurPtrOpnd, "printPCurPtr">;
++def pmetaoff   : PrsProseOp<PMetaOpnd,   "printPMeta">;
++def paccumidx3 : PrsProseOp<PAccum3Opnd, "printPAccumIdx">;
++def paccumidx4 : PrsProseOp<PAccum4Opnd, "printPAccumIdx">;
++def valmask    : PrsProseOp<ValMaskOpnd, "printOperand">;
++def multmin    : PrsProseOp<MultMinOpnd, "printOperand">;
++
++def PRS_LOAD_B : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
 +                    "prs.load.b", "$dst, $offset"> {
 +  bits<1> dst;
 +  bits<9> offset;
@@ -253,7 +422,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_LOAD_B_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++def PRS_LOAD_B_BE : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
 +                    "prs.load.b.be", "$dst, $offset"> {
 +  bits<1> dst;
 +  bits<9> offset;
@@ -264,7 +433,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_LOAD_H : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++def PRS_LOAD_H : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
 +                    "prs.load.h", "$dst, $offset"> {
 +  bits<1> dst;
 +  bits<9> offset;
@@ -275,7 +444,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_LOAD_H_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++def PRS_LOAD_H_BE : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
 +                    "prs.load.h.be", "$dst, $offset"> {
 +  bits<1> dst;
 +  bits<9> offset;
@@ -286,7 +455,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_LOAD_W : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++def PRS_LOAD_W : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
 +                    "prs.load.w", "$dst, $offset"> {
 +  bits<1> dst;
 +  bits<9> offset;
@@ -297,7 +466,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_LOAD_W_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++def PRS_LOAD_W_BE : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
 +                    "prs.load.w.be", "$dst, $offset"> {
 +  bits<1> dst;
 +  bits<9> offset;
@@ -308,7 +477,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_LOAD_D : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++def PRS_LOAD_D : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
 +                    "prs.load.d", "$dst, $offset"> {
 +  bits<1> dst;
 +  bits<9> offset;
@@ -319,7 +488,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_LOAD_D_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++def PRS_LOAD_D_BE : PrsInst<(outs), (ins accumdest:$dst, pcurptroff:$offset),
 +                    "prs.load.d.be", "$dst, $offset"> {
 +  bits<1> dst;
 +  bits<9> offset;
@@ -410,7 +579,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSET_N : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSET_N : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lenset.n", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -424,7 +593,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSET_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSET_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lenset.n.stp", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -438,7 +607,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSET_B : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSET_B : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lenset.b", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -452,7 +621,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSET_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSET_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lenset.b.stp", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -466,7 +635,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSET_H : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSET_H : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lenset.h", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -480,7 +649,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSET_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSET_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lenset.h.stp", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -494,7 +663,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSET_W : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSET_W : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lenset.w", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -508,7 +677,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSET_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSET_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lenset.w.stp", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -522,7 +691,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSETMIN_N : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSETMIN_N : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lensetmin.n", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -536,7 +705,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSETMIN_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSETMIN_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lensetmin.n.stp", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -550,7 +719,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSETMIN_B : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSETMIN_B : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lensetmin.b", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -564,7 +733,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSETMIN_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSETMIN_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lensetmin.b.stp", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -578,7 +747,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSETMIN_H : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSETMIN_H : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lensetmin.h", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -592,7 +761,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSETMIN_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSETMIN_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lensetmin.h.stp", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -606,7 +775,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSETMIN_W : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSETMIN_W : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lensetmin.w", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -620,7 +789,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_LENSETMIN_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++def PRS_LENSETMIN_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, paccumidx4:$pos, multmin:$shift, uimm8:$len),
 +                    "prs.lensetmin.w.stp", "$dst, $pos, $shift, $len"> {
 +  bits<2> dst;
 +  bits<4> pos;
@@ -634,7 +803,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = len;
 +}
 +
-+def PRS_STORE_B : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
++def PRS_STORE_B : PrsInst<(outs), (ins paccumidx4:$pos, pmetaoff:$offset),
 +                    "prs.store.b", "$pos, $offset"> {
 +  bits<4> pos;
 +  bits<9> offset;
@@ -645,7 +814,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_STORE_H : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
++def PRS_STORE_H : PrsInst<(outs), (ins paccumidx4:$pos, pmetaoff:$offset),
 +                    "prs.store.h", "$pos, $offset"> {
 +  bits<4> pos;
 +  bits<9> offset;
@@ -656,7 +825,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_STORE_W : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
++def PRS_STORE_W : PrsInst<(outs), (ins paccumidx4:$pos, pmetaoff:$offset),
 +                    "prs.store.w", "$pos, $offset"> {
 +  bits<4> pos;
 +  bits<9> offset;
@@ -667,7 +836,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_STORE_D : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
++def PRS_STORE_D : PrsInst<(outs), (ins paccumidx4:$pos, pmetaoff:$offset),
 +                    "prs.store.d", "$pos, $offset"> {
 +  bits<4> pos;
 +  bits<9> offset;
@@ -678,7 +847,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_STOREIMM_B : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
++def PRS_STOREIMM_B : PrsInst<(outs), (ins uimm8:$value, pmetaoff:$offset),
 +                    "prs.storeimm.b", "$value, $offset"> {
 +  bits<8> value;
 +  bits<9> offset;
@@ -688,7 +857,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_STOREIMM_H : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
++def PRS_STOREIMM_H : PrsInst<(outs), (ins uimm8:$value, pmetaoff:$offset),
 +                    "prs.storeimm.h", "$value, $offset"> {
 +  bits<8> value;
 +  bits<9> offset;
@@ -698,7 +867,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_STOREIMM_W : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
++def PRS_STOREIMM_W : PrsInst<(outs), (ins uimm8:$value, pmetaoff:$offset),
 +                    "prs.storeimm.w", "$value, $offset"> {
 +  bits<8> value;
 +  bits<9> offset;
@@ -708,7 +877,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_STOREIMM_D : PrsInst<(outs), (ins uimm8:$value, uimm9:$offset),
++def PRS_STOREIMM_D : PrsInst<(outs), (ins uimm8:$value, pmetaoff:$offset),
 +                    "prs.storeimm.d", "$value, $offset"> {
 +  bits<8> value;
 +  bits<9> offset;
@@ -718,7 +887,7 @@ index 0000000..00c0411
 +  let Inst{19-11} = offset;
 +}
 +
-+def PRS_CAM_N : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++def PRS_CAM_N : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
 +                    "prs.cam.n", "$dst, $pos, $f, $share, $miss"> {
 +  bits<1> dst;
 +  bits<4> pos;
@@ -736,7 +905,7 @@ index 0000000..00c0411
 +  let Inst{15-11} = miss;
 +}
 +
-+def PRS_CAM_N_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++def PRS_CAM_N_STP : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
 +                    "prs.cam.n.stp", "$dst, $pos, $f, $share, $miss"> {
 +  bits<1> dst;
 +  bits<4> pos;
@@ -754,7 +923,7 @@ index 0000000..00c0411
 +  let Inst{15-11} = miss;
 +}
 +
-+def PRS_CAM_B : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++def PRS_CAM_B : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
 +                    "prs.cam.b", "$dst, $pos, $f, $share, $miss"> {
 +  bits<1> dst;
 +  bits<4> pos;
@@ -772,7 +941,7 @@ index 0000000..00c0411
 +  let Inst{15-11} = miss;
 +}
 +
-+def PRS_CAM_B_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++def PRS_CAM_B_STP : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
 +                    "prs.cam.b.stp", "$dst, $pos, $f, $share, $miss"> {
 +  bits<1> dst;
 +  bits<4> pos;
@@ -790,7 +959,7 @@ index 0000000..00c0411
 +  let Inst{15-11} = miss;
 +}
 +
-+def PRS_CAM_H : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++def PRS_CAM_H : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
 +                    "prs.cam.h", "$dst, $pos, $f, $share, $miss"> {
 +  bits<1> dst;
 +  bits<4> pos;
@@ -808,7 +977,7 @@ index 0000000..00c0411
 +  let Inst{15-11} = miss;
 +}
 +
-+def PRS_CAM_H_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++def PRS_CAM_H_STP : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
 +                    "prs.cam.h.stp", "$dst, $pos, $f, $share, $miss"> {
 +  bits<1> dst;
 +  bits<4> pos;
@@ -826,7 +995,7 @@ index 0000000..00c0411
 +  let Inst{15-11} = miss;
 +}
 +
-+def PRS_CAM_W : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++def PRS_CAM_W : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
 +                    "prs.cam.w", "$dst, $pos, $f, $share, $miss"> {
 +  bits<1> dst;
 +  bits<4> pos;
@@ -844,7 +1013,7 @@ index 0000000..00c0411
 +  let Inst{15-11} = miss;
 +}
 +
-+def PRS_CAM_W_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++def PRS_CAM_W_STP : PrsInst<(outs), (ins camdest:$dst, paccumidx4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
 +                    "prs.cam.w.stp", "$dst, $pos, $f, $share, $miss"> {
 +  bits<1> dst;
 +  bits<4> pos;
@@ -862,7 +1031,7 @@ index 0000000..00c0411
 +  let Inst{15-11} = miss;
 +}
 +
-+def PRS_CMPIB_STOP : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
++def PRS_CMPIB_STOP : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
 +                    "prs.cmpib.stop", "$pos, $value, $mask"> {
 +  bits<3> pos;
 +  bits<8> value;
@@ -874,7 +1043,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = mask;
 +}
 +
-+def PRS_CMPIB_STOPNODE : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
++def PRS_CMPIB_STOPNODE : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
 +                    "prs.cmpib.stopnode", "$pos, $value, $mask"> {
 +  bits<3> pos;
 +  bits<8> value;
@@ -886,7 +1055,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = mask;
 +}
 +
-+def PRS_CMPIB_STOPSUB : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
++def PRS_CMPIB_STOPSUB : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
 +                    "prs.cmpib.stopsub", "$pos, $value, $mask"> {
 +  bits<3> pos;
 +  bits<8> value;
@@ -898,7 +1067,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = mask;
 +}
 +
-+def PRS_CMPIB_FAIL : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
++def PRS_CMPIB_FAIL : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
 +                    "prs.cmpib.fail", "$pos, $value, $mask"> {
 +  bits<3> pos;
 +  bits<8> value;
@@ -910,7 +1079,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = mask;
 +}
 +
-+def PRS_CMPNEIB_STOP : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
++def PRS_CMPNEIB_STOP : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
 +                    "prs.cmpneib.stop", "$pos, $value, $mask"> {
 +  bits<3> pos;
 +  bits<8> value;
@@ -922,7 +1091,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = mask;
 +}
 +
-+def PRS_CMPNEIB_STOPNODE : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
++def PRS_CMPNEIB_STOPNODE : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
 +                    "prs.cmpneib.stopnode", "$pos, $value, $mask"> {
 +  bits<3> pos;
 +  bits<8> value;
@@ -934,7 +1103,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = mask;
 +}
 +
-+def PRS_CMPNEIB_STOPSUB : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
++def PRS_CMPNEIB_STOPSUB : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
 +                    "prs.cmpneib.stopsub", "$pos, $value, $mask"> {
 +  bits<3> pos;
 +  bits<8> value;
@@ -946,7 +1115,7 @@ index 0000000..00c0411
 +  let Inst{18-11} = mask;
 +}
 +
-+def PRS_CMPNEIB_FAIL : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
++def PRS_CMPNEIB_FAIL : PrsInst<(outs), (ins paccumidx3:$pos, valmask:$value, uimm8:$mask),
 +                    "prs.cmpneib.fail", "$pos, $value, $mask"> {
 +  bits<3> pos;
 +  bits<8> value;
@@ -1042,6 +1211,3 @@ index 0000000..00c0411
 +  let Inst{19-15} = rs1;
 +  let Inst{28-24} = preg;
 +}
-+
-+// L3b (deferred): prose sugar forms — pcurptr+N, paccum[i], value:mask,
-+// mult:min, pmeta+N — additional syntaxes over the encodings emitted above.
