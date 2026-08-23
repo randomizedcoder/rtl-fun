@@ -120,9 +120,12 @@ immediate-only custom-0 ops (L1), the custom-3 moves via a generated `PRReg` reg
 the destination-decorated load/cam/length forms (L3a: `paccum`/`pnext`/`pcurhdr`), and the
 prose-sugar operands (L3b: `pcurptr+N`, `pmeta+N`, `paccum[i]`, `value:mask`, `mult:min`) to
 byte-identical goldens — full binutils parity for the MC layer (all 38 vector lines assemble +
-round-trip, 0 deferred). Still open (the deferred tail): Clang/GCC **intrinsics/builtins**, plus
-the heavyweight random-*instruction* checks (full upstream riscv-tests, riscv-dv — the latter
-blocked on a commercial UVM simulator).
+round-trip, 0 deferred). The **Clang** leg has stood up (C0, `nix run .#parser-clang-check`): a
+`clang` built against the parser-patched libLLVM, whose integrated assembler already assembles
+`prs.*` to the golden words and compiles the C slice byte-identical to the model ROM — the
+foundation for `__builtin_riscv_prs_*`. Still open (the deferred tail): the Clang builtins codegen
+itself (C1+) and optional GCC **builtins**, plus the heavyweight random-*instruction* checks (full
+upstream riscv-tests, riscv-dv — the latter blocked on a commercial UVM simulator).
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 

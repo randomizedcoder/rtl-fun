@@ -206,6 +206,11 @@
         # assemble/disassemble round-trip test (`nix run .#parser-llvm-mc-test`).
         parser-llvm-mc = import ./nix/parser-llvm-mc-test.nix { inherit pkgs; };
 
+        # Phase-7 C0 (Clang): a clang built against the parser-patched libLLVM + the
+        # stand-up proof (`nix run .#parser-clang-check`). No builtins yet — C0 just
+        # proves the build + that clang's integrated-as sees the parser MC layer.
+        parser-clang = import ./nix/parser-clang.nix { inherit pkgs; };
+
         # The default development shell (exports CVA6_SRC -> the pinned source,
         # and puts the cva6-baseline app on PATH).
         devshell = import ./nix/devshell.nix {
@@ -269,6 +274,8 @@
           # Phase-7 L3: the parser-patched llvm + the llvm-mc test.
           parser-llvm = parser-llvm-mc.parser-llvm;
           parser-llvm-mc-test = parser-llvm-mc.parser-llvm-mc-test;
+          parser-clang = parser-clang.parser-clang;
+          parser-clang-check = parser-clang.parser-clang-check;
         };
 
         # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
@@ -392,6 +399,14 @@
         apps.parser-llvm-mc-test = {
           type = "app";
           program = "${parser-llvm-mc.parser-llvm-mc-test}/bin/parser-llvm-mc-test";
+        };
+
+        # Phase-7 C0 (Clang): stand up the parser-patched clang + prove its integrated
+        # assembler sees the parser MC layer and the C slice byte-parity holds under it:
+        # `nix run .#parser-clang-check`.
+        apps.parser-clang-check = {
+          type = "app";
+          program = "${parser-clang.parser-clang-check}/bin/parser-clang-check";
         };
 
         # Phase-7 Stage 2 (standalone Spike): run parser ELFs on the runnable parser
