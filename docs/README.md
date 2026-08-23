@@ -114,9 +114,12 @@ so **the exit criterion is met: the slice runs on Spike *and* QEMU == the golden
 The prose-freeze follow-on is now **complete** — the frozen §1.12 notation (`.be`/`.stp`/`.fail`
 qualifiers, `mult:min`, the `prs.lenset{,min,const}` aliases, `paccum`/`pnext`/`pcurhdr` destination
 decoration) assembles, disassembles to the canonical prose, and round-trips, all bit-identical to
-the model. Still open (the deferred tail): **LLVM MC / GCC builtins** (L3), plus the heavyweight
-random-*instruction* checks (full upstream riscv-tests, riscv-dv — the latter blocked on a
-commercial UVM simulator).
+the model. **LLVM MC** has begun (`nix run .#parser-llvm-mc-test`): a RISCV-only patched
+`llvm-mc`/`llvm-objdump`, generated from the same ISA yaml, assembles + disassembles the
+immediate-only parser ops to byte-identical goldens (L1; p-registers/destinations/prose are later
+L increments). Still open (the deferred tail): the rest of **LLVM MC + GCC builtins** (L2/L3), plus
+the heavyweight random-*instruction* checks (full upstream riscv-tests, riscv-dv — the latter
+blocked on a commercial UVM simulator).
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 
