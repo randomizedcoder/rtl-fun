@@ -2,7 +2,7 @@ diff --git a/gas/config/tc-riscv.c b/gas/config/tc-riscv.c
 index 6bcf538..6b9be82 100644
 --- a/gas/config/tc-riscv.c
 +++ b/gas/config/tc-riscv.c
-@@ -1771,6 +1771,37 @@ validate_riscv_insn (const struct riscv_opcode *opc, int length)
+@@ -1771,6 +1771,38 @@ validate_riscv_insn (const struct riscv_opcode *opc, int length)
  		    goto unknown_validate_operand;
  		}
  		break;
@@ -12,6 +12,7 @@ index 6bcf538..6b9be82 100644
 +		case 'r': USE_IMM (5, 24); break; /* p-register, Cpreg[28:24].  */
 +		case 'c': USE_IMM (1, 30); break; /* cam dest paccum/pnext -> D[30].  */
 +		case 'h': break;                  /* cosmetic pcurhdr dest (no bits).  */
++		case 'p': break;                  /* cosmetic paccum dest (load, no bits).  */
 +		case 'l':                         /* mult:min -> Shift[23:21] + Len[18:11].  */
 +		  USE_IMM (3, 21);
 +		  USE_IMM (8, 11);
@@ -40,7 +41,7 @@ index 6bcf538..6b9be82 100644
  	    default:
  	      goto unknown_validate_operand;
  	    }
-@@ -4287,6 +4318,205 @@ riscv_ip (char *str, struct riscv_cl_insn *ip, expressionS *imm_expr,
+@@ -4287,6 +4319,213 @@ riscv_ip (char *str, struct riscv_cl_insn *ip, expressionS *imm_expr,
  		    }
  		  break;
  
@@ -106,6 +107,14 @@ index 6bcf538..6b9be82 100644
 +			  || ISALNUM ((unsigned char) asarg[7]))
 +			break;
 +		      asarg += 7;
++		      continue;
++		    case 'p': /* cosmetic paccum dest (load target, D=0 fixed).  */
++		      /* Required leading keyword that consumes no bits — absence
++			 falls through (break) to the next opcode row.  */
++		      if (strncmp (asarg, "paccum", 6) != 0
++			  || ISALNUM ((unsigned char) asarg[6]))
++			break;
++		      asarg += 6;
 +		      continue;
 +		    case 'l': /* mult:min -> Shift[23:21]=log2(mult) + Len[18:11]=min.  */
 +		      {
@@ -250,7 +259,7 @@ diff --git a/opcodes/riscv-dis.c b/opcodes/riscv-dis.c
 index 03c8cf1..72bd0de 100644
 --- a/opcodes/riscv-dis.c
 +++ b/opcodes/riscv-dis.c
-@@ -917,6 +917,109 @@ print_insn_args (const char *oparg, insn_t l, bfd_vma pc, disassemble_info *info
+@@ -917,6 +917,112 @@ print_insn_args (const char *oparg, insn_t l, bfd_vma pc, disassemble_info *info
  		  goto undefined_modifier;
  		}
  	      break;
@@ -287,6 +296,9 @@ index 03c8cf1..72bd0de 100644
 +		  break;
 +		case 'h': /* cosmetic pcurhdr dest (length family).  */
 +		  print (info->stream, dis_style_register, "pcurhdr");
++		  break;
++		case 'p': /* cosmetic paccum dest (load target).  */
++		  print (info->stream, dis_style_register, "paccum");
 +		  break;
 +		case 'l': /* mult:min -> 2^Shift[23:21] : Len[18:11].  */
 +		  print (info->stream, dis_style_immediate, "%u",
@@ -374,22 +386,22 @@ index 54887c9..8ad7911 100644
 +   p-register operand added by this patch (gas/config/tc-riscv.c + riscv-dis.c);
 +   `XtuN@S` is binutils' stock unsigned-bitfield operand; `d`/`s` are rd/rs1.
 +   INSN_CLASS_I keeps the ops always enabled (custom-0/custom-3, no -march gate).  */
-+{"prs.load.b", 0, INSN_CLASS_I, "Xpo9@11", 0x1000000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.b", 0, INSN_CLASS_I, "Xtu9@11", 0x1000000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.b.be", 0, INSN_CLASS_I, "Xpo9@11", 0x1010000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.b.be", 0, INSN_CLASS_I, "Xtu9@11", 0x1010000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.h", 0, INSN_CLASS_I, "Xpo9@11", 0x2000000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.h", 0, INSN_CLASS_I, "Xtu9@11", 0x2000000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.h.be", 0, INSN_CLASS_I, "Xpo9@11", 0x2010000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.h.be", 0, INSN_CLASS_I, "Xtu9@11", 0x2010000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.w", 0, INSN_CLASS_I, "Xpo9@11", 0x3000000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.w", 0, INSN_CLASS_I, "Xtu9@11", 0x3000000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.w.be", 0, INSN_CLASS_I, "Xpo9@11", 0x3010000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.w.be", 0, INSN_CLASS_I, "Xtu9@11", 0x3010000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.d", 0, INSN_CLASS_I, "Xpo9@11", 0x0000000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.d", 0, INSN_CLASS_I, "Xtu9@11", 0x0000000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.d.be", 0, INSN_CLASS_I, "Xpo9@11", 0x0010000b, 0xfff007ff, match_opcode, 0},
-+{"prs.load.d.be", 0, INSN_CLASS_I, "Xtu9@11", 0x0010000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.b", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x1000000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.b", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x1000000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.b.be", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x1010000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.b.be", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x1010000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.h", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x2000000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.h", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x2000000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.h.be", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x2010000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.h.be", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x2010000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.w", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x3000000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.w", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x3000000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.w.be", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x3010000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.w.be", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x3010000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.d", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x0000000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.d", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x0000000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.d.be", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x0010000b, 0xfff007ff, match_opcode, 0},
++{"prs.load.d.be", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x0010000b, 0xfff007ff, match_opcode, 0},
 +{"prs.lensetconst.n", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0x00e0010b, 0xfff807ff, match_opcode, 0},
 +{"prs.lensetconst.n.stp", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0x80e0010b, 0xfff807ff, match_opcode, 0},
 +{"prs.lensetconst.b", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0x10e0010b, 0xfff807ff, match_opcode, 0},

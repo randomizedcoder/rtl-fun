@@ -331,9 +331,10 @@ mnemonics:
   #
   # `dest: { token: NAME }` (cosmetic-fixed form of `dest`) prints a required leading pseudo-register
   # that maps to NO field (the discriminator is already pinned in `fixed`): the length family always
-  # targets the current header, spelled `pcurhdr`. Rendered as the `Xph` gas operand (prints the
-  # keyword, consumes no bits); it round-trips but adds no intrinsic parameter. (Contrast the
-  # selecting `dest: { field, map }` on prs.cam, where the keyword picks the D bit.)
+  # targets the current header, spelled `pcurhdr` (`Xph`); a load always targets the accumulator,
+  # spelled `paccum` (`Xpp`). Rendered as the matching gas operand (prints the keyword, consumes no
+  # bits); it round-trips but adds no intrinsic parameter. (Contrast the selecting
+  # `dest: { field, map }` on prs.cam, where the keyword picks the D bit.)
   #
   # `suffixes` (Phase-7 prose-freeze) folds an attribute/discriminator FIELD into a dotted mnemonic
   # suffix, exactly like `size_class` folds Sz (§1.12 of phase-1-isa-spec.md). Each entry is
@@ -350,7 +351,7 @@ mnemonics:
   # This is how the single `prs.cam` mnemonic replaces the old prs.cam/prs.camnext pair: `paccum`
   # ⇒ Accum (D=0), `pnext` ⇒ Next (D=1), matching the patent's disassembly (§1.12). Bits unchanged.
   custom0:
-    - { asm: prs.load,     group: load,             fixed: { X: 0, D: 0, Blen: 0, Shift: 0 }, operands: [Sz, E, Offset],        size_class: loadstore, prose: { Offset: ptr }, suffixes: [ { field: E, bare: 0, map: { be: 1 } } ] }
+    - { asm: prs.load,     group: load,             fixed: { X: 0, D: 0, Blen: 0, Shift: 0 }, operands: [Sz, E, Offset],        size_class: loadstore, dest: { token: paccum }, prose: { Offset: ptr }, suffixes: [ { field: E, bare: 0, map: { be: 1 } } ] }
     # lensetconst (Shift=7) MUST precede lenset (Shift is an operand there): a Shift=7 word also
     # matches lenset's mask, so the more-specific const row must come first for objdump to prefer it
     # (else it would print mult=2^7=128, which mult:min rejects on reassembly).

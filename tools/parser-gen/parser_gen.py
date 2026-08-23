@@ -206,7 +206,8 @@ def _prose_token(kind, hi, lo):
 
 # Cosmetic-fixed destination pseudo-registers (dest.token): a required leading operand
 # that prints a keyword but consumes no encoding bits (the discriminator is in `fixed`).
-_DEST_TOKENS = {"pcurhdr": "Xph"}
+# pcurhdr -> Xph (length family); paccum -> Xpp (load target, always Accum / D=0).
+_DEST_TOKENS = {"pcurhdr": "Xph", "paccum": "Xpp"}
 
 
 def _dest_token(name):
@@ -266,7 +267,7 @@ def _args_bits(args):
             bits |= mask_for(30, 30)
         elif tok == "Xpl":                   # mult:min -> length Shift[23:21] + Len[18:11]
             bits |= mask_for(23, 21) | mask_for(18, 11)
-        elif tok == "Xph":                   # cosmetic dest pcurhdr -> no bits (F2 fixed)
+        elif tok in ("Xph", "Xpp"):          # cosmetic dest pcurhdr/paccum -> no bits (fixed)
             pass
         elif tok.startswith(("Xpo", "Xpa", "Xpe")):  # pcurptr+N / paccum[i] / pmeta+N -> N-bit at S
             n, s = (int(x) for x in re.match(r"Xp[oae](\d+)@(\d+)", tok).groups())
@@ -329,7 +330,8 @@ def emit_gas(insns, sizes):
            "/* the mnemonic; each (size × suffix) combination is its own {prose,Hybrid} row pair. */",
            "/* `Xpc` = cam destination pseudo-register (paccum⇒D=0 / pnext⇒D=1), the leading operand */",
            "/* that selects the CAM D bit — the single prs.cam mnemonic (no prs.camnext). */",
-           "/* `Xpl` = mult:min (length Shift[23:21]+Len[18:11]); `Xph` = cosmetic pcurhdr dest. */",
+           "/* `Xpl` = mult:min (length Shift[23:21]+Len[18:11]); `Xph`/`Xpp` = cosmetic */",
+           "/* pcurhdr/paccum dest (no bits): length always targets CurHdr, a load always Accum. */",
            ""]
     def rows(name, match, hybrid, prose):
         """The prose row (if any) then the Hybrid row for ONE mnemonic name. Prose

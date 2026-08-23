@@ -111,8 +111,10 @@ standalone Spike). **Level 4 QEMU** teaches a patched `qemu-system-riscv64` the 
 `0x5000_0000` device ([`nix/qemu-parser.nix`](../nix/qemu-parser.nix)) and runs the identical
 ELFs and C slice on it (`nix run .#parser-qemu` / `.#parser-qemu-slice`, both 22/0 == model) —
 so **the exit criterion is met: the slice runs on Spike *and* QEMU == the golden model** ✅.
-Still open (the deferred tail): the prose-freeze follow-on (`.stp`/`.fail` qualifiers,
-`mult:min`, mnemonic aliases, …), **LLVM MC / GCC builtins** (L3), plus the heavyweight
+The prose-freeze follow-on is now **complete** — the frozen §1.12 notation (`.be`/`.stp`/`.fail`
+qualifiers, `mult:min`, the `prs.lenset{,min,const}` aliases, `paccum`/`pnext`/`pcurhdr` destination
+decoration) assembles, disassembles to the canonical prose, and round-trips, all bit-identical to
+the model. Still open (the deferred tail): **LLVM MC / GCC builtins** (L3), plus the heavyweight
 random-*instruction* checks (full upstream riscv-tests, riscv-dv — the latter blocked on a
 commercial UVM simulator).
 Deferred slices: 64-bit instruction form; encoders/execution for the array /

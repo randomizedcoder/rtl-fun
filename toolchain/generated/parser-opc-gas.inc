@@ -10,24 +10,25 @@
 /* the mnemonic; each (size × suffix) combination is its own {prose,Hybrid} row pair. */
 /* `Xpc` = cam destination pseudo-register (paccum⇒D=0 / pnext⇒D=1), the leading operand */
 /* that selects the CAM D bit — the single prs.cam mnemonic (no prs.camnext). */
-/* `Xpl` = mult:min (length Shift[23:21]+Len[18:11]); `Xph` = cosmetic pcurhdr dest. */
+/* `Xpl` = mult:min (length Shift[23:21]+Len[18:11]); `Xph`/`Xpp` = cosmetic */
+/* pcurhdr/paccum dest (no bits): length always targets CurHdr, a load always Accum. */
 
-{"prs.load.b", 0, INSN_CLASS_I, "Xpo9@11", 0x1000000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.b", 0, INSN_CLASS_I, "Xtu9@11", 0x1000000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.b.be", 0, INSN_CLASS_I, "Xpo9@11", 0x1010000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.b.be", 0, INSN_CLASS_I, "Xtu9@11", 0x1010000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.h", 0, INSN_CLASS_I, "Xpo9@11", 0x2000000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.h", 0, INSN_CLASS_I, "Xtu9@11", 0x2000000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.h.be", 0, INSN_CLASS_I, "Xpo9@11", 0x2010000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.h.be", 0, INSN_CLASS_I, "Xtu9@11", 0x2010000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.w", 0, INSN_CLASS_I, "Xpo9@11", 0x3000000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.w", 0, INSN_CLASS_I, "Xtu9@11", 0x3000000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.w.be", 0, INSN_CLASS_I, "Xpo9@11", 0x3010000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.w.be", 0, INSN_CLASS_I, "Xtu9@11", 0x3010000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.d", 0, INSN_CLASS_I, "Xpo9@11", 0x0000000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.d", 0, INSN_CLASS_I, "Xtu9@11", 0x0000000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.d.be", 0, INSN_CLASS_I, "Xpo9@11", 0x0010000b, 0xfff007ff, match_opcode, 0},
-{"prs.load.d.be", 0, INSN_CLASS_I, "Xtu9@11", 0x0010000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.b", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x1000000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.b", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x1000000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.b.be", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x1010000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.b.be", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x1010000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.h", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x2000000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.h", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x2000000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.h.be", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x2010000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.h.be", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x2010000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.w", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x3000000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.w", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x3000000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.w.be", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x3010000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.w.be", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x3010000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.d", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x0000000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.d", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x0000000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.d.be", 0, INSN_CLASS_I, "Xpp,Xpo9@11", 0x0010000b, 0xfff007ff, match_opcode, 0},
+{"prs.load.d.be", 0, INSN_CLASS_I, "Xpp,Xtu9@11", 0x0010000b, 0xfff007ff, match_opcode, 0},
 {"prs.lensetconst.n", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0x00e0010b, 0xfff807ff, match_opcode, 0},
 {"prs.lensetconst.n.stp", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0x80e0010b, 0xfff807ff, match_opcode, 0},
 {"prs.lensetconst.b", 0, INSN_CLASS_I, "Xph,Xtu8@11", 0x10e0010b, 0xfff807ff, match_opcode, 0},

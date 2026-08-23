@@ -36,12 +36,14 @@ int main(int argc, char **argv)
         /* Dotted suffixes fold a field into the mnemonic (Phase-7 prose-freeze):
            load E -> .be (bare = E=0); cam/length S -> .stp; cmp Er ->
            .stop/.stopnode/.stopsub/.fail. The intrinsic still takes the folded field
-           as a parameter, so the expected word is unchanged (bits identical). */
-        { "prs.load.h.be 12",             prs_load(2, 1, 12) },   /* E=1 via .be */
-        { "prs.load.h 12",                prs_load(2, 0, 12) },   /* E=0 bare */
-        { "prs.load.b 0",                 prs_load(1, 0, 0) },
-        { "prs.load.w.be 4",              prs_load(3, 1, 4) },
-        { "prs.load.d 8",                 prs_load(0, 0, 8) },
+           as a parameter, so the expected word is unchanged (bits identical).
+           A load always targets the accumulator: `paccum` is its required leading
+           cosmetic dest (§1.12), consuming no bits (prs_load's args are unchanged). */
+        { "prs.load.h.be paccum, 12",     prs_load(2, 1, 12) },   /* E=1 via .be */
+        { "prs.load.h paccum, 12",        prs_load(2, 0, 12) },   /* E=0 bare */
+        { "prs.load.b paccum, 0",         prs_load(1, 0, 0) },
+        { "prs.load.w.be paccum, 4",      prs_load(3, 1, 4) },
+        { "prs.load.d paccum, 8",         prs_load(0, 0, 8) },
         /* Length family (Hybrid): prs.lenset (D=0) / prs.lensetmin (D=1) fold D into the
            name; prs.lensetconst pins Shift=7 (constant length); pcurhdr is the required
            cosmetic dest; Hybrid gives Pos/Shift/Len positionally (prose uses paccum[i]/mult:min). */
@@ -75,8 +77,8 @@ int main(int argc, char **argv)
         /* Stage-1.5 prose sugar, now combined with the freeze suffixes. Same
            encodings as the Hybrid forms above: pcurptr+N -> load Offset; paccum[i]
            -> Pos; value:mask -> cmp Value/Mask. `pcurptr` bare == Offset 0. */
-        { "prs.load.h.be pcurptr+12",           prs_load(2, 1, 12) },
-        { "prs.load.b pcurptr",                 prs_load(1, 0, 0) },
+        { "prs.load.h.be paccum, pcurptr+12",   prs_load(2, 1, 12) },
+        { "prs.load.b paccum, pcurptr",         prs_load(1, 0, 0) },
         { "prs.store.b paccum[0], pmeta+8",     prs_store(1, 0, 8) },
         { "prs.store.h paccum[1], pmeta",       prs_store(2, 1, 0) },
         { "prs.storeimm.b 4, pmeta+3",          prs_storeimm(1, 4, 3) },
