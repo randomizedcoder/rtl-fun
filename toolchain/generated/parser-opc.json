@@ -124,54 +124,16 @@
     "asm": "prs.cam",
     "opcode": 11,
     "match": 1035,
-    "mask": 1088423935,
+    "mask": 14682111,
     "fixed": {
-      "D": 0,
       "Func3": 0
     },
     "operands": [
       {
-        "name": "S",
-        "hi": 31,
-        "lo": 31
+        "name": "D",
+        "hi": 30,
+        "lo": 30
       },
-      {
-        "name": "Sz",
-        "hi": 29,
-        "lo": 28
-      },
-      {
-        "name": "Pos",
-        "hi": 27,
-        "lo": 24
-      },
-      {
-        "name": "F",
-        "hi": 20,
-        "lo": 20
-      },
-      {
-        "name": "Share",
-        "hi": 19,
-        "lo": 16
-      },
-      {
-        "name": "Miss",
-        "hi": 15,
-        "lo": 11
-      }
-    ]
-  },
-  {
-    "asm": "prs.camnext",
-    "opcode": 11,
-    "match": 1073742859,
-    "mask": 1088423935,
-    "fixed": {
-      "D": 1,
-      "Func3": 0
-    },
-    "operands": [
       {
         "name": "S",
         "hi": 31,

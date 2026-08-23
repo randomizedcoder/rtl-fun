@@ -42,7 +42,7 @@ class Insn:
     """One assemblable instruction resolved from the yaml."""
 
     def __init__(self, asm, fields, fixed, operands, match, mask, opcode,
-                 size_class=None, gas_args=None, prose=None, suffixes=None):
+                 size_class=None, gas_args=None, prose=None, suffixes=None, dest=None):
         self.asm = asm                 # mnemonic, e.g. "prs.load"
         self.cname = asm.replace(".", "_")   # prs_load
         self.fields = fields           # {name: (hi, lo)} available field ranges
@@ -58,6 +58,10 @@ class Insn:
         # suffix in the gas rows (like size_class does Sz). The field stays in `operands` so the C
         # intrinsic keeps its parameter; only the assembler row set changes (bits identical).
         self.suffixes = suffixes or []
+        # Phase-7 prose-freeze: {field, map} destination pseudo-register — the leading operand whose
+        # keyword selects a discriminator field (cam D: paccum=0/pnext=1). Rendered as the `Xpc` gas
+        # operand; the field is a normal `operands` entry so the intrinsic takes it as a parameter.
+        self.dest = dest
 
 
 def resolve_custom0(row, groups):
@@ -76,7 +80,8 @@ def resolve_custom0(row, groups):
         mask |= mask_for(hi, lo)
     return Insn(row["asm"], fields, fixed, list(row.get("operands", [])),
                 match, mask, C0_OPCODE, size_class=row.get("size_class"),
-                prose=row.get("prose"), suffixes=row.get("suffixes"))
+                prose=row.get("prose"), suffixes=row.get("suffixes"),
+                dest=row.get("dest"))
 
 
 def resolve_custom3(name, spec, cop):
@@ -164,7 +169,7 @@ def emit_intrinsics(insns):
     out.append("")
     out.append("/* Widen to 64-bit UNSIGNED before the \"i\" operand: a uint32_t immediate is")
     out.append(" * SImode, which gas prints as a SIGNED value, so any word with bit 31 set")
-    out.append(" * (e.g. camnext, 0xe001140b) becomes negative and `.insn 4, <neg>` fails with")
+    out.append(" * (e.g. prs.cam pnext .stp, 0xe001140b) becomes negative and `.insn 4, <neg>` fails with")
     out.append(" * \"value conflicts with instruction length\". The 64-bit unsigned form prints")
     out.append(" * the full positive word, which gas accepts. */")
     out.append("#define PRS_EMIT(word) \\")
@@ -203,11 +208,15 @@ def _c0_args(insn, skip=(), prose=False):
     Everything else stays the stock `XtuN@S`."""
     toks = []
     swallow = False
+    dest_field = insn.dest["field"] if insn.dest else None
     for n in insn.operands:
         if n in skip:
             continue
         if swallow:            # the Mask consumed by a preceding valmask
             swallow = False
+            continue
+        if n == dest_field:    # leading destination pseudo-register (paccum/pnext -> D)
+            toks.append("Xpc")
             continue
         kind = prose and insn.prose.get(n)
         if kind:
@@ -235,6 +244,8 @@ def _args_bits(args):
             bits |= mask_for(28, 24)
         elif tok == "Xpm":                   # value:mask -> Value[26:19] + Mask[18:11]
             bits |= mask_for(26, 19) | mask_for(18, 11)
+        elif tok == "Xpc":                   # cam dest paccum/pnext -> D[30]
+            bits |= mask_for(30, 30)
         elif tok.startswith(("Xpo", "Xpa")):  # pcurptr+N / paccum[i] -> N-bit at S
             n, s = (int(x) for x in re.match(r"Xp[oa](\d+)@(\d+)", tok).groups())
             bits |= mask_for(s + n - 1, s)
@@ -293,6 +304,8 @@ def emit_gas(insns, sizes):
            "/* before its Hybrid row (same match/mask); the Hybrid form still assembles.  */",
            "/* Prose-freeze suffixes (.be/.stp/.stop/.stopnode/.stopsub/.fail) fold a field into */",
            "/* the mnemonic; each (size × suffix) combination is its own {prose,Hybrid} row pair. */",
+           "/* `Xpc` = cam destination pseudo-register (paccum⇒D=0 / pnext⇒D=1), the leading operand */",
+           "/* that selects the CAM D bit — the single prs.cam mnemonic (no prs.camnext). */",
            ""]
     def rows(name, match, hybrid, prose):
         """The prose row (if any) then the Hybrid row for ONE mnemonic name. Prose

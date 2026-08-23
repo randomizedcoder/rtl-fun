@@ -10,9 +10,7 @@
 #define MATCH_PRS_STOREIMM 0x0000030b
 #define MASK_PRS_STOREIMM 0xc00007ff
 #define MATCH_PRS_CAM 0x0000040b
-#define MASK_PRS_CAM 0x40e007ff
-#define MATCH_PRS_CAMNEXT 0x4000040b
-#define MASK_PRS_CAMNEXT 0x40e007ff
+#define MASK_PRS_CAM 0x00e007ff
 #define MATCH_PRS_CMPIB 0x0000068b
 #define MASK_PRS_CMPIB 0x000007ff
 #define MATCH_PRS_CMPNEIB 0x0000070b
@@ -40,8 +38,7 @@
   X("prs.lencur", prs_lencur, MATCH_PRS_LENCUR, MASK_PRS_LENCUR, 5) \
   X("prs.store", prs_store, MATCH_PRS_STORE, MASK_PRS_STORE, 3) \
   X("prs.storeimm", prs_storeimm, MATCH_PRS_STOREIMM, MASK_PRS_STOREIMM, 3) \
-  X("prs.cam", prs_cam, MATCH_PRS_CAM, MASK_PRS_CAM, 6) \
-  X("prs.camnext", prs_camnext, MATCH_PRS_CAMNEXT, MASK_PRS_CAMNEXT, 6) \
+  X("prs.cam", prs_cam, MATCH_PRS_CAM, MASK_PRS_CAM, 7) \
   X("prs.cmpib", prs_cmpib, MATCH_PRS_CMPIB, MASK_PRS_CMPIB, 4) \
   X("prs.cmpneib", prs_cmpneib, MATCH_PRS_CMPNEIB, MASK_PRS_CMPNEIB, 4) \
   X("prs.nextnode", prs_nextnode, MATCH_PRS_NEXTNODE, MASK_PRS_NEXTNODE, 1) \

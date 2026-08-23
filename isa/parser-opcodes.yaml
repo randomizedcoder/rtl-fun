@@ -332,13 +332,19 @@ mnemonics:
   # default value. The field STAYS in `operands` so the C intrinsic keeps its positional parameter
   # (presentation-only in gas); only the assembler row set changes. `bare: null` = a suffix is
   # mandatory (no bare row). Bits are unchanged: every suffixed spelling encodes identically.
+  #
+  # `dest` (Phase-7 prose-freeze) names a destination pseudo-register that is the *leading*
+  # operand and whose keyword SELECTS a discriminator field. `{ field, map }`: the field is
+  # prepended to `operands` (so the C intrinsic takes it as its first parameter) and tools/parser-gen
+  # renders it in the gas rows as the `Xpc` operand (keyword→field-value table, printed by objdump).
+  # This is how the single `prs.cam` mnemonic replaces the old prs.cam/prs.camnext pair: `paccum`
+  # ⇒ Accum (D=0), `pnext` ⇒ Next (D=1), matching the patent's disassembly (§1.12). Bits unchanged.
   custom0:
     - { asm: prs.load,     group: load,             fixed: { X: 0, D: 0, Blen: 0, Shift: 0 }, operands: [Sz, E, Offset],        size_class: loadstore, prose: { Offset: ptr }, suffixes: [ { field: E, bare: 0, map: { be: 1 } } ] }
     - { asm: prs.lencur,   group: length,           fixed: { F2: 0 },                         operands: [D, Sz, Pos, Shift, Len], size_class: general, prose: { Pos: index }, suffixes: [ { field: S, bare: 0, map: { stp: 1 } } ] }
     - { asm: prs.store,    group: store,            fixed: { S: 0, F: 0, J: 0, Sind: 0 },     operands: [Sz, Pos, Offset],      size_class: loadstore, prose: { Pos: index } }
     - { asm: prs.storeimm, group: storeimm,         fixed: { S: 0, F: 0 },                    operands: [Sz, Value, Offset],    size_class: loadstore }
-    - { asm: prs.cam,      group: cam,              fixed: { D: 0, Func3: 0 },                operands: [S, Sz, Pos, F, Share, Miss], size_class: general, prose: { Pos: index }, suffixes: [ { field: S, bare: 0, map: { stp: 1 } } ] }
-    - { asm: prs.camnext,  group: cam,              fixed: { D: 1, Func3: 0 },                operands: [S, Sz, Pos, F, Share, Miss], size_class: general, prose: { Pos: index }, suffixes: [ { field: S, bare: 0, map: { stp: 1 } } ] }
+    - { asm: prs.cam,      group: cam,              fixed: { Func3: 0 },                      operands: [D, S, Sz, Pos, F, Share, Miss], size_class: general, dest: { field: D, map: { paccum: 0, pnext: 1 } }, prose: { Pos: index }, suffixes: [ { field: S, bare: 0, map: { stp: 1 } } ] }
     - { asm: prs.cmpib,    group: cmp_masked_byte,  fixed: { fnc4: 0xd },                     operands: [Er, Pos, Value, Mask], prose: { Pos: index, Value: valmask }, suffixes: [ { field: Er, bare: null, map: { stop: 0, stopnode: 1, stopsub: 2, fail: 3 } } ] }
     - { asm: prs.cmpneib,  group: cmp_masked_byte,  fixed: { fnc4: 0xe },                     operands: [Er, Pos, Value, Mask], prose: { Pos: index, Value: valmask }, suffixes: [ { field: Er, bare: null, map: { stop: 0, stopnode: 1, stopsub: 2, fail: 3 } } ] }
     - { asm: prs.nextnode, group: next,             fixed: { S: 0, V: 0, Pos: 0, A: 0 },      operands: [Payload] }

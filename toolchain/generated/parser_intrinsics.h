@@ -17,10 +17,8 @@ static inline uint32_t prs_store(unsigned sz, unsigned pos, unsigned offset)
 { return 0x0000020bu | ((sz & 0x3u) << 28) | ((pos & 0xfu) << 24) | ((offset & 0x1ffu) << 11); }
 static inline uint32_t prs_storeimm(unsigned sz, unsigned value, unsigned offset)
 { return 0x0000030bu | ((sz & 0x3u) << 28) | ((value & 0xffu) << 20) | ((offset & 0x1ffu) << 11); }
-static inline uint32_t prs_cam(unsigned s, unsigned sz, unsigned pos, unsigned f, unsigned share, unsigned miss)
-{ return 0x0000040bu | ((s & 0x1u) << 31) | ((sz & 0x3u) << 28) | ((pos & 0xfu) << 24) | ((f & 0x1u) << 20) | ((share & 0xfu) << 16) | ((miss & 0x1fu) << 11); }
-static inline uint32_t prs_camnext(unsigned s, unsigned sz, unsigned pos, unsigned f, unsigned share, unsigned miss)
-{ return 0x4000040bu | ((s & 0x1u) << 31) | ((sz & 0x3u) << 28) | ((pos & 0xfu) << 24) | ((f & 0x1u) << 20) | ((share & 0xfu) << 16) | ((miss & 0x1fu) << 11); }
+static inline uint32_t prs_cam(unsigned d, unsigned s, unsigned sz, unsigned pos, unsigned f, unsigned share, unsigned miss)
+{ return 0x0000040bu | ((d & 0x1u) << 30) | ((s & 0x1u) << 31) | ((sz & 0x3u) << 28) | ((pos & 0xfu) << 24) | ((f & 0x1u) << 20) | ((share & 0xfu) << 16) | ((miss & 0x1fu) << 11); }
 static inline uint32_t prs_cmpib(unsigned er, unsigned pos, unsigned value, unsigned mask)
 { return 0x0000068bu | ((er & 0x3u) << 30) | ((pos & 0x7u) << 27) | ((value & 0xffu) << 19) | ((mask & 0xffu) << 11); }
 static inline uint32_t prs_cmpneib(unsigned er, unsigned pos, unsigned value, unsigned mask)
@@ -44,7 +42,7 @@ static inline uint32_t prs_array_read(unsigned cpreg, unsigned rs, unsigned rd)
 
 /* Widen to 64-bit UNSIGNED before the "i" operand: a uint32_t immediate is
  * SImode, which gas prints as a SIGNED value, so any word with bit 31 set
- * (e.g. camnext, 0xe001140b) becomes negative and `.insn 4, <neg>` fails with
+ * (e.g. prs.cam pnext .stp, 0xe001140b) becomes negative and `.insn 4, <neg>` fails with
  * "value conflicts with instruction length". The 64-bit unsigned form prints
  * the full positive word, which gas accepts. */
 #define PRS_EMIT(word) \

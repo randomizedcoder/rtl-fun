@@ -47,9 +47,12 @@ int main(int argc, char **argv)
         { "prs.store.b 0, 8",             prs_store(1, 0, 8) },
         { "prs.store.h 0, 8",             prs_store(2, 0, 8) },
         { "prs.storeimm.b 4, 3",          prs_storeimm(1, 4, 3) },
-        { "prs.cam.h.stp 0, 0, 1, 5",     prs_cam(1, 2, 0, 0, 1, 5) },   /* S=1 via .stp */
-        { "prs.cam.h 0, 0, 1, 5",         prs_cam(0, 2, 0, 0, 1, 5) },   /* S=0 bare */
-        { "prs.camnext.h.stp 0, 0, 1, 5", prs_camnext(1, 2, 0, 0, 1, 5) },
+        /* Destination decoration: the leading paccum/pnext pseudo-register selects the
+           CAM D bit (paccum ⇒ D=0 Accum, pnext ⇒ D=1 Next) — a single prs.cam mnemonic
+           (no prs.camnext). prs_cam's first parameter is D. */
+        { "prs.cam.h.stp paccum, 0, 0, 1, 5", prs_cam(0, 1, 2, 0, 0, 1, 5) }, /* D=0; S=1 via .stp */
+        { "prs.cam.h paccum, 0, 0, 1, 5",     prs_cam(0, 0, 2, 0, 0, 1, 5) }, /* D=0; S=0 bare */
+        { "prs.cam.h.stp pnext, 0, 0, 1, 5",  prs_cam(1, 1, 2, 0, 0, 1, 5) }, /* D=1 (was prs.camnext) */
         { "prs.cmpib.stopnode 0, 0x40, 0xF0", prs_cmpib(1, 0, 0x40, 0xF0) },
         { "prs.cmpib.fail 0, 0x40, 0xF0",     prs_cmpib(3, 0, 0x40, 0xF0) },
         { "prs.cmpneib.stop 3, 0x11, 0xFF",   prs_cmpneib(0, 3, 0x11, 0xFF) },
@@ -70,7 +73,7 @@ int main(int argc, char **argv)
         { "prs.load.b pcurptr",                 prs_load(1, 0, 0) },
         { "prs.store.b paccum[0], 8",           prs_store(1, 0, 8) },
         { "prs.lencur.n 1, paccum[1], 2, 20",   prs_lencur(1, 0, 1, 2, 20) },
-        { "prs.cam.h.stp paccum[0], 0, 1, 5",   prs_cam(1, 2, 0, 0, 1, 5) },
+        { "prs.cam.h.stp pnext, paccum[0], 0, 1, 5",   prs_cam(1, 1, 2, 0, 0, 1, 5) },
         { "prs.cmpib.stopnode paccum[0], 0x40:0xF0",  prs_cmpib(1, 0, 0x40, 0xF0) },
         { "prs.cmpneib.stop paccum[3], 0x11:0xFF",    prs_cmpneib(0, 3, 0x11, 0xFF) },
     };

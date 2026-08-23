@@ -33,8 +33,8 @@ int main(void)
     chk("prs.lencur",   prs_lencur(1, 0, 1, 2, 20),  prs_enc_len(0, 1, 0, 1, 2, 0, 20));
     chk("prs.store",    prs_store(3, 0, 8),          prs_enc_store(0, 0, 3, 0, 0, 0, 8));
     chk("prs.storeimm", prs_storeimm(1, 4, 16),      prs_enc_storeimm(0, 0, 1, 4, 16));
-    chk("prs.cam",      prs_cam(1, 2, 0, 0, 1, 5),   prs_enc_cam(1, 0, 2, 0, 0, 0, 1, 5));
-    chk("prs.camnext",  prs_camnext(1, 1, 0, 0, 2, 5), prs_enc_cam(1, 1, 1, 0, 0, 0, 2, 5));
+    chk("prs.cam paccum",  prs_cam(0, 1, 2, 0, 0, 1, 5),   prs_enc_cam(1, 0, 2, 0, 0, 0, 1, 5));
+    chk("prs.cam pnext",   prs_cam(1, 1, 1, 0, 0, 2, 5),   prs_enc_cam(1, 1, 1, 0, 0, 0, 2, 5));
     chk("prs.cmpib",    prs_cmpib(1, 0, 0x40, 0xF0), prs_enc_cmpib(1, 0, 0x40, 0xF0));
     chk("prs.cmpneib",  prs_cmpneib(0, 3, 0x11, 0xFF), prs_enc_cmpneib(0, 3, 0x11, 0xFF));
     chk("prs.nextnode", prs_nextnode(0x1234),        prs_enc_next(0, 0, 0, 0, 0x1234));
