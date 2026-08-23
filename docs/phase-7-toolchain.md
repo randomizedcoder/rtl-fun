@@ -154,10 +154,17 @@ simulator understands the encodings (7.5).
   `D`=1 Next), rendered by the new `Xpc` binutils operand class and printed by objdump — so there is
   a single `prs.cam` mnemonic and no `prs.camnext` (matching the patent). The generated `prs_camnext`
   intrinsic is subsumed by `prs_cam`'s new leading `d` parameter; `parser_slice.c` and the vectors
-  use `prs_cam(1, …)`; bits are unchanged (byte-parity holds). Still to land: the mnemonic aliases
-  (`prs.lenset{,min,add}`, `prs.cmpi{,ne}` — some target ISA groups without an encoder yet), the
-  cosmetic-fixed leading dest on load/length (`paccum`/`pcurhdr`), and the `mult:min` / `pmeta+N`
-  operand forms.
+  use `prs_cam(1, …)`; bits are unchanged (byte-parity holds).
+
+  **`pmeta+N` store displacement** is **✅ implemented**: the store/storeimm `Offset` now takes the
+  `pmeta+N` prose form (a new `metaptr` kind → the `Xpe` binutils operand), a base distinct from
+  load's packet `pcurptr+N` because a store targets the metadata frame (`ps->meta`), not the packet.
+  Bits unchanged (same `Offset` field). Still to land, as a single length-family increment so
+  objdump reaches the frozen canonical (`prs.lensetmin.n pcurhdr, paccum[1], 4:20`) in one step: the
+  `prs.lenset{,min,add}` aliases, the `pcurhdr`/`pdathdr` length dest, and the `mult:min` operand
+  (`Shift`=log2(mult), `Len`=min) — these are coupled in the canonical spelling. Also pending: the
+  cosmetic-fixed `paccum` dest on load, and the `prs.cmpi{,ne}` aliases (which target compare
+  variants without an encoder yet).
 
 ### 7.4 Level 3 — LLVM / GCC
 

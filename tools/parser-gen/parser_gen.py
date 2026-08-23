@@ -197,6 +197,8 @@ def _prose_token(kind, hi, lo):
         return f"Xpa{w}@{lo}"
     if kind == "valmask":  # value:mask -> cmp Value[26:19] + Mask[18:11] (fixed ranges)
         return "Xpm"
+    if kind == "metaptr":  # pmeta+N -> w-bit displacement at lo (store/storeimm Offset)
+        return f"Xpe{w}@{lo}"
     raise ValueError(f"parser_gen: unknown prose sugar kind {kind!r}")
 
 
@@ -246,8 +248,8 @@ def _args_bits(args):
             bits |= mask_for(26, 19) | mask_for(18, 11)
         elif tok == "Xpc":                   # cam dest paccum/pnext -> D[30]
             bits |= mask_for(30, 30)
-        elif tok.startswith(("Xpo", "Xpa")):  # pcurptr+N / paccum[i] -> N-bit at S
-            n, s = (int(x) for x in re.match(r"Xp[oa](\d+)@(\d+)", tok).groups())
+        elif tok.startswith(("Xpo", "Xpa", "Xpe")):  # pcurptr+N / paccum[i] / pmeta+N -> N-bit at S
+            n, s = (int(x) for x in re.match(r"Xp[oae](\d+)@(\d+)", tok).groups())
             bits |= mask_for(s + n - 1, s)
         elif tok.startswith(("Xtu", "Xts")):  # stock N-bit bitfield at S
             n, s = (int(x) for x in re.match(r"Xt[us](\d+)@(\d+)", tok).groups())
@@ -300,7 +302,8 @@ def emit_gas(insns, sizes):
            "/* Paste inside riscv_opcodes[] (opcodes/riscv-opc.c). `Xpr` = parser p-register; */",
            "/* `XtuN@S` = binutils stock N-bit-unsigned-at-S immediate; `d`/`s` = rd/rs1 GPRs.  */",
            "/* Stage 1.5 prose sugar (parser-binutils patch): `XpoN@S` = pcurptr+N; `XpaN@S` = */",
-           "/* paccum[i]; `Xpm` = value:mask. Each sugared op has a prose row (printed by objdump) */",
+           "/* paccum[i]; `Xpm` = value:mask; `XpeN@S` = pmeta+N (store metadata frame). Each */",
+           "/* sugared op has a prose row (printed by objdump) */",
            "/* before its Hybrid row (same match/mask); the Hybrid form still assembles.  */",
            "/* Prose-freeze suffixes (.be/.stp/.stop/.stopnode/.stopsub/.fail) fold a field into */",
            "/* the mnemonic; each (size × suffix) combination is its own {prose,Hybrid} row pair. */",

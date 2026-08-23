@@ -3,7 +3,8 @@
 /* Paste inside riscv_opcodes[] (opcodes/riscv-opc.c). `Xpr` = parser p-register; */
 /* `XtuN@S` = binutils stock N-bit-unsigned-at-S immediate; `d`/`s` = rd/rs1 GPRs.  */
 /* Stage 1.5 prose sugar (parser-binutils patch): `XpoN@S` = pcurptr+N; `XpaN@S` = */
-/* paccum[i]; `Xpm` = value:mask. Each sugared op has a prose row (printed by objdump) */
+/* paccum[i]; `Xpm` = value:mask; `XpeN@S` = pmeta+N (store metadata frame). Each */
+/* sugared op has a prose row (printed by objdump) */
 /* before its Hybrid row (same match/mask); the Hybrid form still assembles.  */
 /* Prose-freeze suffixes (.be/.stp/.stop/.stopnode/.stopsub/.fail) fold a field into */
 /* the mnemonic; each (size × suffix) combination is its own {prose,Hybrid} row pair. */
@@ -42,17 +43,21 @@
 {"prs.lencur.w", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0x3000010b, 0xb01807ff, match_opcode, 0},
 {"prs.lencur.w.stp", 0, INSN_CLASS_I, "Xtu1@30,Xpa4@24,Xtu3@21,Xtu8@11", 0xb000010b, 0xb01807ff, match_opcode, 0},
 {"prs.lencur.w.stp", 0, INSN_CLASS_I, "Xtu1@30,Xtu4@24,Xtu3@21,Xtu8@11", 0xb000010b, 0xb01807ff, match_opcode, 0},
-{"prs.store.b", 0, INSN_CLASS_I, "Xpa4@24,Xtu9@11", 0x1000020b, 0xf0f007ff, match_opcode, 0},
+{"prs.store.b", 0, INSN_CLASS_I, "Xpa4@24,Xpe9@11", 0x1000020b, 0xf0f007ff, match_opcode, 0},
 {"prs.store.b", 0, INSN_CLASS_I, "Xtu4@24,Xtu9@11", 0x1000020b, 0xf0f007ff, match_opcode, 0},
-{"prs.store.h", 0, INSN_CLASS_I, "Xpa4@24,Xtu9@11", 0x2000020b, 0xf0f007ff, match_opcode, 0},
+{"prs.store.h", 0, INSN_CLASS_I, "Xpa4@24,Xpe9@11", 0x2000020b, 0xf0f007ff, match_opcode, 0},
 {"prs.store.h", 0, INSN_CLASS_I, "Xtu4@24,Xtu9@11", 0x2000020b, 0xf0f007ff, match_opcode, 0},
-{"prs.store.w", 0, INSN_CLASS_I, "Xpa4@24,Xtu9@11", 0x3000020b, 0xf0f007ff, match_opcode, 0},
+{"prs.store.w", 0, INSN_CLASS_I, "Xpa4@24,Xpe9@11", 0x3000020b, 0xf0f007ff, match_opcode, 0},
 {"prs.store.w", 0, INSN_CLASS_I, "Xtu4@24,Xtu9@11", 0x3000020b, 0xf0f007ff, match_opcode, 0},
-{"prs.store.d", 0, INSN_CLASS_I, "Xpa4@24,Xtu9@11", 0x0000020b, 0xf0f007ff, match_opcode, 0},
+{"prs.store.d", 0, INSN_CLASS_I, "Xpa4@24,Xpe9@11", 0x0000020b, 0xf0f007ff, match_opcode, 0},
 {"prs.store.d", 0, INSN_CLASS_I, "Xtu4@24,Xtu9@11", 0x0000020b, 0xf0f007ff, match_opcode, 0},
+{"prs.storeimm.b", 0, INSN_CLASS_I, "Xtu8@20,Xpe9@11", 0x1000030b, 0xf00007ff, match_opcode, 0},
 {"prs.storeimm.b", 0, INSN_CLASS_I, "Xtu8@20,Xtu9@11", 0x1000030b, 0xf00007ff, match_opcode, 0},
+{"prs.storeimm.h", 0, INSN_CLASS_I, "Xtu8@20,Xpe9@11", 0x2000030b, 0xf00007ff, match_opcode, 0},
 {"prs.storeimm.h", 0, INSN_CLASS_I, "Xtu8@20,Xtu9@11", 0x2000030b, 0xf00007ff, match_opcode, 0},
+{"prs.storeimm.w", 0, INSN_CLASS_I, "Xtu8@20,Xpe9@11", 0x3000030b, 0xf00007ff, match_opcode, 0},
 {"prs.storeimm.w", 0, INSN_CLASS_I, "Xtu8@20,Xtu9@11", 0x3000030b, 0xf00007ff, match_opcode, 0},
+{"prs.storeimm.d", 0, INSN_CLASS_I, "Xtu8@20,Xpe9@11", 0x0000030b, 0xf00007ff, match_opcode, 0},
 {"prs.storeimm.d", 0, INSN_CLASS_I, "Xtu8@20,Xtu9@11", 0x0000030b, 0xf00007ff, match_opcode, 0},
 {"prs.cam.n", 0, INSN_CLASS_I, "Xpc,Xpa4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x0000040b, 0xb0e007ff, match_opcode, 0},
 {"prs.cam.n", 0, INSN_CLASS_I, "Xpc,Xtu4@24,Xtu1@20,Xtu4@16,Xtu5@11", 0x0000040b, 0xb0e007ff, match_opcode, 0},

@@ -71,7 +71,9 @@ int main(int argc, char **argv)
            -> Pos; value:mask -> cmp Value/Mask. `pcurptr` bare == Offset 0. */
         { "prs.load.h.be pcurptr+12",           prs_load(2, 1, 12) },
         { "prs.load.b pcurptr",                 prs_load(1, 0, 0) },
-        { "prs.store.b paccum[0], 8",           prs_store(1, 0, 8) },
+        { "prs.store.b paccum[0], pmeta+8",     prs_store(1, 0, 8) },
+        { "prs.store.h paccum[1], pmeta",       prs_store(2, 1, 0) },
+        { "prs.storeimm.b 4, pmeta+3",          prs_storeimm(1, 4, 3) },
         { "prs.lencur.n 1, paccum[1], 2, 20",   prs_lencur(1, 0, 1, 2, 20) },
         { "prs.cam.h.stp pnext, paccum[0], 0, 1, 5",   prs_cam(1, 1, 2, 0, 0, 1, 5) },
         { "prs.cmpib.stopnode paccum[0], 0x40:0xF0",  prs_cmpib(1, 0, 0x40, 0xF0) },
