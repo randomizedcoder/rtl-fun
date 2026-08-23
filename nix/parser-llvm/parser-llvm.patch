@@ -1,3 +1,77 @@
+diff --git a/lib/Target/RISCV/AsmParser/RISCVAsmParser.cpp b/lib/Target/RISCV/AsmParser/RISCVAsmParser.cpp
+index a143d85..43e8d42 100644
+--- a/lib/Target/RISCV/AsmParser/RISCVAsmParser.cpp
++++ b/lib/Target/RISCV/AsmParser/RISCVAsmParser.cpp
+@@ -199,6 +199,11 @@ class RISCVAsmParser : public MCTargetAsmParser {
+   ParseStatus parseRegister(OperandVector &Operands, bool AllowParens = false);
+   ParseStatus parseMemOpBaseReg(OperandVector &Operands);
+   ParseStatus parseZeroOffsetMemOp(OperandVector &Operands);
++  ParseStatus parseParserDest(OperandVector &Operands, StringRef Kw,
++                              int64_t Val);
++  ParseStatus parseAccumDest(OperandVector &Operands);
++  ParseStatus parseCamDest(OperandVector &Operands);
++  ParseStatus parseCurHdrDest(OperandVector &Operands);
+   ParseStatus parseOperandWithSpecifier(OperandVector &Operands);
+   ParseStatus parseBareSymbol(OperandVector &Operands);
+   ParseStatus parseCallSymbol(OperandVector &Operands);
+@@ -523,6 +528,17 @@ public:
+   bool isGPRAsFPR32() const { return isGPRF32() && Reg.IsGPRAsFPR; }
+   bool isGPRPairAsFPR64() const { return isGPRPair() && Reg.IsGPRAsFPR; }
+ 
++  // rtl-fun parser-unit: leading destination pseudo-registers on the custom-0
++  // load/cam/length ops (RISCVInstrInfoXparser.td). Each parses to a plain immediate
++  // riding a discriminator bit (D, or the length F2); the width bounds the value.
++  bool isParserDest(unsigned Bits) const {
++    int64_t Imm;
++    return isImm() && evaluateConstantImm(getImm(), Imm) && isUIntN(Bits, Imm);
++  }
++  bool isAccumDest() const { return isParserDest(1); }   // paccum -> D=0
++  bool isCamDest() const { return isParserDest(1); }     // paccum=0 / pnext=1 -> D
++  bool isCurHdrDest() const { return isParserDest(2); }  // pcurhdr -> F2=0
++
+   static bool evaluateConstantImm(const MCExpr *Expr, int64_t &Imm) {
+     if (auto CE = dyn_cast<MCConstantExpr>(Expr)) {
+       Imm = CE->getValue();
+@@ -2319,6 +2335,39 @@ bool RISCVAsmParser::parseVTypeToken(const AsmToken &Tok, VTypeState &State,
+   return true;
+ }
+ 
++// rtl-fun parser-unit: the leading destination pseudo-register on the custom-0
++// load/cam/length ops. The keywords (paccum/pnext/pcurhdr) collide with the L2
++// p-register alt-names, so this consumes the keyword here (parseOperand tries the
++// per-operand ParserMethod via MatchOperandParserImpl before the generic register
++// fallback) and emits a plain immediate that rides the discriminator field bit.
++ParseStatus RISCVAsmParser::parseParserDest(OperandVector &Operands, StringRef Kw,
++                                            int64_t Val) {
++  if (getLexer().isNot(AsmToken::Identifier) ||
++      getTok().getIdentifier() != Kw)
++    return ParseStatus::NoMatch;
++  SMLoc S = getLoc();
++  SMLoc E = getTok().getEndLoc();
++  getLexer().Lex();
++  Operands.push_back(RISCVOperand::createImm(
++      MCConstantExpr::create(Val, getContext()), S, E, isRV64()));
++  return ParseStatus::Success;
++}
++
++ParseStatus RISCVAsmParser::parseAccumDest(OperandVector &Operands) {
++  return parseParserDest(Operands, "paccum", 0);
++}
++
++ParseStatus RISCVAsmParser::parseCamDest(OperandVector &Operands) {
++  if (getLexer().is(AsmToken::Identifier) &&
++      getTok().getIdentifier() == "pnext")
++    return parseParserDest(Operands, "pnext", 1);
++  return parseParserDest(Operands, "paccum", 0);
++}
++
++ParseStatus RISCVAsmParser::parseCurHdrDest(OperandVector &Operands) {
++  return parseParserDest(Operands, "pcurhdr", 0);
++}
++
+ ParseStatus RISCVAsmParser::parseVTypeI(OperandVector &Operands) {
+   SMLoc S = getLoc();
+ 
 diff --git a/lib/Target/RISCV/Disassembler/RISCVDisassembler.cpp b/lib/Target/RISCV/Disassembler/RISCVDisassembler.cpp
 index fa7bcfa..ae0bdc9 100644
 --- a/lib/Target/RISCV/Disassembler/RISCVDisassembler.cpp
@@ -23,6 +97,54 @@ index fa7bcfa..ae0bdc9 100644
  static DecodeStatus DecodeGPRF16RegisterClass(MCInst &Inst, uint32_t RegNo,
                                                uint64_t Address,
                                                const MCDisassembler *Decoder) {
+diff --git a/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.cpp b/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.cpp
+index 8c9ab8e..42bce64 100644
+--- a/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.cpp
++++ b/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.cpp
+@@ -212,6 +212,26 @@ void RISCVInstPrinter::printZeroOffsetMemOp(const MCInst *MI, unsigned OpNo,
+   O << ")";
+ }
+ 
++// rtl-fun parser-unit: the leading destination pseudo-register on custom-0
++// load/cam/length. paccum/pnext are decoded from the D bit; pcurhdr from F2 (0).
++void RISCVInstPrinter::printAccumDest(const MCInst *MI, unsigned OpNo,
++                                      const MCSubtargetInfo &STI,
++                                      raw_ostream &O) {
++  markup(O, Markup::Register) << "paccum";
++}
++
++void RISCVInstPrinter::printCamDest(const MCInst *MI, unsigned OpNo,
++                                    const MCSubtargetInfo &STI, raw_ostream &O) {
++  markup(O, Markup::Register)
++      << (MI->getOperand(OpNo).getImm() ? "pnext" : "paccum");
++}
++
++void RISCVInstPrinter::printCurHdrDest(const MCInst *MI, unsigned OpNo,
++                                       const MCSubtargetInfo &STI,
++                                       raw_ostream &O) {
++  markup(O, Markup::Register) << "pcurhdr";
++}
++
+ void RISCVInstPrinter::printVTypeI(const MCInst *MI, unsigned OpNo,
+                                    const MCSubtargetInfo &STI, raw_ostream &O) {
+   unsigned Imm = MI->getOperand(OpNo).getImm();
+diff --git a/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.h b/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.h
+index f8b8fd3..3bdf098 100644
+--- a/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.h
++++ b/lib/Target/RISCV/MCTargetDesc/RISCVInstPrinter.h
+@@ -46,6 +46,12 @@ public:
+                          const MCSubtargetInfo &STI, raw_ostream &O);
+   void printZeroOffsetMemOp(const MCInst *MI, unsigned OpNo,
+                             const MCSubtargetInfo &STI, raw_ostream &O);
++  void printAccumDest(const MCInst *MI, unsigned OpNo,
++                      const MCSubtargetInfo &STI, raw_ostream &O);
++  void printCamDest(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
++                    raw_ostream &O);
++  void printCurHdrDest(const MCInst *MI, unsigned OpNo,
++                       const MCSubtargetInfo &STI, raw_ostream &O);
+   void printVTypeI(const MCInst *MI, unsigned OpNo, const MCSubtargetInfo &STI,
+                    raw_ostream &O);
+   void printXSfmmVType(const MCInst *MI, unsigned OpNo,
 diff --git a/lib/Target/RISCV/RISCVInstrInfo.td b/lib/Target/RISCV/RISCVInstrInfo.td
 index f63531a..9c6f447 100644
 --- a/lib/Target/RISCV/RISCVInstrInfo.td
@@ -38,10 +160,10 @@ index f63531a..9c6f447 100644
  //===----------------------------------------------------------------------===//
 diff --git a/lib/Target/RISCV/RISCVInstrInfoXparser.td b/lib/Target/RISCV/RISCVInstrInfoXparser.td
 new file mode 100644
-index 0000000..99d6ef2
+index 0000000..00c0411
 --- /dev/null
 +++ b/lib/Target/RISCV/RISCVInstrInfoXparser.td
-@@ -0,0 +1,328 @@
+@@ -0,0 +1,881 @@
 +//===-- RISCVInstrInfoXparser.td ---------------------------*- tablegen -*-===//
 +//
 +// GENERATED by tools/parser-gen from isa/parser-opcodes.yaml -- do not edit.
@@ -100,6 +222,416 @@ index 0000000..99d6ef2
 +  let mayLoad = 0;
 +  let mayStore = 0;
 +  let hasNoSchedulingInfo = 1;
++}
++
++// Destination pseudo-registers (L3a); C++ in the nix/parser-llvm patch.
++class PrsDestOpnd<string nm, string parser, string pred> : AsmOperandClass {
++  let Name = nm;
++  let RenderMethod = "addImmOperands";
++  let ParserMethod = parser;
++  let PredicateMethod = pred;
++}
++def AccumDestOpnd  : PrsDestOpnd<"AccumDest",  "parseAccumDest",  "isAccumDest">;
++def CamDestOpnd    : PrsDestOpnd<"CamDest",    "parseCamDest",    "isCamDest">;
++def CurHdrDestOpnd : PrsDestOpnd<"CurHdrDest", "parseCurHdrDest", "isCurHdrDest">;
++class PrsDestOp<AsmOperandClass mc, string pm> : Operand<i32> {
++  let ParserMatchClass = mc;
++  let PrintMethod = pm;
++}
++def accumdest  : PrsDestOp<AccumDestOpnd,  "printAccumDest">;
++def camdest    : PrsDestOp<CamDestOpnd,    "printCamDest">;
++def curhdrdest : PrsDestOp<CurHdrDestOpnd, "printCurHdrDest">;
++
++def PRS_LOAD_B : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++                    "prs.load.b", "$dst, $offset"> {
++  bits<1> dst;
++  bits<9> offset;
++  let Inst{10-0} = 0xb;
++  let Inst{29-20} = 0x100;
++  let Inst{31} = 0x0;
++  let Inst{30-30} = dst;
++  let Inst{19-11} = offset;
++}
++
++def PRS_LOAD_B_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++                    "prs.load.b.be", "$dst, $offset"> {
++  bits<1> dst;
++  bits<9> offset;
++  let Inst{10-0} = 0xb;
++  let Inst{29-20} = 0x101;
++  let Inst{31} = 0x0;
++  let Inst{30-30} = dst;
++  let Inst{19-11} = offset;
++}
++
++def PRS_LOAD_H : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++                    "prs.load.h", "$dst, $offset"> {
++  bits<1> dst;
++  bits<9> offset;
++  let Inst{10-0} = 0xb;
++  let Inst{29-20} = 0x200;
++  let Inst{31} = 0x0;
++  let Inst{30-30} = dst;
++  let Inst{19-11} = offset;
++}
++
++def PRS_LOAD_H_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++                    "prs.load.h.be", "$dst, $offset"> {
++  bits<1> dst;
++  bits<9> offset;
++  let Inst{10-0} = 0xb;
++  let Inst{29-20} = 0x201;
++  let Inst{31} = 0x0;
++  let Inst{30-30} = dst;
++  let Inst{19-11} = offset;
++}
++
++def PRS_LOAD_W : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++                    "prs.load.w", "$dst, $offset"> {
++  bits<1> dst;
++  bits<9> offset;
++  let Inst{10-0} = 0xb;
++  let Inst{29-20} = 0x300;
++  let Inst{31} = 0x0;
++  let Inst{30-30} = dst;
++  let Inst{19-11} = offset;
++}
++
++def PRS_LOAD_W_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++                    "prs.load.w.be", "$dst, $offset"> {
++  bits<1> dst;
++  bits<9> offset;
++  let Inst{10-0} = 0xb;
++  let Inst{29-20} = 0x301;
++  let Inst{31} = 0x0;
++  let Inst{30-30} = dst;
++  let Inst{19-11} = offset;
++}
++
++def PRS_LOAD_D : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++                    "prs.load.d", "$dst, $offset"> {
++  bits<1> dst;
++  bits<9> offset;
++  let Inst{10-0} = 0xb;
++  let Inst{29-20} = 0x0;
++  let Inst{31} = 0x0;
++  let Inst{30-30} = dst;
++  let Inst{19-11} = offset;
++}
++
++def PRS_LOAD_D_BE : PrsInst<(outs), (ins accumdest:$dst, uimm9:$offset),
++                    "prs.load.d.be", "$dst, $offset"> {
++  bits<1> dst;
++  bits<9> offset;
++  let Inst{10-0} = 0xb;
++  let Inst{29-20} = 0x1;
++  let Inst{31} = 0x0;
++  let Inst{30-30} = dst;
++  let Inst{19-11} = offset;
++}
++
++def PRS_LENSETCONST_N : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
++                    "prs.lensetconst.n", "$dst, $len"> {
++  bits<2> dst;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-21} = 0x7;
++  let Inst{20-19} = dst;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETCONST_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
++                    "prs.lensetconst.n.stp", "$dst, $len"> {
++  bits<2> dst;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-21} = 0x407;
++  let Inst{20-19} = dst;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETCONST_B : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
++                    "prs.lensetconst.b", "$dst, $len"> {
++  bits<2> dst;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-21} = 0x87;
++  let Inst{20-19} = dst;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETCONST_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
++                    "prs.lensetconst.b.stp", "$dst, $len"> {
++  bits<2> dst;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-21} = 0x487;
++  let Inst{20-19} = dst;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETCONST_H : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
++                    "prs.lensetconst.h", "$dst, $len"> {
++  bits<2> dst;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-21} = 0x107;
++  let Inst{20-19} = dst;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETCONST_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
++                    "prs.lensetconst.h.stp", "$dst, $len"> {
++  bits<2> dst;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-21} = 0x507;
++  let Inst{20-19} = dst;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETCONST_W : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
++                    "prs.lensetconst.w", "$dst, $len"> {
++  bits<2> dst;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-21} = 0x187;
++  let Inst{20-19} = dst;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETCONST_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm8:$len),
++                    "prs.lensetconst.w.stp", "$dst, $len"> {
++  bits<2> dst;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-21} = 0x587;
++  let Inst{20-19} = dst;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSET_N : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lenset.n", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0x0;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSET_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lenset.n.stp", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0x8;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSET_B : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lenset.b", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0x1;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSET_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lenset.b.stp", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0x9;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSET_H : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lenset.h", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0x2;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSET_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lenset.h.stp", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0xa;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSET_W : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lenset.w", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0x3;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSET_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lenset.w.stp", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0xb;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETMIN_N : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lensetmin.n", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0x4;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETMIN_N_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lensetmin.n.stp", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0xc;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETMIN_B : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lensetmin.b", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0x5;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETMIN_B_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lensetmin.b.stp", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0xd;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETMIN_H : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lensetmin.h", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0x6;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETMIN_H_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lensetmin.h.stp", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0xe;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETMIN_W : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lensetmin.w", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0x7;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
++}
++
++def PRS_LENSETMIN_W_STP : PrsInst<(outs), (ins curhdrdest:$dst, uimm4:$pos, uimm3:$shift, uimm8:$len),
++                    "prs.lensetmin.w.stp", "$dst, $pos, $shift, $len"> {
++  bits<2> dst;
++  bits<4> pos;
++  bits<3> shift;
++  bits<8> len;
++  let Inst{10-0} = 0x10b;
++  let Inst{31-28} = 0xf;
++  let Inst{20-19} = dst;
++  let Inst{27-24} = pos;
++  let Inst{23-21} = shift;
++  let Inst{18-11} = len;
 +}
 +
 +def PRS_STORE_B : PrsInst<(outs), (ins uimm4:$pos, uimm9:$offset),
@@ -184,6 +716,150 @@ index 0000000..99d6ef2
 +  let Inst{31-28} = 0x0;
 +  let Inst{27-20} = value;
 +  let Inst{19-11} = offset;
++}
++
++def PRS_CAM_N : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++                    "prs.cam.n", "$dst, $pos, $f, $share, $miss"> {
++  bits<1> dst;
++  bits<4> pos;
++  bits<1> f;
++  bits<4> share;
++  bits<5> miss;
++  let Inst{10-0} = 0x40b;
++  let Inst{23-21} = 0x0;
++  let Inst{29-28} = 0x0;
++  let Inst{31} = 0x0;
++  let Inst{30-30} = dst;
++  let Inst{27-24} = pos;
++  let Inst{20-20} = f;
++  let Inst{19-16} = share;
++  let Inst{15-11} = miss;
++}
++
++def PRS_CAM_N_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++                    "prs.cam.n.stp", "$dst, $pos, $f, $share, $miss"> {
++  bits<1> dst;
++  bits<4> pos;
++  bits<1> f;
++  bits<4> share;
++  bits<5> miss;
++  let Inst{10-0} = 0x40b;
++  let Inst{23-21} = 0x0;
++  let Inst{29-28} = 0x0;
++  let Inst{31} = 0x1;
++  let Inst{30-30} = dst;
++  let Inst{27-24} = pos;
++  let Inst{20-20} = f;
++  let Inst{19-16} = share;
++  let Inst{15-11} = miss;
++}
++
++def PRS_CAM_B : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++                    "prs.cam.b", "$dst, $pos, $f, $share, $miss"> {
++  bits<1> dst;
++  bits<4> pos;
++  bits<1> f;
++  bits<4> share;
++  bits<5> miss;
++  let Inst{10-0} = 0x40b;
++  let Inst{23-21} = 0x0;
++  let Inst{29-28} = 0x1;
++  let Inst{31} = 0x0;
++  let Inst{30-30} = dst;
++  let Inst{27-24} = pos;
++  let Inst{20-20} = f;
++  let Inst{19-16} = share;
++  let Inst{15-11} = miss;
++}
++
++def PRS_CAM_B_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++                    "prs.cam.b.stp", "$dst, $pos, $f, $share, $miss"> {
++  bits<1> dst;
++  bits<4> pos;
++  bits<1> f;
++  bits<4> share;
++  bits<5> miss;
++  let Inst{10-0} = 0x40b;
++  let Inst{23-21} = 0x0;
++  let Inst{29-28} = 0x1;
++  let Inst{31} = 0x1;
++  let Inst{30-30} = dst;
++  let Inst{27-24} = pos;
++  let Inst{20-20} = f;
++  let Inst{19-16} = share;
++  let Inst{15-11} = miss;
++}
++
++def PRS_CAM_H : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++                    "prs.cam.h", "$dst, $pos, $f, $share, $miss"> {
++  bits<1> dst;
++  bits<4> pos;
++  bits<1> f;
++  bits<4> share;
++  bits<5> miss;
++  let Inst{10-0} = 0x40b;
++  let Inst{23-21} = 0x0;
++  let Inst{29-28} = 0x2;
++  let Inst{31} = 0x0;
++  let Inst{30-30} = dst;
++  let Inst{27-24} = pos;
++  let Inst{20-20} = f;
++  let Inst{19-16} = share;
++  let Inst{15-11} = miss;
++}
++
++def PRS_CAM_H_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++                    "prs.cam.h.stp", "$dst, $pos, $f, $share, $miss"> {
++  bits<1> dst;
++  bits<4> pos;
++  bits<1> f;
++  bits<4> share;
++  bits<5> miss;
++  let Inst{10-0} = 0x40b;
++  let Inst{23-21} = 0x0;
++  let Inst{29-28} = 0x2;
++  let Inst{31} = 0x1;
++  let Inst{30-30} = dst;
++  let Inst{27-24} = pos;
++  let Inst{20-20} = f;
++  let Inst{19-16} = share;
++  let Inst{15-11} = miss;
++}
++
++def PRS_CAM_W : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++                    "prs.cam.w", "$dst, $pos, $f, $share, $miss"> {
++  bits<1> dst;
++  bits<4> pos;
++  bits<1> f;
++  bits<4> share;
++  bits<5> miss;
++  let Inst{10-0} = 0x40b;
++  let Inst{23-21} = 0x0;
++  let Inst{29-28} = 0x3;
++  let Inst{31} = 0x0;
++  let Inst{30-30} = dst;
++  let Inst{27-24} = pos;
++  let Inst{20-20} = f;
++  let Inst{19-16} = share;
++  let Inst{15-11} = miss;
++}
++
++def PRS_CAM_W_STP : PrsInst<(outs), (ins camdest:$dst, uimm4:$pos, uimm1:$f, uimm4:$share, uimm5:$miss),
++                    "prs.cam.w.stp", "$dst, $pos, $f, $share, $miss"> {
++  bits<1> dst;
++  bits<4> pos;
++  bits<1> f;
++  bits<4> share;
++  bits<5> miss;
++  let Inst{10-0} = 0x40b;
++  let Inst{23-21} = 0x0;
++  let Inst{29-28} = 0x3;
++  let Inst{31} = 0x1;
++  let Inst{30-30} = dst;
++  let Inst{27-24} = pos;
++  let Inst{20-20} = f;
++  let Inst{19-16} = share;
++  let Inst{15-11} = miss;
 +}
 +
 +def PRS_CMPIB_STOP : PrsInst<(outs), (ins uimm3:$pos, uimm8:$value, uimm8:$mask),
@@ -367,6 +1043,5 @@ index 0000000..99d6ef2
 +  let Inst{28-24} = preg;
 +}
 +
-+// Deferred to Phase-7 L3 (need custom operand classes: cam/length/load
-+// destination decoration + prose sugar):
-+//   prs.cam, prs.lenset, prs.lensetconst, prs.lensetmin, prs.load
++// L3b (deferred): prose sugar forms — pcurptr+N, paccum[i], value:mask,
++// mult:min, pmeta+N — additional syntaxes over the encodings emitted above.

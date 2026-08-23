@@ -223,10 +223,24 @@ simulator understands the encodings (7.5).
   and the binutils leg's hand-written disasm). 15 vector lines now assemble, 0 mismatches,
   round-trip identical. Bit-identical to the model/binutils.
 
-  Deferred to **L3** (needs the custom `Xp*`-style operand classes, mirroring binutils): the
-  destination decoration (`paccum`/`pnext`/`pcurhdr` on load/cam/length) and the prose sugar
-  (`pcurptr+N`, `paccum[i]`, `value:mask`, `mult:min`, `pmeta+N`) — reaching full binutils
-  parity. Then Clang **intrinsics/builtins**.
+  **LLVM MC — L3a (destination decoration) ✅.** The custom operand family begins with the
+  leading destination pseudo-register on the custom-0 load/cam/length ops. `emit_llvm` emits
+  three `AsmOperandClass`es — `accumdest` (`paccum` on load), `curhdrdest` (`pcurhdr` on
+  length), `camdest` (`paccum`/`pnext` on cam) — each a small immediate **riding a real
+  discriminator bit** (load/cam D[30], length F2[20:19]) so `llvm-objdump` can reconstruct +
+  print it (LLVM decodes printed operands from real bits — a no-bits operand is silently
+  dropped by the decoder). Because the keywords collide with the L2 p-register alt-names, the
+  patch adds custom `ParserMethod`s (`parseAccumDest`/`parseCamDest`/`parseCurHdrDest`) that
+  consume the keyword before the generic register fallback — `parseOperand` tries the
+  per-operand `MatchOperandParserImpl` first — plus matching `PrintMethod`s; encode/decode
+  stay automatic (the dest is a plain immediate on a real field). yaml gained a `field:` on
+  the cosmetic `dest` tokens naming the fixed bit they ride. 28 vector lines now assemble
+  (the 13 dest-decorated load/cam/length Hybrid forms), 0 mismatches, round-trip identical.
+  Bit-identical to the model/binutils.
+
+  Deferred to **L3b** (the remaining custom operand classes, mirroring binutils' `Xpo`/`Xpa`/
+  `Xpm`/`Xpl`/`Xpe`): the prose sugar (`pcurptr+N`, `paccum[i]`, `value:mask`, `mult:min`,
+  `pmeta+N`) — reaching full binutils parity. Then Clang **intrinsics/builtins**.
 
 ### 7.5 Level 4 — ISA simulators
 

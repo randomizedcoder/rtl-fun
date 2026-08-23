@@ -116,9 +116,10 @@ qualifiers, `mult:min`, the `prs.lenset{,min,const}` aliases, `paccum`/`pnext`/`
 decoration) assembles, disassembles to the canonical prose, and round-trips, all bit-identical to
 the model. **LLVM MC** is progressing (`nix run .#parser-llvm-mc-test`): a RISCV-only patched
 `llvm-mc`/`llvm-objdump`, generated from the same ISA yaml, assembles + disassembles the
-immediate-only custom-0 ops (L1) plus the custom-3 moves via a generated `PRReg` register class
-(L2) to byte-identical goldens; the destination-decoration / prose forms are the remaining L3
-increment. Still open (the deferred tail): the rest of **LLVM MC + GCC builtins** (L3), plus
+immediate-only custom-0 ops (L1), the custom-3 moves via a generated `PRReg` register class (L2),
+and the destination-decorated load/cam/length forms (L3a: `paccum`/`pnext`/`pcurhdr`) to
+byte-identical goldens; the prose-sugar forms are the remaining L3b increment. Still open (the
+deferred tail): the rest of **LLVM MC + GCC builtins** (L3b), plus
 the heavyweight random-*instruction* checks (full upstream riscv-tests, riscv-dv — the latter
 blocked on a commercial UVM simulator).
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
