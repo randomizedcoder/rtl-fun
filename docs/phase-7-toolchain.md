@@ -295,7 +295,22 @@ simulator understands the encodings (7.5).
   runs on the standalone Spike == the model. This is "the parser unit reachable from Clang without
   inline asm" (§7.4). Presentation-only; `parser-gen-check` and the other slice runners stay green.
 
-  Next (optional): GCC builtins; C3 custom-3 register-operand builtins (`prs.mv.x.p`).
+  **Clang — C3 (custom-3 register-move builtins) ✅.** The last group reachable before only via
+  inline `.insn` — the 4 register-operand moves `__builtin_riscv_prs_{mv_x_p,mv_p_x,cam_read,array_read}`
+  — giving C programmers a first-class way to **read/write the parser p-registers from Clang**. Unlike
+  the immediate-only C0 builtins, these carry real GPR operands: the p-register is a `_Constant` baked
+  into the mnemonic as `p<N>`, the rd is an `=r` output (the read's return value), the rs is an `r`
+  input. `emit_clang_moves_data` walks the same yaml `coprocessor` block; a SECOND generic CodeGen arm
+  (`PARSER_BUILTIN_LOWER_REG`) handles them, leaving the C0 immediate arm byte-identical (no IR
+  intrinsics / ISel). Verified two ways (`nix run .#parser-clang-moves`): a **table-driven masked
+  encoding** check (`(word & mask) == fixed` over each move × a spread of p-registers — the fixed
+  opcode/CoP/Func3/S/I/R bits + the selected p-register in Cpreg, masking the allocator-chosen rd/rs),
+  and a **functional round-trip** (`parser_moves.c`: a builtins-only write→read over p15/p16/p11 —
+  WAW, sign-extend, and a randomized 256-value property loop — self-checked on the standalone Spike).
+  `prs.ld.immed` stays deferred (immediate split-field form, not yet frozen). The Clang leg is now
+  complete (immediate C0 + register C3).
+
+  Next (optional): GCC builtins.
 
 ### 7.5 Level 4 — ISA simulators
 

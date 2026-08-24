@@ -126,12 +126,15 @@ the golden words and compiles the C slice byte-identical to the model ROM. On to
 `__builtin_riscv_prs_*` — 67 first-class Clang builtins (one per assembly variant) generated from the
 same ISA yaml, with Sema immediate-range checking, each lowering to the `prs.*` mnemonic as inline asm
 (no IR intrinsics / ISel); `nix run .#parser-clang-builtins-test` proves every one emits the exact
-golden encoding (67/0). **C2** closes the leg: the Phase-0 C slice compiled through the patched Clang
-using those builtins (`-DPRS_USE_BUILTINS`) runs on the standalone Spike over the 22-case corpus ==
-the golden model, the 53-word byte-parity guard proving the builtins lowering is byte-identical to the
-intrinsics one (`nix run .#parser-clang-slice`). Still open (the deferred tail): optional GCC
-**builtins**, plus the heavyweight random-*instruction* checks (full upstream riscv-tests, riscv-dv
-— the latter blocked on a commercial UVM simulator).
+golden encoding (67/0). **C2** ran the Phase-0 C slice through the patched Clang using those builtins
+(`-DPRS_USE_BUILTINS`) on the standalone Spike over the 22-case corpus == the golden model, the 53-word
+byte-parity guard proving the builtins lowering is byte-identical to the intrinsics one
+(`nix run .#parser-clang-slice`). **C3** completes the leg with the custom-3 register-move builtins
+(`__builtin_riscv_prs_mv_x_p`/`mv_p_x`/`cam_read`/`array_read`, reading/writing the parser p-registers
+from Clang) — a table-driven masked encoding check + a builtins-only p-register round-trip on Spike
+(`nix run .#parser-clang-moves`). Still open (the deferred tail): optional GCC **builtins**, plus the
+heavyweight random-*instruction* checks (full upstream riscv-tests, riscv-dv — the latter blocked on a
+commercial UVM simulator).
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 
