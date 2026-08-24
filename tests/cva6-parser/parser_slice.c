@@ -25,7 +25,23 @@
  * not parser logic); cosim_main.S programs it from a cam-only prog.S. Only the
  * instruction stream is authored here.
  */
+/*
+ * Two authoring paths, ONE body (below), selected at compile time:
+ *   default              — the generated inline-asm intrinsics (Stage 3): each
+ *                          prs_*(...) builds a word, PRS_EMIT plants it via .insn 4.
+ *   -DPRS_USE_BUILTINS   — the patched-Clang mnemonic-form builtins (Phase 7 C2):
+ *                          parser_builtins.h redefines each prs_*(...) to dispatch
+ *                          to the matching __builtin_riscv_prs_* variant, and
+ *                          PRS_EMIT becomes a pass-through (the builtin emits the
+ *                          instruction itself). Same body ⇒ the 53-word byte-parity
+ *                          guard proves the two lowerings are identical.
+ */
+#ifdef PRS_USE_BUILTINS
+#include "generated/parser_intrinsics.h"   /* SZ_* helpers reuse; PRS_EMIT redefined */
+#include "parser_builtins.h"               /* dispatch prs_*(...) -> builtins (same dir) */
+#else
 #include "generated/parser_intrinsics.h"   /* -I $REPO_ROOT/toolchain          */
+#endif
 #include "libparsermodel/parser.h"          /* -I $REPO_ROOT/model : flow_keys  */
 
 /* flow_keys sub-register byte offsets — reuse the model's struct so a layout
@@ -68,7 +84,20 @@
  * (cosim_main.S). `used` pins the symbol; cosim_main.S jumps to it. The runner
  * compiles this with -fno-stack-protector as belt-and-suspenders.
  */
+/*
+ * The builtins path (C2) canNOT be `naked`: __builtin_riscv_prs_* are call
+ * expressions, not `__asm__` statements, and Clang rejects non-ASM statements in
+ * a naked function. It doesn't need to be — at -O2 a plain function of pure
+ * immediate-only builtins emits ZERO prologue (word 0 is the first prs.*), just a
+ * trailing `ret` after word 52 that the parse never reaches (node 52 = STP) and
+ * the guard's `head -n 53` truncates. The intrinsics path stays `naked` (its
+ * PRS_EMIT is real inline asm, so naked keeps the 53 words byte-exact).
+ */
+#ifdef PRS_USE_BUILTINS
+__attribute__((used))
+#else
 __attribute__((used, naked))
+#endif
 void parse_prog(void)
 {
     /* ---- ether_node @0 ---- */
