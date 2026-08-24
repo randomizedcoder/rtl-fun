@@ -278,8 +278,24 @@ simulator understands the encodings (7.5).
   call per builtin and checks each emits its exact golden word (67/0). Bit-identical to
   model/binutils/llvm-mc (presentation-only); `parser-gen-check` guards the generated files.
 
-  Next: **C2** — a builtins variant of the C slice (`-DPRS_USE_BUILTINS`) run on Spike with the
-  53-word `enc.hex` byte-parity + 22-case corpus; then optional GCC builtins.
+  **Clang — C2 (builtins slice on Spike) ✅.** The Phase-0 slice
+  ([`tests/cva6-parser/parser_slice.c`](../tests/cva6-parser/parser_slice.c)) is now dual-path:
+  under `-DPRS_USE_BUILTINS` it includes
+  [`parser_builtins.h`](../tests/cva6-parser/parser_builtins.h), a shim whose macros redefine each
+  raw-field `prs_*(...)` call to dispatch — at compile time, via `__builtin_choose_expr` on the
+  constant size/E/dest/stp/er fields — to the matching mnemonic-form `__builtin_riscv_prs_*`
+  variant, with `PRS_EMIT` becoming a pass-through (the builtin emits the instruction itself). The
+  slice **body is unchanged**; only the include and the `naked` attribute switch on the flag (the
+  builtins path can't be `naked` — a builtin is a call-expr, not an `__asm__` statement — but at
+  `-O2` a pure immediate-only-builtin function emits no prologue, so `parse_prog` stays byte-exact).
+  `nix run .#parser-clang-slice` compiles the slice through the patched Clang and reuses the
+  `parser-spike.sh` runner (a `SLICE_CC`/`SLICE_CC_EXTRA` compiler hook — one body, no drift with
+  the intrinsics `parser-spike-slice`): the **53-word `enc.hex` byte-parity guard** proves the
+  builtins lowering == the intrinsics lowering == the golden model ROM, then the **22-case corpus**
+  runs on the standalone Spike == the model. This is "the parser unit reachable from Clang without
+  inline asm" (§7.4). Presentation-only; `parser-gen-check` and the other slice runners stay green.
+
+  Next (optional): GCC builtins; C3 custom-3 register-operand builtins (`prs.mv.x.p`).
 
 ### 7.5 Level 4 — ISA simulators
 

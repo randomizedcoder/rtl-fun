@@ -48,9 +48,21 @@ TESTDIR="$REPO_ROOT/tests/cva6-parser"
 # SLICE=1 drives the parse block from the C-intrinsics slice (parser_slice.c,
 # Phase 7 Stage 3) instead of the model-generated prog.S .word stream (Stage 2).
 # Everything else — packet MMIO load, CAM programming, self-check — is identical.
+#
+# The slice compiler is a hook so the SAME runner drives two authoring paths with
+# one body (no drift): the default GNU cross-gcc over the inline-asm intrinsics
+# (parser-spike-slice, Stage 3), or the parser-patched Clang over the mnemonic-form
+# __builtin_riscv_prs_* builtins (parser-clang-slice, Phase 7 C2) — the wrapper sets
+#   SLICE_CC       the compiler (default: the cross gcc from common.sh)
+#   SLICE_CC_EXTRA extra flags, e.g. "--target=riscv64-unknown-elf -DPRS_USE_BUILTINS"
+#   SLICE_STAGE    the banner label
+# Either way the compiled parse_prog must be 53-word byte-identical to the model ROM
+# (enc.hex), so the byte-parity guard is the convergence oracle for both lowerings.
 SLICE="${SLICE:-0}"
+SLICE_CC="${SLICE_CC:-$GCC}"
+SLICE_CC_EXTRA="${SLICE_CC_EXTRA:-}"
 if [ "$SLICE" = "1" ]; then
-  STAGE="Stage 3 (C-intrinsics slice)"
+  STAGE="${SLICE_STAGE:-Stage 3 (C-intrinsics slice)}"
   OUT="${OUT:-$PWD/build/parser-spike-slice}"
   OBJDUMP="${CV_SW_PREFIX:-riscv64-none-elf-}objdump"
 else
@@ -102,11 +114,14 @@ if [ "$SLICE" = "1" ]; then
   # Compile the slice at -O2: PRS_EMIT's `.insn 4, %0` uses an "i" (constant)
   # constraint, satisfied only when the static-inline builders inline+fold — which
   # needs -O1+ (rv_assemble's -O0 default would give "impossible constraint").
-  echo "== compiling the C-intrinsics slice (parser_slice.c, -O2) =="
+  echo "== compiling the slice (parser_slice.c, -O2) with: $SLICE_CC $SLICE_CC_EXTRA =="
   SLICE_OBJ="$OUT/parser_slice.o"
-  # -fno-stack-protector: parse_prog is naked, but also keep the toolchain default
-  # canary out so nothing prepends bytes / references __stack_chk_fail.
-  "$GCC" -march=rv64gc -mabi=lp64d -O2 -Wall -Wextra -Werror -nostdlib \
+  # -fno-stack-protector: the intrinsics path is naked, but also keep the toolchain
+  # default canary out so nothing prepends bytes / references __stack_chk_fail. The
+  # builtins path (-DPRS_USE_BUILTINS) is non-naked but at -O2 emits no prologue.
+  # SLICE_CC_EXTRA is intentionally word-split (a flag list, e.g. clang's --target).
+  # shellcheck disable=SC2086
+  "$SLICE_CC" $SLICE_CC_EXTRA -march=rv64gc -mabi=lp64d -O2 -Wall -Wextra -Werror -nostdlib \
     -fno-stack-protector \
     -I "$REPO_ROOT/toolchain" -I "$REPO_ROOT/model" \
     -c "$TESTDIR/parser_slice.c" -o "$SLICE_OBJ"
@@ -148,9 +163,11 @@ spike_case() {
 }
 
 if [ "$SLICE" = "1" ]; then
-  SUITE_DESC="parser-spike-slice: C-intrinsics slice -> flow_keys on the standalone parser Spike"
-  SUITE_TAG="parser-spike-slice"
-  PASS_MSG="== PASS: the C-intrinsics slice runs on the standalone Spike == the golden model (Stage 3) =="
+  # Overridable so parser-clang-slice (C2) reports its own identity while reusing
+  # this body; defaults describe the intrinsics slice (Stage 3).
+  SUITE_DESC="${SLICE_SUITE_DESC:-parser-spike-slice: C-intrinsics slice -> flow_keys on the standalone parser Spike}"
+  SUITE_TAG="${SLICE_SUITE_TAG:-parser-spike-slice}"
+  PASS_MSG="${SLICE_PASS_MSG:-== PASS: the C-intrinsics slice runs on the standalone Spike == the golden model (Stage 3) ==}"
 else
   SUITE_DESC="parser-spike: packet -> flow_keys on the standalone parser Spike"
   SUITE_TAG="parser-spike"

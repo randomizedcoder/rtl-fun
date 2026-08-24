@@ -211,6 +211,14 @@
         # proves the build + that clang's integrated-as sees the parser MC layer.
         parser-clang = import ./nix/parser-clang.nix { inherit pkgs; };
 
+        # Phase-7 C2 (Clang): the Phase-0 slice compiled through the parser-patched
+        # Clang using the __builtin_riscv_prs_* builtins, run on the standalone Spike
+        # over the 22-case corpus == the golden model (`nix run .#parser-clang-slice`).
+        parser-clang-slice = import ./nix/parser-clang-slice.nix {
+          inherit pkgs spike-parser;
+          parser-clang = parser-clang.parser-clang;
+        };
+
         # The default development shell (exports CVA6_SRC -> the pinned source,
         # and puts the cva6-baseline app on PATH).
         devshell = import ./nix/devshell.nix {
@@ -277,6 +285,7 @@
           parser-clang = parser-clang.parser-clang;
           parser-clang-check = parser-clang.parser-clang-check;
           parser-clang-builtins-test = parser-clang.parser-clang-builtins-test;
+          parser-clang-slice = parser-clang-slice;
         };
 
         # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
@@ -429,6 +438,14 @@
         apps.parser-spike-slice = {
           type = "app";
           program = "${parser-spike-slice}/bin/parser-spike-slice";
+        };
+
+        # Phase-7 C2 (Clang builtins slice): run the slice compiled through the
+        # parser-patched Clang via __builtin_riscv_prs_* on the standalone Spike ==
+        # the golden model: `nix run .#parser-clang-slice`.
+        apps.parser-clang-slice = {
+          type = "app";
+          program = "${parser-clang-slice}/bin/parser-clang-slice";
         };
 
         # Phase-7 QEMU leg: run the same parser ELFs / C slice on the patched

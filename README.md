@@ -137,9 +137,12 @@ complete; phases are now being built in order.
   (one per assembly variant) generated from the same ISA yaml, with Sema immediate-range checking,
   each lowering to the `prs.*` mnemonic as inline asm (no IR intrinsics / ISel);
   `nix run .#parser-clang-builtins-test` proves every one emits the exact golden encoding (67/0).
-  Still open (the deferred tail): the builtins C slice on Spike (C2) and optional GCC **builtins**,
-  and the heavyweight random-*instruction* checks (full upstream riscv-tests; riscv-dv, blocked on a
-  commercial UVM simulator).
+  **C2** closes the leg: the Phase-0 C slice, compiled through the patched Clang using those builtins
+  (`-DPRS_USE_BUILTINS`), runs on the standalone Spike over the 22-case corpus == the golden model,
+  with the 53-word byte-parity guard proving the builtins lowering is byte-identical to the intrinsics
+  one (`nix run .#parser-clang-slice`) — the parser unit reachable from Clang without inline asm.
+  Still open (the deferred tail): optional GCC **builtins**, and the heavyweight random-*instruction*
+  checks (full upstream riscv-tests; riscv-dv, blocked on a commercial UVM simulator).
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its
 testbenches in [`tb/`](tb/README.md) and the vector generator + formal harness in
