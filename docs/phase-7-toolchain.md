@@ -264,9 +264,22 @@ simulator understands the encodings (7.5).
   the `.insn` intrinsics path) compiles under clang with its 53-word `parse_prog` byte-identical
   to the model ROM (`enc.hex`). This de-risks the from-source Clang build before any codegen.
 
-  Next: **C1** — `emit_builtin` + `__builtin_riscv_prs_*` (custom-0 immediate ops, lowering to
-  operand-less inline asm via a table-driven arm in the clang patch); then the builtins slice
-  (C2) and optional GCC builtins.
+  **Clang — C1 (custom-0 builtins) ✅.** `emit_builtin` (tools/parser-gen) flattens every
+  custom-0 assembly *variant* — the size/attribute-suffix cross-product crossed with the dest
+  discriminator — into one `__builtin_riscv_prs_*` (**67** total, e.g. `prs_load_h_be`,
+  `prs_cam_h_stp_pnext`, `prs_cmpib_stopsub`). It emits three artifacts
+  (`toolchain/generated/parser-clang-builtins.{td,inc,tsv}`); the clang patch is a one-line
+  `BuiltinsRISCV.td` include plus **one generic** table-driven arm each in `SemaRISCV.cpp`
+  (immediate-range checks via `BuiltinConstantArgRange`) and `TargetBuiltins/RISCV.cpp` (lowering).
+  Each builtin takes only the true operands as `_Constant` immediates and lowers to an
+  operand-less `asm volatile("<prs.* mnemonic> $0, …")` with `i` operands — the immediates print
+  as literals (no register, naked-safe like `PRS_EMIT`), and the mnemonic is assembled by the C0
+  MC layer. NO IR intrinsics, NO ISel. `nix run .#parser-clang-builtins-test` compiles an all-zero
+  call per builtin and checks each emits its exact golden word (67/0). Bit-identical to
+  model/binutils/llvm-mc (presentation-only); `parser-gen-check` guards the generated files.
+
+  Next: **C2** — a builtins variant of the C slice (`-DPRS_USE_BUILTINS`) run on Spike with the
+  53-word `enc.hex` byte-parity + 22-case corpus; then optional GCC builtins.
 
 ### 7.5 Level 4 — ISA simulators
 

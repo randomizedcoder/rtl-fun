@@ -1,14 +1,14 @@
 # nix/parser-clang.nix — Clang built against the parser-patched LLVM (Phase 7, C0).
 #
 # The Clang leg of the toolchain ladder (§7.4: "the parser unit reachable from Clang").
-# C0 stands up the build ONLY — no builtins yet. We override the nixpkgs
-# `clang-unwrapped` derivation's `libllvm` argument with our parser-patched llvm
-# (nix/parser-llvm.nix, the MC layer). Clang links that libLLVM, and Clang's
-# integrated assembler IS the LLVM MC layer — so `clang -c` parses/encodes the custom-0
-# / custom-3 `prs.*` mnemonics (and inline-asm containing them) with zero extra flags,
-# inheriting the RISCVAsmParser/Disassembler/InstPrinter patch for free. No clang source
-# is touched at C0 (C1 adds `extraPatches = [ ./parser-clang/parser-clang.patch ]` for the
-# __builtin_riscv_prs_* declarations + lowering).
+# We override the nixpkgs `clang-unwrapped` derivation's `libllvm` argument with our
+# parser-patched llvm (nix/parser-llvm.nix, the MC layer). Clang links that libLLVM, and
+# Clang's integrated assembler IS the LLVM MC layer — so `clang -c` parses/encodes the
+# custom-0 / custom-3 `prs.*` mnemonics (and inline-asm containing them) with zero extra
+# flags, inheriting the RISCVAsmParser/Disassembler/InstPrinter patch for free.
+#   C0 stood up the build only (no clang source touched).
+#   C1 adds `extraPatches` = parser-clang.patch: the __builtin_riscv_prs_* declarations +
+#   Sema range checks + CodeGen InlineAsm lowering (generated from isa/parser-opcodes.yaml).
 #
 # The patched llvm is RISCV-only (LLVM_TARGETS_TO_BUILD=RISCV), so the Clang built here is
 # a RISC-V-only cross compiler — all this leg needs, and it keeps the from-source build as
@@ -27,6 +27,9 @@ let
   parser-clang = pkgs.llvmPackages.clang-unwrapped.override {
     libllvm = parser-llvm;
     enableClangToolsExtra = false;
+    # C1: the __builtin_riscv_prs_* leg. `extraPatches` is appended to the clang
+    # derivation's `patches` (sourceRoot = <src>/clang), so paths are clang/-rooted.
+    extraPatches = [ ./parser-clang/parser-clang.patch ];
   };
 
   parser-clang-check = pkgs.writeShellApplication {
@@ -51,7 +54,22 @@ let
     '' + builtins.readFile ../scripts/lib/common.sh
        + builtins.readFile ../scripts/parser-clang-check.sh;
   };
+
+  parser-clang-builtins-test = pkgs.writeShellApplication {
+    name = "parser-clang-builtins-test";
+    runtimeInputs = [
+      parser-clang               # clang with __builtin_riscv_prs_*
+      parser-llvm                # parser-aware llvm-objdump (decodes prs.*)
+      pkgs.coreutils
+      pkgs.gnugrep
+      pkgs.gawk
+      pkgs.diffutils
+    ];
+    text = ''
+      export REPO_ROOT="''${REPO_ROOT:-$PWD}"
+    '' + builtins.readFile ../scripts/parser-clang-builtins-test.sh;
+  };
 in
 {
-  inherit parser-clang parser-clang-check;
+  inherit parser-clang parser-clang-check parser-clang-builtins-test;
 }
