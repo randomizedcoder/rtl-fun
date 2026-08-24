@@ -219,6 +219,15 @@
           parser-clang = parser-clang.parser-clang;
         };
 
+        # Phase-7 C3 (Clang): the custom-3 register-move builtins — a table-driven masked
+        # encoding check + a builtins-only p-register round-trip on the standalone Spike
+        # (`nix run .#parser-clang-moves`).
+        parser-clang-moves = import ./nix/parser-clang-moves.nix {
+          inherit pkgs spike-parser;
+          parser-clang = parser-clang.parser-clang;
+          parser-llvm = import ./nix/parser-llvm.nix { inherit pkgs; };
+        };
+
         # The default development shell (exports CVA6_SRC -> the pinned source,
         # and puts the cva6-baseline app on PATH).
         devshell = import ./nix/devshell.nix {
@@ -286,6 +295,7 @@
           parser-clang-check = parser-clang.parser-clang-check;
           parser-clang-builtins-test = parser-clang.parser-clang-builtins-test;
           parser-clang-slice = parser-clang-slice;
+          parser-clang-moves = parser-clang-moves;
         };
 
         # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
@@ -446,6 +456,13 @@
         apps.parser-clang-slice = {
           type = "app";
           program = "${parser-clang-slice}/bin/parser-clang-slice";
+        };
+
+        # Phase-7 C3 (Clang register-move builtins): masked encoding check + a p-register
+        # round-trip through the builtins on the standalone Spike: `nix run .#parser-clang-moves`.
+        apps.parser-clang-moves = {
+          type = "app";
+          program = "${parser-clang-moves}/bin/parser-clang-moves";
         };
 
         # Phase-7 QEMU leg: run the same parser ELFs / C slice on the patched

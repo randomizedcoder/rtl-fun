@@ -9,6 +9,8 @@
 #   C0 stood up the build only (no clang source touched).
 #   C1 adds `extraPatches` = parser-clang.patch: the __builtin_riscv_prs_* declarations +
 #   Sema range checks + CodeGen InlineAsm lowering (generated from isa/parser-opcodes.yaml).
+#   C3 extends the same patch with the custom-3 register-move builtins (a second CodeGen arm:
+#   =r/r constraints + a p-register baked into the mnemonic; the C0 immediate arm is untouched).
 #
 # The patched llvm is RISCV-only (LLVM_TARGETS_TO_BUILD=RISCV), so the Clang built here is
 # a RISC-V-only cross compiler — all this leg needs, and it keeps the from-source build as

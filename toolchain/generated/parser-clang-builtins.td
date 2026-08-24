@@ -75,4 +75,8 @@ def prs_cmpneib_fail : RISCVXparserBuiltin<"void(_Constant unsigned int, _Consta
 def prs_nextnode : RISCVXparserBuiltin<"void(_Constant unsigned int)">;
 def prs_setcode : RISCVXparserBuiltin<"void(_Constant unsigned int)">;
 def prs_stp : RISCVXparserBuiltin<"void()">;
+def prs_mv_x_p : RISCVXparserBuiltin<"uint64_t(_Constant unsigned int)">;
+def prs_mv_p_x : RISCVXparserBuiltin<"void(_Constant unsigned int, uint64_t)">;
+def prs_cam_read : RISCVXparserBuiltin<"uint64_t(_Constant unsigned int, uint64_t)">;
+def prs_array_read : RISCVXparserBuiltin<"uint64_t(_Constant unsigned int, uint64_t)">;
 } // Attributes = [NoThrow]
