@@ -143,9 +143,12 @@ complete; phases are now being built in order.
   completes the leg with the custom-3 register-move builtins (`__builtin_riscv_prs_mv_x_p` / `mv_p_x` /
   `cam_read` / `array_read`) — reading/writing the parser p-registers from Clang — verified by a
   table-driven masked encoding check plus a builtins-only p-register round-trip on Spike
-  (`nix run .#parser-clang-moves`). Still open (the deferred tail): optional GCC **builtins**, and the
-  heavyweight random-*instruction* checks (full upstream riscv-tests; riscv-dv, blocked on a commercial
-  UVM simulator).
+  (`nix run .#parser-clang-moves`). The exit criterion is met and the whole toolchain ladder a C
+  programmer needs is built; what remains is a **follow-up tail** (optional GCC **builtins**, the
+  unfrozen `prs.ld.immed` immediate spelling, and the heavyweight random-*instruction* checks — full
+  upstream riscv-tests; riscv-dv, blocked on a commercial UVM simulator), none of it on the critical
+  path — so **Phase 8 can begin**. The deferred items are enumerated in
+  [docs/phase-7-toolchain.md](docs/phase-7-toolchain.md#follow-up--deferred-work).
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its
 testbenches in [`tb/`](tb/README.md) and the vector generator + formal harness in

@@ -310,7 +310,9 @@ simulator understands the encodings (7.5).
   `prs.ld.immed` stays deferred (immediate split-field form, not yet frozen). The Clang leg is now
   complete (immediate C0 + register C3).
 
-  Next (optional): GCC builtins.
+  This closes the Clang leg. The remaining items (optional GCC builtins, `prs.ld.immed`,
+  and the heavyweight random-instruction sweeps) are follow-up work, not pending phase
+  tasks — see [Follow-up / deferred work](#follow-up--deferred-work).
 
 ### 7.5 Level 4 — ISA simulators
 
@@ -401,6 +403,32 @@ No hand-copied encodings.
   byte-identical to the model ROM (53 words == `enc.hex`) and runs the 22-case corpus == model
   on both simulators. The asm-corpus twins (`parser-spike` / `parser-qemu`) also pass 22/0.
 - Disassembly is human-readable (binutils/objdump). ✅ (`nix run .#parser-asm-test`)
+
+## Follow-up / deferred work
+
+The exit criterion is **met** and every rung a C programmer needs to reach the parser
+unit is built: `.insn` + intrinsics, binutils as/objdump, full-parity LLVM MC, a
+first-class Clang builtin surface (immediate **C0** + register-move **C3**), and both
+ISA simulators (Spike + QEMU). The phase stays **🔵** rather than flipping to ✅ because a
+deliberately **deferred tail** remains — none of it on the critical path, each item either
+optional or externally blocked:
+
+| Item | Why deferred | What would unblock it |
+| --- | --- | --- |
+| **GCC builtins** | Optional. Clang already gives the full `__builtin_riscv_prs_*` surface; the staging rule was "don't touch GCC/LLVM until the ISA freezes." A GCC leg mirrors the Clang one (generated from the same `isa/parser-opcodes.yaml`). | A decision that GCC parity is worth the second from-source toolchain build. |
+| **`prs.ld.immed`** | A **spec** decision, not code: its split two-5-bit-immediate spelling is not frozen (see §7.3 / the prose-freeze arc). | Freezing the imm11 syntax in the yaml/ISA notation; the generator + Clang arm already handle the register moves it sits beside. |
+| **Full upstream riscv-tests (Verilator)** | The heavyweight **random-instruction** axis — a base-ISA conformance sweep, orthogonal to the parser extension the phase is about. The parser ops themselves are already lock-stepped against Spike in Phase 6. | Wiring the upstream riscv-tests ELFs through the Verilator matrix as a CI target. |
+| **riscv-dv instruction-axis random** | **Externally blocked** — riscv-dv's generator depends on a commercial UVM simulator this project does not license. | An open-source UVM path, or accepting the constrained-random packet campaign (Phase 6) as the substitute. |
+| **Non-slice ISA groups** | The arrays / counters / TLV-loop / lifecycle instruction families have no encoder in the model yet — they are beyond the vertical slice this project verifies end-to-end. | Extending `model/libparsermodel` + the yaml to those groups (a model/ISA effort, upstream of the toolchain). |
+
+The **prose-freeze** follow-on that once lived here is **done** (every frozen §1.12
+spelling assembles, disassembles to canonical prose, and round-trips bit-identically).
+
+Because these are follow-up items rather than pending phase work, **Phase 8 (FPGA
+bring-up) can proceed now** — it reaches hardware through `.insn` / inline-asm and the
+runnable slice binary, and does **not** depend on the Clang/GCC builtin surface. See
+[phase-8-fpga.md](phase-8-fpga.md) and the board bring-up plan in
+[tang-mega-138k-pro-rtl-fun-plan.md](tang-mega-138k-pro-rtl-fun-plan.md).
 
 ## Open questions
 
