@@ -132,9 +132,12 @@ byte-parity guard proving the builtins lowering is byte-identical to the intrins
 (`nix run .#parser-clang-slice`). **C3** completes the leg with the custom-3 register-move builtins
 (`__builtin_riscv_prs_mv_x_p`/`mv_p_x`/`cam_read`/`array_read`, reading/writing the parser p-registers
 from Clang) — a table-driven masked encoding check + a builtins-only p-register round-trip on Spike
-(`nix run .#parser-clang-moves`). Still open (the deferred tail): optional GCC **builtins**, plus the
-heavyweight random-*instruction* checks (full upstream riscv-tests, riscv-dv — the latter blocked on a
-commercial UVM simulator).
+(`nix run .#parser-clang-moves`). The exit criterion is met and the full toolchain ladder is built;
+what remains is a **follow-up tail** — optional GCC **builtins**, the unfrozen `prs.ld.immed` immediate
+spelling, and the heavyweight random-*instruction* checks (full upstream riscv-tests, riscv-dv — the
+latter blocked on a commercial UVM simulator) — none of it on the critical path, so **Phase 8 can
+begin**. The items are enumerated in
+[phase-7-toolchain.md](phase-7-toolchain.md#follow-up--deferred-work).
 Deferred slices: 64-bit instruction form; encoders/execution for the array /
 counter / TLV-loop groups; TLV *extraction* loops and tunnel protocols.
 
