@@ -13,3 +13,9 @@
 tests/cva6-parser/*.elf
 trace_hart_*.dasm
 trace_rvfi_hart_*.dasm
+
+# Gowin EDA license (node-locked personal credential — NEVER commit)
+/gowin
+*.lic
+gowin*.lic
+*gowin*license*
