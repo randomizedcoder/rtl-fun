@@ -30,6 +30,10 @@ toolchain (open-source yosys / nextpnr-gowin / apicula where possible, Gowin EDA
 hard IP), the go/no-go feasibility questions (does CVA6 synthesize/fit/route on Gowin),
 and a staged experiment ladder (smoke → LED → CVA6 baseline → BRAM packet window → one
 custom instruction end-to-end → counters → baseline-vs-custom benchmark → DDR3 → 10GbE).
+The **pre-purchase feasibility gate** — does the Education/NODELOCK Gowin license actually
+permit synth+PnR for `GW5AST-LV138FPG676A`? — is automated in a reproducible microVM:
+[gowin-microvm.md](gowin-microvm.md) (`nix run .#gowin-vm`). See also the platform
+comparison in [fpga-platform-assessment.md](fpga-platform-assessment.md).
 
 ### 8.2 Block design
 

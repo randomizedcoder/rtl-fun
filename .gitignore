@@ -19,3 +19,9 @@ trace_rvfi_hart_*.dasm
 *.lic
 gowin*.lic
 *gowin*license*
+
+# Gowin EDA installer tarballs + docs (large proprietary blobs — NEVER commit)
+/downloads/
+
+# Gowin microVM machine-local settings (license-locked MAC + host paths — NEVER commit)
+/nix/gowin/local.nix

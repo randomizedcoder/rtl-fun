@@ -101,10 +101,14 @@ Apicula (`gowin_pack`) → openFPGALoader**. Apicula's device coverage, as of th
 - Gowin EDA runs **synthesis + place-and-route + timing in software with no board attached**
   — so exact fit/Fmax for GW5AST-138 is answerable **pre-purchase**, for the price of a free
   Gowin EDA download.
-- ⚠️ **Open question for the Education license:** Sipeed states the 138K Pro wants Gowin
-  **commercial** IDE 1.9.9+, not Education. Confirm `GW5AST-LV138FPG676A` is a selectable
-  device under the obtained Education/STD license **before** buying the board — a five-minute
-  check in the device selector, and a gating one.
+- ✅ **RESOLVED — GO (2026-08-25):** despite Sipeed listing the 138K Pro as wanting the Gowin
+  **commercial** IDE, the obtained **Education / NODELOCK license synthesizes AND
+  place-and-routes** `GW5AST-LV138FPG676AC1/I0` (the Tang Mega part). Verified end-to-end in the
+  reproducible feasibility VM — `set_device` + `run syn` + `run pnr` all pass and a bitstream is
+  produced (blinky probe: 26/138,240 LUT, 26/139,140 FF). See
+  **[docs/gowin-microvm.md](./gowin-microvm.md)** (`nix run .#gowin-vm` → Tier-1 gate). The board
+  is therefore a viable target on licensing grounds; for the CVA6 capacity/fit question see §5
+  (Tier-2, now **measured**).
 
 Sources: [Project Apicula](https://github.com/yosyshq/apicula) ·
 [GW5A support issue #204](https://github.com/YosysHQ/apicula/issues/204) ·
@@ -127,6 +131,30 @@ it**. So a leaner core is a perfectly reasonable prototype target.
 
 > These are estimates with real uncertainty, but the **qualitative** conclusion is robust:
 > full RV64GC-with-FPU is tight-to-over on a 138K-LUT4 part; a no-FPU config fits comfortably.
+
+### 5a. Tier-2 measured (2026-08-25) — GowinSynthesis on the real part
+
+Beyond the estimate: the feasibility VM (§4, [gowin-microvm.md](./gowin-microvm.md)) ran the
+**actual** `cv64a6_imafdc` core through GowinSynthesis targeting `GW5AST-LV138FPG676AC1/I0`. Two
+fixes were needed before it would elaborate — the raw sv2v `flat.v` trips Gowin's Verilog dialect
+on `$bits` (use the cleaned `flat_synth.v`), and sv2v leaves four config-struct constants as
+illegal dotted accesses (`CVA6Cfg.{ASID_WIDTH,VMID_WIDTH,VpnLen,PtLevels}`; substitute
+`16/14/27/3`). With those, **the full core elaborates and synthesizes** (netlist conversion →
+optimization → inference → tech-mapping, ≈4 h single-threaded) — already a step past this section's
+"did not converge." It then stops at a hard resource error:
+
+> `ERROR (RP0001): The number(558387) of DFF(DL) ... exceeds the resource limit(139140)` — i.e.
+> **~558K flip-flops vs 139,140 available (~4× over)**, register-bound.
+
+**Caveat — the FF number is a flatten-flow artifact, not CVA6's true register count.** The log
+shows **zero BSRAM inferred**; ~558K ≈ the bit-count of CVA6's on-chip memories (I$+D$ ≈ 393K bits,
+plus TLBs/BP/regfile), which in the monolithic sv2v flatten map to **flip-flops instead of the
+device's 340 BSRAM blocks**. On Xilinx (SRAM macros / BRAM inference) those are block RAM and the
+core's real FF count is ~40–90K. Net: the overflow is **memory-mapping, not FPU** — a no-FPU `imac`
+would overflow the same way; the real lever is **BRAM inference** (proper FPGA flow / Gowin BSRAM
+macros), which is exactly the Tang Mega's "highest integration effort" cost (§6, board #5). A
+clean LUT/Fmax fit number for CVA6 on this part therefore still wants either that BRAM-aware flow
+or a Xilinx board with the official CVA6 FPGA reference design.
 
 ## 6. Recommendations — top 5 FPGAs for this project
 
@@ -177,10 +205,12 @@ open/cheap/wired-for-Ethernet."
 
 ## 8. Next steps (all pre-purchase, no board required)
 
-1. **Tang Mega, if still a candidate:** once Gowin EDA is installed, (a) confirm
-   `GW5AST-LV138FPG676A` is selectable under the Education license (§4), then (b) run a
-   software-only Gowin synth of `cv64a6_imac` and `cv64a6_imafdc` → exact utilization + Fmax.
-   That is the real go/no-go, and it costs nothing but compute.
+1. **Tang Mega, if still a candidate:** Gowin EDA is installed; the check is now automated in a
+   reproducible feasibility VM — see **[gowin-microvm.md](gowin-microvm.md)**. (a) `nix run
+   .#gowin-vm` → Tier-1 gate confirms whether `GW5AST-LV138FPG676A` synthesizes+routes under the
+   Education/NODELOCK license (§4); (b) if GO, Tier-2 runs a software-only Gowin synth of
+   `cv64a6_imac` → exact utilization + Fmax. That is the real go/no-go, and it costs nothing but
+   compute.
 2. **Xilinx path:** the CVA6 `corev_apu/fpga` reference design targets Genesys 2 directly; a
    free-Vivado A200T build is a modest port. This is the lowest-risk route to a working
    CVA6 + parser + 1GbE demo.
