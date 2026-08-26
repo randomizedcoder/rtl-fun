@@ -8,6 +8,19 @@ utilization + Fmax for the CVA6 host core — all in software, **with no board a
 This is the ⚠️ open item from [fpga-platform-assessment.md](./fpga-platform-assessment.md) §4, and
 the Experiment-1 step in [tang-mega-138k-pro-rtl-fun-plan.md](./tang-mega-138k-pro-rtl-fun-plan.md).
 
+## Bottom line
+
+- **License → GO.** The Education/NODELOCK license **synthesizes and place-and-routes** the exact
+  Tang Mega part (`GW5AST-LV138FPG676AC1/I0`) — a real blinky bitstream was produced.
+- **CVA6 → fits with BRAM mapping.** Full `cv64a6_imafdc` **elaborates and synthesizes** in
+  GowinSynthesis (after a 4-constant netlist patch). It aborts at the flip-flop check *only* because
+  the monolithic sv2v flatten defeats BSRAM inference: ~97% of the 558K-DFF demand is cache/tag
+  memory (~543K bits) that belongs in block RAM (8.7% of the device's 6.12 Mbit). Real logic ≈ 15K
+  FF (~11% of the part). See the [Result](#result) section.
+- **Net for the buy decision:** the part is viable for CVA6 + parser; the remaining work is mapping
+  CVA6's SRAM macros onto Gowin BSRAM — real integration effort, no reference design. Full buy/no-buy
+  writeup: [fpga-platform-assessment.md → TL;DR](./fpga-platform-assessment.md#tldr--should-i-buy-the-tang-mega-138k-pro-and-will-it-work).
+
 ## Why a VM (and a specific MAC)
 
 The Gowin license is **node-locked** to a MAC address (`HOST_ID` in the `./gowin` license file).
