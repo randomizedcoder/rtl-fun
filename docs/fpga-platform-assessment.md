@@ -32,6 +32,35 @@ not a blocker:
   budget is a single board and 10 GbE is essential, buy the Tang Mega and plan for the SRAM/BRAM
   integration up front.
 
+### Which SKU — 138K **Pro**, not the non-Pro 138K
+
+> **Decision (2026-08): the Tang Mega 138K *Pro* is ordered** (arriving ~Sept 2026) — the part this
+> study validated. Buy the **Pro**, not the plain 138K; they share the same FPGA *die* but differ
+> exactly where this project needs it:
+
+| | **138K Pro** ✅ | **138K** (non-Pro) ❌ |
+| --- | --- | --- |
+| FPGA part | `GW5AST-LV138`**`FPG676`**`AC1/I0` — **the exact device validated here** (license + CVA6 fit) | `GW5AST-LV138`**`PG484`**`AC1/I0` — same die, 484-ball, fewer I/O |
+| **SFP+ (the 10 GbE endgame)** | **2× SFP+, up to 12.5 Gbps** | **none** |
+| High-speed transceivers | 8 (to 12.5 Gbps) | 4 (**capped at 8.0 Gbps** — below 10 GbE line rate) |
+| DDR3 | 1 GB @ 1333 Mbps | 1 GB @ 800 Mbps |
+
+Both are SOM + dock modules with PCIe 3.0 x4 and 1× GbE RJ45. For a 10 GbE packet-parser the non-Pro
+is a dead end (no SFP+, transceivers below 10 Gbps).
+
+### The die also carries a *hardened* RISC-V (Andes A25 / AE350) — a bonus, not a substitute
+
+The GW5AST-138 is a 22 nm **SoC-FPGA**: it embeds a **hardened** Andes A25 + AE350 subsystem (real
+silicon, ~400–800 MHz, **consumes zero of the 138 K LUTs**) — present on *both* SKUs. It does **not**
+replace this project's core: the A25 is a fixed **32-bit (RV32)** Andes core, so it can't carry the
+patent's custom parser opcodes and isn't RV64GC. The **CVA6 (RV64GC) + parser extension still lives
+in the FPGA fabric** (that's what §5/§5a size). The hardened A25 is a **free control-plane / Linux
+housekeeping CPU** — useful to boot the SoC, manage DMA, and drive the parser — running alongside the
+fabric design, not instead of it.
+Sources: [Gowin + Andes hardened A25/AE350 announcement](https://www.andestech.com/en/2023/08/29/gowin-semiconductor-andes-technology-corp-announce-the-first-risc-v-cpu-and-subsystem-ever-embedded-22nm-soc-fpga/) ·
+[eeNews: first 22 nm FPGA with hardened RISC-V](https://www.eenewseurope.com/en/first-22nm-fgpa-with-hardened-risc-v-cores/) ·
+[Tang Mega 138K Pro wiki](https://wiki.sipeed.com/hardware/en/tang/tang-mega-138k/mega-138k-pro.html)
+
 The rest of this document is the evidence behind that verdict.
 
 ## 1. Question and method
