@@ -146,15 +146,29 @@ optimization → inference → tech-mapping, ≈4 h single-threaded) — already
 > `ERROR (RP0001): The number(558387) of DFF(DL) ... exceeds the resource limit(139140)` — i.e.
 > **~558K flip-flops vs 139,140 available (~4× over)**, register-bound.
 
-**Caveat — the FF number is a flatten-flow artifact, not CVA6's true register count.** The log
-shows **zero BSRAM inferred**; ~558K ≈ the bit-count of CVA6's on-chip memories (I$+D$ ≈ 393K bits,
-plus TLBs/BP/regfile), which in the monolithic sv2v flatten map to **flip-flops instead of the
-device's 340 BSRAM blocks**. On Xilinx (SRAM macros / BRAM inference) those are block RAM and the
-core's real FF count is ~40–90K. Net: the overflow is **memory-mapping, not FPU** — a no-FPU `imac`
-would overflow the same way; the real lever is **BRAM inference** (proper FPGA flow / Gowin BSRAM
-macros), which is exactly the Tang Mega's "highest integration effort" cost (§6, board #5). A
-clean LUT/Fmax fit number for CVA6 on this part therefore still wants either that BRAM-aware flow
-or a Xilinx board with the official CVA6 FPGA reference design.
+**The FF number is a flatten-flow artifact — and quantifying it flips the verdict to "fits."**
+The log shows **zero BSRAM inferred**, and GowinSynthesis maps one un-inferred memory bit to one
+DFF, so the 558,387 decomposes cleanly against this config's cache geometry (I$ 16 KiB/4-way,
+D$ 32 KiB/8-way, 128 b lines, PLEN 56):
+
+| Quantity | Value |
+| --- | --- |
+| DFF demand (reported) | 558,387 |
+| I$/D$ data + tags | ~534,500 bits |
+| + TLB / branch-predictor / regfile | ~9,000 bits |
+| **On-chip memory subtotal** | **~543,000 bits** |
+| **Logic (non-memory) FF** = 558,387 − memory | **~15,000 FF** (~11% of 138,240) |
+| Same memory in **BSRAM** | 543K / 6,120 Kbit = **8.7%** of block RAM |
+
+So the "~4× over" is ~97% **cache/tag arrays mapped to flip-flops** because the monolithic sv2v
+flatten defeats BSRAM inference. Mapped correctly, the memories use **< 9%** of the device's
+6.12 Mbit block RAM and the real sequential logic is only ~15K FF. **`cv64a6_imafdc` fits on the
+GW5AST-138 with proper BRAM mapping** — comfortably on registers/memory; the one axis not directly
+measured is logic-LUT (the §5 estimate, inflated by counting caches as logic, loosely bounds it
+≲138K). The overflow is **memory-mapping, not FPU** (a no-FPU `imac` overflows the same way); the
+real remaining work is **BRAM inference** — CVA6's SRAM macros onto Gowin BSRAM — which is exactly
+the Tang Mega's "highest integration effort" cost (§6, board #5). The low-risk path to a *turnkey*
+CVA6 fit remains a Xilinx board with the official CVA6 FPGA reference design.
 
 ## 6. Recommendations — top 5 FPGAs for this project
 

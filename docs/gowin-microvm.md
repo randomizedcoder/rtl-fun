@@ -117,7 +117,7 @@ bit-slices — substitute the compile-time values (`16 / 14 / 27 / 3` for this c
 | Check | Status | Notes |
 |---|---|---|
 | Tier-1 gate (GW5AST-138 under Education license) | ✅ **GO** (2026-08-25) | `set_device` + `run syn` + `run pnr` all OK; bitstream `blinky_gate.fs` produced |
-| Tier-2 CVA6 (`cv64a6_imafdc`, with FPU) utilization / Fmax | ⚠️ **synthesizes, does not fit as-flattened** (2026-08-25) | Full core elaborates + synthesizes in GowinSynthesis (after the 4-const patch); aborts at the DFF resource check — **register-bound**, see below. A clean LUT/Fmax number was not reached. |
+| Tier-2 CVA6 (`cv64a6_imafdc`, with FPU) utilization / Fmax | ⚠️ **synthesizes; fits with BRAM mapping** (2026-08-25) | Full core elaborates + synthesizes in GowinSynthesis (after the 4-const patch); aborts at the DFF check **only because the flatten defeats BSRAM inference** — ~97% of the 558K DFF is cache memory (~543K bits) that belongs in block RAM. Real logic ≈ 15K FF; memory ≈ 8.7% of the device BSRAM. See below. |
 
 **Tier-1 GO — the decisive pre-purchase answer.** The Education / NODELOCK license **does**
 permit synthesis *and* place-and-route for the Tang Mega 138K Pro part. Verified end-to-end in
@@ -151,14 +151,34 @@ predictor / regfile). In the monolithic sv2v-flattened netlist those arrays mapp
 **flip-flops instead of the device's 340 BSRAM blocks**; on Xilinx (with CVA6's SRAM macros / BRAM
 inference) they are block RAM and the core's true FF count is ~40–90K.
 
-What Tier-2 *did* establish, beyond the assessment's "won't build through open-source flow":
+**Quantified — it fits with BRAM mapping.** GowinSynthesis maps one un-inferred memory bit to one
+DFF, so the 558,387 DFF demand decomposes cleanly against CVA6's known geometry for this config
+(I$ 16 KiB/4-way, D$ 32 KiB/8-way, 128 b lines, sv39):
+
+| Quantity | Value |
+|---|---|
+| GowinSynthesis DFF demand | 558,387 |
+| I$/D$ data + tags | ~534,500 bits |
+| + TLB / branch-predictor / regfile | ~9,000 bits |
+| **On-chip memory subtotal** | **~543,000 bits** |
+| **Logic (non-memory) flip-flops** = 558,387 − memory | **~15,000 FF** (~11 % of 138,240) |
+| Same memory as **BSRAM** | 543 K / 6,120 Kbit on-chip = **8.7 %** of block RAM |
+
+So the "~4× over" is almost entirely **cache/tag arrays mapped to flip-flops** because the
+monolithic sv2v flatten defeats BSRAM inference. Put those memories in block RAM (< 9 % of the
+device's 6.12 Mbit) and the core's real sequential logic is only ~15 K FF. **`cv64a6_imafdc` fits
+on the GW5AST-138 with proper BRAM mapping** — comfortably on registers and memory; the only axis
+not directly measured is logic-LUT (the assessment's estimate, inflated by counting caches as
+logic, loosely bounds it ≲ 138 K).
+
+What Tier-2 established, beyond the assessment's "won't build through open-source flow":
 - The license synth path handles **full CVA6** — it elaborates and synthesizes (with a 4-constant
   patch), not just a blinky.
-- Capacity on the flatten flow is **register/memory-bound**, dominated by memories → FF, **not** by
-  the FPU. So a no-FPU `imac` config would overflow the same way; the real lever is **BRAM
-  inference** (mapping CVA6's memories to Gowin BSRAM), which needs the proper FPGA flow / SRAM
-  macros, not a monolithic flatten. Deferred — it reinforces the assessment's "highest integration
-  effort" ranking for the Tang Mega, and that the low-risk CVA6 fit is a Xilinx board with the
+- The apparent overflow is a **BSRAM-inference artifact of the flatten flow**, dominated by
+  memories → FF, **not** the FPU. A no-FPU `imac` config would overflow the same way; the real
+  lever is **BRAM inference** (mapping CVA6's memories to Gowin BSRAM via its SRAM macros / proper
+  FPGA flow), not a monolithic flatten. That integration is exactly the Tang Mega's "highest
+  integration effort" cost, and reinforces that the low-risk CVA6 fit is a Xilinx board with the
   official CVA6 FPGA reference design.
 
 Artifacts (gitignored `build/`): `build/gowin-cva6-imafdc-patched/synth.log` (the full run),
