@@ -8,6 +8,32 @@
 > or is another board a better buy?** Everything here was determined on the NixOS
 > workstation with no FPGA hardware. Date of study: 2026-08.
 
+## TL;DR — should I buy the Tang Mega 138K Pro, and will it work?
+
+**Short answer: yes, it will work for this project — but it is the *endgame* board, not the
+*prototyping* board.** Every make-or-break question came back green, with one caveat that is effort,
+not a blocker:
+
+| Question | Verdict |
+| --- | --- |
+| Will the design **fit**? | ✅ **Yes.** CVA6 `cv64a6_imafdc` fits with proper BRAM mapping (real logic ≈15K FF; caches ≈9% of the 6.12 Mbit block RAM — §5a). The parser add-on is **negligible** (~6K LUT4 — §2). Room to spare on a 138K-LUT4 / 340-BSRAM part. |
+| Can it be **built** (toolchain + license)? | ✅ **Yes.** The Education/NODELOCK **Gowin license synthesizes AND place-and-routes** the exact part (Tier-1 GO, real bitstream — §4), and full CVA6 **elaborates + synthesizes** in GowinSynthesis (§5a). |
+| Does the **I/O** match the goal? | ✅ **Best in class.** 2× SFP+ (10 GbE), DDR3, PCIe — the strongest fit of any candidate for the 10 GbE endgame, and it's cheap. |
+| The catch? | ⚠️ **Integration effort.** No CVA6 FPGA reference design for Gowin; CVA6's SRAM macros must be mapped onto Gowin BSRAM by hand, and the SV→Gowin path needs care (we hit `$bits` + config-struct friction via sv2v). This is the "highest integration effort" board (§6, #5). |
+
+**Recommendation.**
+- **If you want the fastest path to a working CVA6 + parser prototype:** start on a **Xilinx** board
+  with the official CVA6 FPGA reference design — **Genesys 2** (#1, lowest risk) or **Artix-7 A200T**
+  (#2, free Vivado WebPACK). Turnkey memory/BRAM, GbE, DDR3.
+- **If the 10 GbE / SFP+ endgame is the priority** (and it is, for this project) **and you accept the
+  integration work:** the **Tang Mega 138K Pro is the right buy** — uniquely suited I/O, cheap, and
+  the license is already in hand and proven on the part.
+- **Ideal:** prototype on Xilinx (turnkey), then port to the Tang Mega for the 10 GbE endgame. If
+  budget is a single board and 10 GbE is essential, buy the Tang Mega and plan for the SRAM/BRAM
+  integration up front.
+
+The rest of this document is the evidence behind that verdict.
+
 ## 1. Question and method
 
 The Phase 8 goal is to run CVA6-plus-parser on real hardware and parse Ethernet. Before
