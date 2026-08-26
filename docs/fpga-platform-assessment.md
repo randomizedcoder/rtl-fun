@@ -250,6 +250,39 @@ parsing endgame, **(4)** openness / cost.
 - **10GbE line-rate parsing is the whole point / you enjoy the integration → Tang Mega (#5).**
   Great I/O, cheap; expect to build the CVA6 SoC integration yourself under Gowin EDA.
 
+### Documented alternative — Alinx **AX7325B** (Kintex-7 XC7K325T, 4× SFP+ + 40G QSFP+)
+
+> **Why this is here:** the Tang Mega 138K Pro is ordered (§ Which SKU), but its cost is the
+> **Gowin integration effort** (no CVA6 reference design; hand-map SRAM macros to BSRAM — §5a). If
+> that proves painful, this is the **Xilinx fallback that fixes exactly that** while keeping (in fact
+> exceeding) the 10 GbE I/O. It's the same FPGA as board #1 (Genesys 2 = the *official* CVA6 target),
+> so **CVA6 bring-up is turnkey**, but with far more optical I/O. Effectively "#1 with 10G/40G." Recorded
+> now so a mid-project pivot is a lookup, not a re-investigation.
+
+Confirmed specs ([alinx.com/…/AX7325B](https://en.alinx.com/Product/FPGA-Development-Boards/Kintex-7/AX7325B.html)):
+
+| Item | AX7325B |
+| --- | --- |
+| FPGA | AMD/Xilinx **Kintex-7 XC7K325T** (28 nm) — ~203K LUT6, ~16 Mbit BRAM, 16 GTX transceivers |
+| **Optical I/O** | **4× SFP+ @ 10 Gbps** + **1× QSFP+ @ 40 Gbps** (= 80 Gbps aggregate) |
+| Memory | 2 GB (64-bit) DDR3 on-board **+ 1× SODIMM up to 8 GB DDR3**; 16 MB QSPI flash |
+| Host / expansion | **PCIe Gen2 ×8** (card edge), 1× FMC LPC, 40-pin expansion, MicroSD |
+| Misc | USB-UART, LM75 temp sensor, LEDs/keys, 12 V single supply, 221×120 mm PCIe-card form factor |
+| CVA6 fit | Full RV64GC+FPU with large headroom (turnkey — same part as Genesys 2 / `corev_apu/fpga`) |
+
+**Buy caveats (the real gotchas — not capacity):**
+- **Vivado license.** XC7K325T is **above free Vivado WebPACK** (which stops at Kintex-7 **160T**), so
+  it needs a **paid Vivado Standard** license — or the **AMD University Program** if eligible. Same
+  license reality as the Genesys 2.
+- **Speed grade.** Confirm a **-2** part on the Product Selection Matrix so the GTX transceivers reach
+  10.3125 Gbps (needed for 10G/40G line rate; -1 is marginal).
+- **Throughput expectation.** The 10G/40G is *interface* capability. A single CVA6 (~100 MHz on K7)
+  cannot parse **64 B packets at 10G line rate** (14.88 Mpps); it's comfortable at **larger packet
+  sizes** (10G @ 1500 B ≈ 820 Kpps). The board's value is a **real line-rate datapath** (hardware
+  MAC/PCS-PMA → parser) to *measure the parser speedup against wire rate* — not a promise the scalar
+  core saturates 40G. Alinx also sells a 10G Ethernet MAC + TCP/IP IP core for the datapath below the
+  parser.
+
 ## 7. Decision framework
 
 ```
