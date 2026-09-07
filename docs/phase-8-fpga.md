@@ -2,6 +2,11 @@
 
 ← [Phase 7](phase-7-toolchain.md) · [Docs index](README.md) · [Phase 9 »](phase-9-benchmark.md)
 
+> **This is the plan.** Live progress, measurements and the challenge log are in
+> **[phase-8-status.md](phase-8-status.md)**; the board's pin map, gotchas and
+> tooling are in
+> **[fpga-bringup-tang-mega-138k-pro.md](fpga-bringup-tang-mega-138k-pro.md)**.
+
 ## Objective
 
 Get CVA6-plus-parser onto real silicon-adjacent hardware and parse **real

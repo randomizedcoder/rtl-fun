@@ -19,7 +19,7 @@ golden model and prototyped on FPGA.
 | 5 | [RTL](phase-5-rtl.md) | SystemVerilog implementation | ✅ Done |
 | 6 | [Verification](phase-6-verification.md) | Co-sim RTL vs golden model | ✅ Done |
 | 7 | [Toolchain](phase-7-toolchain.md) | Assembler → LLVM/GCC → Spike/QEMU | 🔵 In progress |
-| 8 | [FPGA](phase-8-fpga.md) · [**board bring-up**](fpga-bringup-tang-mega-138k-pro.md) | Prototype & bring-up on hardware | 🔵 In progress |
+| 8 | [FPGA](phase-8-fpga.md) · [**status**](phase-8-status.md) · [board manual](fpga-bringup-tang-mega-138k-pro.md) | Prototype & bring-up on hardware | 🔵 In progress |
 | 9 | [Benchmark](phase-9-benchmark.md) | flow_dissector comparison | 🟡 Draft |
 
 Status legend (tracks phase **execution**, not just the doc):
@@ -202,9 +202,12 @@ BRAM inference for CVA6's SRAM macros.
   which `nix run .#<app>` runs each, where each lives, and how one generator feeds
   both the standalone suite and the cosim.
 - **[fpga-bringup-tang-mega-138k-pro.md](fpga-bringup-tang-mega-138k-pro.md)** —
-  **start here for "how do I use the FPGA?"** The board's pin map, the two USB
-  ports, host permissions, the `nix run .#fpga-*` ladder from JTAG detect to a
-  self-built blinky, the Gowin gotchas, and a running record of what is verified.
+  **start here for "how do I use the FPGA?"** The board manual: pin map, the two
+  USB ports, host permissions, the `nix run .#fpga-*` ladder, and the Gowin
+  gotchas. Stable reference — it does not track progress.
+- **[phase-8-status.md](phase-8-status.md)** — the Phase-8 **live progress tracker
+  and challenge log**: what is done, measured utilization/timing, and a
+  symptom → cause → resolution table for every problem hit on the way.
 - **[gowin-microvm.md](gowin-microvm.md)** — the licensed Gowin EDA harness: why a
   VM (the license is node-locked to a MAC), the marker-file autorun, and the
   license/device/headless troubleshooting notes.

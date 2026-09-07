@@ -159,9 +159,10 @@ complete; phases are now being built in order.
   Gowin EDA in the licensed microVM) — Gowin EDA is now a derivation rather than a
   hand-extracted directory ([`nix/gowin-eda.nix`](nix/gowin-eda.nix)), and the first design
   we build ourselves lives in [`fpga/tang-mega-138k-pro/`](fpga/tang-mega-138k-pro/).
-  The standing hands-on reference — pin map, the two USB ports, Gowin gotchas, and a live
-  record of what is verified — is
-  [docs/fpga-bringup-tang-mega-138k-pro.md](docs/fpga-bringup-tang-mega-138k-pro.md).
+  The standing hands-on reference — pin map, the two USB ports, Gowin gotchas — is
+  [docs/fpga-bringup-tang-mega-138k-pro.md](docs/fpga-bringup-tang-mega-138k-pro.md);
+  progress, measurements and the challenge log are in
+  [docs/phase-8-status.md](docs/phase-8-status.md).
   Next is UART hello world; the known blocker beyond it is BRAM inference for CVA6's SRAM
   macros ([docs/fpga-platform-assessment.md](docs/fpga-platform-assessment.md) §5a).
 
@@ -220,7 +221,7 @@ See **[docs/nix.md](docs/nix.md)** for the layout and how to extend it.
 | [Phase 5 — RTL](docs/phase-5-rtl.md) | SystemVerilog implementation |
 | [Phase 6 — Verification](docs/phase-6-verification.md) | Co-simulation vs golden model |
 | [Phase 7 — Toolchain](docs/phase-7-toolchain.md) | Assembler, LLVM/GCC, Spike/QEMU |
-| [Phase 8 — FPGA](docs/phase-8-fpga.md) · [**board bring-up**](docs/fpga-bringup-tang-mega-138k-pro.md) | Prototype & bring-up |
+| [Phase 8 — FPGA](docs/phase-8-fpga.md) · [**status**](docs/phase-8-status.md) · [board manual](docs/fpga-bringup-tang-mega-138k-pro.md) | Prototype & bring-up |
 | [Phase 9 — Benchmark](docs/phase-9-benchmark.md) | flow_dissector comparison |
 
 ## How to read
