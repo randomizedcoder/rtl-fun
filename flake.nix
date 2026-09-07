@@ -28,12 +28,19 @@
     # which presents the license-locked MAC to a throwaway guest. See docs/gowin-microvm.md.
     microvm.url = "github:microvm-nix/microvm.nix";
     microvm.inputs.nixpkgs.follows = "nixpkgs";
+
+    # openFPGALoader source (our fork of trabucayre/openFPGALoader), pinned here so
+    # the reference tree is recorded in flake.lock instead of living only as an
+    # untracked clone. The DEFAULT programmer is nixpkgs' openfpgaloader 1.1.1 —
+    # this builds `.#openfpgaloader-fork` for when we need to patch. See nix/fpga.nix.
+    openfpgaloader-src.url = "github:randomizedcoder/openFPGALoader";
+    openfpgaloader-src.flake = false;
   };
 
   # Per-system outputs live inside eachDefaultSystem; the Gowin microVM is a single
   # x86_64-linux NixOS system merged in alongside them (recursiveUpdate, not //, so it
   # does not clobber the ~40 per-system packages). All VM logic is in nix/gowin-vm.nix.
-  outputs = { self, nixpkgs, flake-utils, microvm }:
+  outputs = { self, nixpkgs, flake-utils, microvm, openfpgaloader-src }:
     let
       gowin = import ./nix/gowin-vm.nix { inherit nixpkgs microvm; };
     in
@@ -206,6 +213,22 @@
           # Parser-unit RTL apps (Phase 5): parser-sim{,-trace,-debug} + parser-lint.
           rtl = import ./nix/rtl.nix { inherit pkgs; };
 
+          # Phase-8 board bring-up (Sipeed Tang Mega 138K Pro): JTAG detect, SRAM/flash
+          # programming, and the Gowin-microVM synthesis bridge. See docs/fpga-bringup-
+          # tang-mega-138k-pro.md.
+          fpga = import ./nix/fpga.nix {
+            inherit pkgs;
+            openfpgaloader-fork = openfpgaloader-src;
+          };
+
+          # Phase-8 milestone M1 (parser unit alone on the FPGA): the model-driven ROM
+          # generator + drift guard, and the on-board flow_keys oracle. See §8.4.
+          fpga-m1 = import ./nix/fpga-m1.nix { inherit pkgs; };
+
+          # Phase-8 toolchain: the proprietary Gowin EDA installers as store paths,
+          # consumed by nix/gowin-vm.nix via `gowinInstall` in nix/gowin/local.nix.
+          gowin-eda = import ./nix/gowin-eda.nix { inherit nixpkgs system; };
+
           # Phase-7 codegen spine: regenerate toolchain/generated from the ISA yaml
           # and verify no yaml↔C drift (`nix run .#parser-gen-check`).
           parser-gen = import ./nix/parser-gen.nix { inherit pkgs; };
@@ -308,6 +331,25 @@
             parser-clang-builtins-test = parser-clang.parser-clang-builtins-test;
             parser-clang-slice = parser-clang-slice;
             parser-clang-moves = parser-clang-moves;
+            # Phase-8 FPGA bring-up runners as packages too.
+            fpga-detect = fpga.fpga-detect;
+            fpga-load = fpga.fpga-load;
+            fpga-flash = fpga.fpga-flash;
+            fpga-build = fpga.fpga-build;
+            fpga-uart = fpga.fpga-uart;
+            # Phase-8 milestone M1 (parser-on-ROM): ROM generator, sv2v flatten, oracle.
+            fpga-m1-roms = fpga-m1.fpga-m1-roms;
+            fpga-m1-rtl = fpga-m1.fpga-m1-rtl;
+            fpga-m1-check = fpga-m1.fpga-m1-check;
+            # The pinned vendor examples + their prebuilt 6-LED bitstream.
+            tang-mega-examples = fpga.tang-mega-examples;
+            tang-mega-led-bitstream = fpga.tang-mega-led-bitstream;
+            # The programmer itself (nixpkgs default) and the fork, for comparison.
+            openfpgaloader = fpga.openfpgaloader;
+            openfpgaloader-fork = fpga.openfpgaloader-fork;
+            # Gowin EDA trees: `nix build .#gowin-eda-edu` (try first) / `.#gowin-eda`.
+            gowin-eda-edu = gowin-eda.gowin-eda-edu;
+            gowin-eda = gowin-eda.gowin-eda;
           };
 
           # Build the stock CVA6 Verilator model: `nix run .#cva6-baseline`.
@@ -499,6 +541,69 @@
           apps.model-fuzz = {
             type = "app";
             program = "${model.model-fuzz}/bin/model-fuzz";
+          };
+
+          # ---- Phase 8: Tang Mega 138K Pro board bring-up -------------------
+          #
+          # The hardware ladder. Each step gates the next; see
+          # docs/fpga-bringup-tang-mega-138k-pro.md for what to expect and what
+          # to do when one goes red.
+
+          # Scan the JTAG chain — first hardware contact, and the go/no-go for
+          # permissions + cable + MPSSE + the part: `nix run .#fpga-detect`.
+          apps.fpga-detect = {
+            type = "app";
+            program = "${fpga.fpga-detect}/bin/fpga-detect";
+          };
+
+          # Program FPGA SRAM (volatile, the fast inner loop):
+          # `nix run .#fpga-load -- path/to/design.fs`.
+          apps.fpga-load = {
+            type = "app";
+            program = "${fpga.fpga-load}/bin/fpga-load";
+          };
+
+          # Program the on-board SPI flash (persistent across power cycles):
+          # `nix run .#fpga-flash -- path/to/design.fs`.
+          apps.fpga-flash = {
+            type = "app";
+            program = "${fpga.fpga-flash}/bin/fpga-flash";
+          };
+
+          # Synthesize a board design with Gowin EDA inside the licensed microVM
+          # and emit a .fs: `nix run .#fpga-build [-- <design>]` (default blinky).
+          apps.fpga-build = {
+            type = "app";
+            program = "${fpga.fpga-build}/bin/fpga-build";
+          };
+
+          # Read the board's UART (2nd FT2232 interface), auto-detecting the baud:
+          # `nix run .#fpga-uart`.
+          apps.fpga-uart = {
+            type = "app";
+            program = "${fpga.fpga-uart}/bin/fpga-uart";
+          };
+
+          # Milestone M1: generate the parser's on-chip ROM images from the golden
+          # model (or `-- --check` to drift-guard the committed set):
+          # `nix run .#fpga-m1-roms`. Build the design with `nix run .#fpga-build -- m1`.
+          apps.fpga-m1-roms = {
+            type = "app";
+            program = "${fpga-m1.fpga-m1-roms}/bin/fpga-m1-roms";
+          };
+
+          # Milestone M1: sv2v-flatten the parser RTL for GowinSynthesis:
+          # `nix run .#fpga-m1-rtl` -> build/fpga-m1-rtl/parser_m1.v.
+          apps.fpga-m1-rtl = {
+            type = "app";
+            program = "${fpga-m1.fpga-m1-rtl}/bin/fpga-m1-rtl";
+          };
+
+          # Milestone M1 oracle: read the board's UART and diff the streamed flow_keys
+          # against libparsermodel, byte-for-byte: `nix run .#fpga-m1-check`.
+          apps.fpga-m1-check = {
+            type = "app";
+            program = "${fpga-m1.fpga-m1-check}/bin/fpga-m1-check";
           };
 
           # Single-step a parse for debugging: `nix run .#pm-trace [-- x.pcap]`.

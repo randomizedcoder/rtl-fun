@@ -58,6 +58,22 @@ let
     pkgs.pkgsCross.riscv64-embedded.buildPackages.binutils
   ];
 
+  # FPGA board bring-up (Phase 8) — Sipeed Tang Mega 138K Pro / Gowin GW5AST-138.
+  #
+  # openFPGALoader only PROGRAMS the board; it does not build bitstreams. Bitstream
+  # generation needs Gowin EDA, which runs in the microVM (nix/gowin-vm.nix) because
+  # the license is node-locked to a MAC. Deliberately absent: nextpnr-gowin and
+  # apicula — docs/fpga-platform-assessment.md §4 found Apicula has no usable
+  # GW5AST-138 support, so they cannot produce a .fs for this part.
+  #
+  # nixpkgs 1.1.1 is new enough (board entry + GW5AST-138 IDCODE + the Arora-V
+  # SRAM fix). nix/fpga.nix also builds our fork as `.#openfpgaloader-fork`.
+  fpgaTools = [
+    pkgs.openfpgaloader # program the FPGA over USB-JTAG
+    pkgs.usbutils # lsusb — is the board even on the bus?
+    pkgs.minicom # UART console on the debugger's second interface
+  ];
+
   # Common utilities used everywhere.
   common = [
     pkgs.git
@@ -71,8 +87,18 @@ let
     pkgs.bashInteractive
   ];
 
-  allPackages = docsTools ++ rtlTools ++ toolchainTools ++ riscvToolchain ++ common;
+  allPackages =
+    docsTools ++ rtlTools ++ toolchainTools ++ riscvToolchain ++ fpgaTools ++ common;
 in
 {
-  inherit pythonEnv docsTools rtlTools toolchainTools riscvToolchain common allPackages;
+  inherit
+    pythonEnv
+    docsTools
+    rtlTools
+    toolchainTools
+    riscvToolchain
+    fpgaTools
+    common
+    allPackages
+    ;
 }

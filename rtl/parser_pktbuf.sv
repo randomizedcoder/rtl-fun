@@ -33,7 +33,11 @@ module parser_pktbuf
   // packet storage (byte-addressable)
   logic [7:0] mem [0:PKT_MAX-1];
   initial begin
+    // Zero-init for simulation only; under yosys (+define+SYNTHESIS) a zeroing loop
+    // before $readmemh clobbers the file init (docs/phase-8-status.md #18).
+`ifndef SYNTHESIS
     for (int i = 0; i < PKT_MAX; i++) mem[i] = 8'h0;
+`endif
     if (INIT_FILE != "") $readmemh(INIT_FILE, mem);
   end
 

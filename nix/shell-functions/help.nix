@@ -64,6 +64,21 @@
       nix run .#parser-formal     SymbiYosys: parser_execute safety + wrap G2 (k-induction)
       nix run .#parser-wrap-test  cva6_parser_wrap commit/flush state (I1/G2)
 
+    FPGA board (Phase 8)          — Sipeed Tang Mega 138K Pro / Gowin GW5AST-138
+      nix run .#fpga-detect       scan the JTAG chain (expect IDCODE 0x0001081b)
+      nix run .#fpga-build [-- X] our RTL -> .fs via Gowin EDA (design X, default blinky)
+      nix run .#fpga-uart         read the board UART (auto-detects baud)
+      nix run .#fpga-load  -- X.fs   program SRAM  (volatile, the fast inner loop)
+      nix run .#fpga-flash -- X.fs   program SPI flash (persists across power cycle)
+      nix run .#gowin-vm          interactive Gowin microVM (needs --impure; see docs)
+      M1 (parser unit alone on the FPGA) — run in order:
+        nix run .#fpga-m1-roms    generate on-chip ROM images from the model (-- --check to drift-guard)
+        nix run .#fpga-m1-rtl     sv2v-flatten the parser RTL for GowinSynthesis
+        nix run .#fpga-build -- m1  synthesize the parser-on-ROM design
+        nix run .#fpga-load -- build/fpga-m1/impl/pnr   program SRAM
+        nix run .#fpga-m1-check   read the board UART, diff flow_keys vs libparsermodel
+      Guide: docs/fpga-bringup-tang-mega-138k-pro.md · status: docs/phase-8-status.md
+
     Meta
       rtl-help             show this message
 

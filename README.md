@@ -150,10 +150,32 @@ complete; phases are now being built in order.
   path — so **Phase 8 can begin**. The deferred items are enumerated in
   [docs/phase-7-toolchain.md](docs/phase-7-toolchain.md#follow-up--deferred-work).
 
+- 🔵 **Phase 8 (in progress) — FPGA:** the board is real. A **Sipeed Tang Mega 138K Pro**
+  (Gowin `GW5AST-LV138FPG676AC1/I0` — 138,240 LUT4, 1 GB DDR3, 2× SFP+) arrived and was
+  powered up on **2026-09-07**, unblocking the one thing this phase was waiting for.
+  Current scope is board bring-up: prove we can talk to it, program it, and run **our own**
+  RTL on it. The programming path is in the flake — `nix run .#fpga-detect` (scan the JTAG
+  chain), `.#fpga-load` / `.#fpga-flash` (SRAM / SPI flash), `.#fpga-build` (synthesize via
+  Gowin EDA in the licensed microVM) — Gowin EDA is now a derivation rather than a
+  hand-extracted directory ([`nix/gowin-eda.nix`](nix/gowin-eda.nix)), and the first design
+  we build ourselves lives in [`fpga/tang-mega-138k-pro/`](fpga/tang-mega-138k-pro/).
+  The standing hands-on reference — pin map, the two USB ports, Gowin gotchas — is
+  [docs/fpga-bringup-tang-mega-138k-pro.md](docs/fpga-bringup-tang-mega-138k-pro.md);
+  progress, measurements and the challenge log are in
+  [docs/phase-8-status.md](docs/phase-8-status.md).
+  **M0 (bring-up) and M1 (parser unit alone) are done and verified on the board:** the
+  parser datapath parses a ROM-baked packet on the FPGA and streams a `flow_keys` that
+  matches `libparsermodel` byte-for-byte (`nix run .#fpga-m1-check`). GowinSynthesis
+  can't ingest our RTL directly (an `SP00018` front-end bug), so the flow is
+  sv2v → yosys flatten → Gowin (`nix run .#fpga-m1-rtl`). Next is M2 (host→FPGA packet
+  injection, blocked on the unknown UART RX pin); the known blocker beyond it is BRAM
+  inference for CVA6's SRAM macros
+  ([docs/fpga-platform-assessment.md](docs/fpga-platform-assessment.md) §5a).
+
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its
 testbenches in [`tb/`](tb/README.md) and the vector generator + formal harness in
-[`verif/`](verif/README.md); the remaining source dirs (`corpus/`, `fpga/`) are
-skeletons until their phase lands (per-phase status: [docs/README.md](docs/README.md)). Deferred: 64-bit instruction
+[`verif/`](verif/README.md); `fpga/` now holds the Tang Mega board designs, and `corpus/`
+remains a skeleton until its phase lands (per-phase status: [docs/README.md](docs/README.md)). Deferred: 64-bit instruction
 form, the array/counter/TLV-loop encoder+execution, and tunnel protocols
 (GRE/GTP/VXLAN).
 
@@ -171,7 +193,7 @@ scripts/       Bodies of the `nix run .#<app>` runners (readFile'd into nix)
 tools/         Reusable dev utilities (pm-trace, bitgen)
 corpus/        Packet corpus skeleton (incl. malformed) (Phase 2)
 toolchain/     .insn macros, intrinsics, MMIO map      (Phase 7)
-fpga/          Board build + block design           (Phase 8)
+fpga/          Board designs + Gowin build scripts  (Phase 8)
 bench/         Benchmark harness + results          (Phase 9)
 flake.nix      Nix flake — reproducible dev environment (`nix develop`)
 nix/           Modular Nix files (tool groups, dev shell, CVA6 patches)
@@ -205,7 +227,7 @@ See **[docs/nix.md](docs/nix.md)** for the layout and how to extend it.
 | [Phase 5 — RTL](docs/phase-5-rtl.md) | SystemVerilog implementation |
 | [Phase 6 — Verification](docs/phase-6-verification.md) | Co-simulation vs golden model |
 | [Phase 7 — Toolchain](docs/phase-7-toolchain.md) | Assembler, LLVM/GCC, Spike/QEMU |
-| [Phase 8 — FPGA](docs/phase-8-fpga.md) | Prototype & bring-up |
+| [Phase 8 — FPGA](docs/phase-8-fpga.md) · [**status**](docs/phase-8-status.md) · [board manual](docs/fpga-bringup-tang-mega-138k-pro.md) | Prototype & bring-up |
 | [Phase 9 — Benchmark](docs/phase-9-benchmark.md) | flow_dissector comparison |
 
 ## How to read

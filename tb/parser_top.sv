@@ -40,8 +40,14 @@ module parser_top
   logic [31:0]      enc_rom  [0:PROG_MAX-1];
   logic [7:0]       meta_mem [0:META_MAX-1];
   initial begin
+    // The explicit zero-init is for simulation only. Under yosys (the M1 FPGA flatten,
+    // +define+SYNTHESIS) a zeroing loop before $readmemh overrides the file init and
+    // bakes an all-zero ROM; omitting it lets $readmemh bake correctly, and unwritten
+    // FPGA memory powers up zero anyway. See docs/phase-8-status.md challenge #18.
+`ifndef SYNTHESIS
     for (int i = 0; i < PROG_MAX; i++) prog_rom[i] = '0;
     for (int i = 0; i < PROG_MAX; i++) enc_rom[i]  = '0;
+`endif
     if (PROG_FILE != "") $readmemh(PROG_FILE, prog_rom);
     if (ENC_FILE  != "") $readmemh(ENC_FILE,  enc_rom);
   end
@@ -136,7 +142,10 @@ module parser_top
         if (meta_we) begin
           for (int i = 0; i < 8; i++)
             if (i < int'(meta_nbytes))
-              meta_mem[META_IDX_W'(meta_off + i[META_OFF_W-1:0])]
+              // META_OFF_W'(i) rather than i[META_OFF_W-1:0]: slicing an int loop
+              // variable is rejected by sv2v (used for the M1 FPGA flatten); the
+              // sized cast is identical (i is 0..7) and Verilator-clean.
+              meta_mem[META_IDX_W'(meta_off + META_OFF_W'(i))]
                   <= meta_wdata[8*i +: 8];
         end
       end

@@ -55,11 +55,28 @@
         "type": "github"
       }
     },
+    "openfpgaloader-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1788516791,
+        "narHash": "sha256-x06V9ZxXjgrdNDHelPX5/Jxh5nbQA7aejCtJNqwAA6w=",
+        "owner": "randomizedcoder",
+        "repo": "openFPGALoader",
+        "rev": "f6a678b4bba17ffa93b67a4eb95bc9afa1ac1a36",
+        "type": "github"
+      },
+      "original": {
+        "owner": "randomizedcoder",
+        "repo": "openFPGALoader",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
         "microvm": "microvm",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "openfpgaloader-src": "openfpgaloader-src"
       }
     },
     "spectrum": {

@@ -143,6 +143,11 @@ module parser_execute
     logic        cmp_ok;
     logic signed [31:0] camr;
     logic [31:0] nbytes;
+    // OP_LOAD temporaries — hoisted out of the arm: GowinSynthesis applies its
+    // whole-always_comb latch analysis even to arm-local declarations, so keeping
+    // them arm-local still triggers the false latch / SP00018 (see the default note).
+    logic        ok;
+    logic [31:0] mb, shl, endb;
 
     // defaults
     s              = st_i;
@@ -154,6 +159,28 @@ module parser_execute
     meta_nbytes_o  = '0;
     off32          = {23'h0, op_i.offset};
     nbytes         = n32;
+    // Per-arm temporaries: each is written and read only inside a single case arm,
+    // but is scoped to the whole always_comb. Verilator (-Wall, latch-fatal) and the
+    // SymbiYosys proofs are clean, but GowinSynthesis's front end infers a false latch
+    // on the paths that don't drive them ("Latch inferred for 'src[63]'" / 'camr[31]'
+    // / ...), which then trips an internal ERROR (SP00018) "error bus name set" on that
+    // partially-driven bus. Defaulting them unconditionally is behaviour-neutral (they
+    // are always overwritten before use) and lets GowinSynthesis read our SystemVerilog
+    // directly — no sv2v flatten needed. See docs/phase-8-status.md challenges #13/#14.
+    lastb          = '0;
+    raw            = '0;
+    val            = '0;
+    field          = '0;
+    src            = '0;
+    tval           = '0;
+    len            = '0;
+    mask64         = '0;
+    cmp_ok         = 1'b0;
+    camr           = '0;
+    ok             = 1'b0;
+    mb             = '0;
+    shl            = '0;
+    endb           = '0;
 
     unique case (op_i.op)
 
@@ -161,7 +188,6 @@ module parser_execute
 
       // ---- PLOAD (execute_load) ----
       OP_LOAD: begin
-        logic ok;
         ok = 1'b1;
         if (op_i.x) begin                                   // data-header relative (TLV)
           if ((off32 + nbytes) > st_i.databound) begin
@@ -182,19 +208,16 @@ module parser_execute
           val = op_i.e ? raw : bswap_n(raw, nbytes);        // E: keep BE; else host order
           val = val << op_i.shift;
           if (op_i.blen != 0) begin
-            logic [31:0] mb;
             mb = (nbytes == 32'd8) ? ({28'h0, op_i.blen} << 1) : {28'h0, op_i.blen};
             mask64 = (mb >= 32'd64) ? 64'h0 : (ALL_ONES >> mb[5:0]);
             val = val & mask64;
           end
           begin
-            logic [31:0] shl;
             shl = 32'd64 - (nbytes << 3);                  // 64 - 8n
             s.accum = val << shl[6:0];                      // place field at MSB
           end
           // load-sets-length
           begin
-            logic [31:0] endb;
             endb = off32 + nbytes;
             if (op_i.x) begin
               if (endb > {23'h0, st_i.dat_len}) s.dat_len = endb[PKT_OFF_W-1:0];

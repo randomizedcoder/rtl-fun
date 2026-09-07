@@ -1,0 +1,30 @@
+//
+// m1_top.cst — physical constraints for the M1 parser-on-ROM design.
+//
+// Same pins as the M0 hello-world (docs/fpga-bringup-tang-mega-138k-pro.md):
+//   clk P16 (50 MHz), uart_tx_pin P15, led[5:0] active low.
+// Whole bank is 3.3 V. Do not exceed it.
+//
+
+// 50 MHz system clock.
+IO_LOC "clk" P16;
+IO_PORT "clk" PULL_MODE=NONE DRIVE=OFF BANK_VCCIO=3.3;
+
+// UART transmit, FPGA -> debugger -> host /dev/ttyUSB1.
+IO_LOC "uart_tx_pin" P15;
+IO_PORT "uart_tx_pin" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+
+// Six user LEDs, active low.
+IO_LOC "led[5]" N23;
+IO_LOC "led[4]" N21;
+IO_LOC "led[3]" M25;
+IO_LOC "led[2]" L20;
+IO_LOC "led[1]" R26;
+IO_LOC "led[0]" J14;
+
+IO_PORT "led[5]" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_PORT "led[4]" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_PORT "led[3]" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_PORT "led[2]" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_PORT "led[1]" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_PORT "led[0]" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;

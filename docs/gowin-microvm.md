@@ -1,7 +1,7 @@
 # Gowin EDA feasibility microVM
 
 **Purpose.** Answer the one gating pre-purchase question for the Sipeed Tang Mega 138K Pro
-(Gowin **GW5AST-LV138FPG676A**): *does the obtained Education / NODELOCK Gowin license actually
+(Gowin **GW5AST-LV138FPG676A**): *does the obtained NODELOCK Gowin license actually
 permit synthesis + place-and-route for the GW5AST-138 part?* If yes, also capture real
 utilization + Fmax for the CVA6 host core — all in software, **with no board attached**.
 
@@ -10,7 +10,20 @@ the Experiment-1 step in [tang-mega-138k-pro-rtl-fun-plan.md](./tang-mega-138k-p
 
 ## Bottom line
 
-- **License → GO.** The Education/NODELOCK license **synthesizes and place-and-routes** the exact
+> **Correction (2026-09-07): "Education" was the wrong word throughout this doc.**
+> The *license* is NODELOCK / TYPE=STD — that part was always right — but the *IDE
+> edition* that produced the Tier-1 GO must have been the **commercial** tree.
+> Gowin EDA **1.9.11.03 Education** cannot target this board at all: its
+> `data/device/device_info.csv` lists only `GW5AST-LV138PG484AC1/I0` (the 484-pin
+> non-Pro package) and no `FPG676` order code, so `set_device
+> GW5AST-LV138FPG676AC1/I0` has nothing to resolve — even though the tree does ship
+> the Pro's pin data at `data/device/GW5AST-138B/FCPBGA676A.json`. Commercial
+> **1.9.12.03** carries the part (row `gw5ast138b-007`). Sipeed's "138K Pro needs
+> the commercial IDE 1.9.9+" is therefore correct. Both editions are now packaged
+> as store paths — see [`nix/gowin-eda.nix`](../nix/gowin-eda.nix) — and
+> `gowinInstall` must point at `.#gowin-eda` (commercial).
+
+- **License → GO.** The NODELOCK license **synthesizes and place-and-routes** the exact
   Tang Mega part (`GW5AST-LV138FPG676AC1/I0`) — a real blinky bitstream was produced.
 - **CVA6 → fits with BRAM mapping.** Full `cv64a6_imafdc` **elaborates and synthesizes** in
   GowinSynthesis (after a 4-constant netlist patch). It aborts at the flip-flop check *only* because
@@ -129,10 +142,10 @@ bit-slices — substitute the compile-time values (`16 / 14 / 27 / 3` for this c
 
 | Check | Status | Notes |
 |---|---|---|
-| Tier-1 gate (GW5AST-138 under Education license) | ✅ **GO** (2026-08-25) | `set_device` + `run syn` + `run pnr` all OK; bitstream `blinky_gate.fs` produced |
+| Tier-1 gate (GW5AST-138 under the NODELOCK license) | ✅ **GO** (2026-08-25) | `set_device` + `run syn` + `run pnr` all OK; bitstream `blinky_gate.fs` produced |
 | Tier-2 CVA6 (`cv64a6_imafdc`, with FPU) utilization / Fmax | ⚠️ **synthesizes; fits with BRAM mapping** (2026-08-25) | Full core elaborates + synthesizes in GowinSynthesis (after the 4-const patch); aborts at the DFF check **only because the flatten defeats BSRAM inference** — ~97% of the 558K DFF is cache memory (~543K bits) that belongs in block RAM. Real logic ≈ 15K FF; memory ≈ 8.7% of the device BSRAM. See below. |
 
-**Tier-1 GO — the decisive pre-purchase answer.** The Education / NODELOCK license **does**
+**Tier-1 GO — the decisive pre-purchase answer.** The NODELOCK license **does**
 permit synthesis *and* place-and-route for the Tang Mega 138K Pro part. Verified end-to-end in
 the microVM: node-locked license validated (via `gwlicense.ini` → the shared file), device
 selected as `GW5AST-138B / GW5AST-LV138FPG676AC1/I0`, and a blinky bitstream generated.
@@ -214,9 +227,29 @@ Artifacts (gitignored `build/`): `build/gowin-cva6-imafdc-patched/synth.log` (th
   wants — use the full grade-suffixed order code, e.g. `set_device -name GW5AST-138B
   GW5AST-LV138FPG676AC1/I0` (also `C2/I1`; device_version B or C). `device-check.tcl` tries the
   candidate spellings and uses the first accepted.
-- **SystemVerilog:** `add_file -type verilog` parses Verilog, not SV (`logic`/`always_ff` are
-  rejected) — the blinky probe is plain Verilog-2001; the sv2v-flattened CVA6 netlist is already
-  plain Verilog.
+- **SystemVerilog — CORRECTED 2026-09-07: Gowin *does* support it.** The earlier
+  claim here ("`add_file -type verilog` parses Verilog, not SV") was true of that
+  *invocation* but wrong as a statement about the tool, and the mistake sent the
+  project down an sv2v detour. `add_file`'s own help reads: *"automatically judge
+  the file's type by it extension name. This option can override it."* — so
+  `-type verilog` on a `.sv` file **forces** Verilog mode. The working form is:
+
+  ```tcl
+  set_option -verilog_std sysv2017   ;# also sysv-2017 / sysv. NOT sysv_2017
+  add_file /work/rtl/parser_pkg.sv   ;# no -type: let the extension decide
+  ```
+
+  With that, GowinSynthesis parses our real parser RTL — packages, `always_comb`,
+  packed structs — and compiles `parser_execute`. It still stops later inside
+  synthesis with an internal `ERROR (SP00018) ... error bus name set`, so sv2v is
+  not yet fully retired; but this is now a specific, tractable bug rather than "the
+  tool cannot read our language". Probe it with `nix run .#fpga-build -- sv-probe`.
+
+  Worth chasing, because the sv2v path is what produced the monolithic flattened
+  netlist that defeated BSRAM inference and made `cv64a6_imafdc` look like it
+  overflowed the device ([fpga-platform-assessment.md](fpga-platform-assessment.md) §5a).
+  The board designs stay plain Verilog-2001 regardless — that is a simplicity
+  choice for `blinky_top`/`hello_top`, not a tool limitation.
 - **9p vs virtiofs** — the shares use **9p** (built into qemu, single self-contained process, no
   `virtiofsd`); switch to `proto = "virtiofs"` in `nix/gowin-vm.nix` for faster shares.
 - **RAM** — `microvm.mem` defaults to 8 GiB (override `mem`/`vcpu` in `local.nix`); the blinky gate

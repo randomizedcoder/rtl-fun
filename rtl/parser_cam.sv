@@ -43,7 +43,11 @@ module parser_cam
   localparam int unsigned ENTRY_W = 1 + 4 + 16 + 32;   // 53
   logic [ENTRY_W-1:0] entry [0:CAM_DEPTH-1];
   initial begin
+    // Zero-init for simulation only; under yosys (+define+SYNTHESIS) a zeroing loop
+    // before $readmemh clobbers the file init (docs/phase-8-status.md #18).
+`ifndef SYNTHESIS
     for (int i = 0; i < CAM_DEPTH; i++) entry[i] = '0;
+`endif
     if (INIT_FILE != "") $readmemh(INIT_FILE, entry);
   end
 
