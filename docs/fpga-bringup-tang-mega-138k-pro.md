@@ -547,6 +547,98 @@ for the board-to-board loopback in step 1. Optics also need **LC-LC multimode
 [fpga-platform-assessment.md](fpga-platform-assessment.md). The link exists to give
 the parser a *real* datapath to be measured against wire rate, not to saturate it.
 
+## Demo and test options (sketch)
+
+A rough plan, not a commitment — recorded so the shape of the endgame is agreed
+before any of it is built. **Nothing here is close; UART hello world is next.**
+
+### Why a transformation is the right demo
+
+Sending packets hp5 → Tang → hp5 and counting them proves only that a datapath
+exists. Having the Tang **modify a field it had to parse to find** is far stronger:
+receiving the altered packet is direct evidence the parser located that header
+correctly.
+
+The critical qualifier: **the transformation must not be at a fixed byte offset.**
+Rewriting byte 36 proves nothing. It is only a parser demo if it still lands
+correctly across the corpus's header variation — VLAN and QinQ, IPv4 with options,
+IPv6 with hop-by-hop / routing / fragment / dest-opts chains — where the UDP header
+sits at a different offset in every case. That variation *is* the proof, and the
+Phase-2 corpus already contains it.
+
+### Transformation options
+
+| # | What the Tang does | What it proves | Cost |
+|---|---|---|---|
+| 1 | **Pass-through**, unmodified | RX→TX datapath only. No parsing. | Lowest — but needs a full TX MAC |
+| 2 | **Swap UDP src/dst ports** | Parser found the UDP header across varied encapsulation | + checksum handling |
+| 3 | **Write a parse-derived value** into a field (e.g. a `flow_keys` hash into the UDP source port) | The *whole* parse, not just header location | + checksum handling |
+| 4 | **Return a metadata frame** whose payload is the `flow_keys` struct | Everything, byte-for-byte, against the existing oracle | No checksum problem at all |
+| 5 | **Classify and drop/forward** (e.g. forward only IPv4/TCP) | Parse + decision, and is trivially visible | Low |
+
+**Recommendation: build 4 first, demo 2 or 3.** Option 4 is the rigorous one —
+hp5 compares the returned `flow_keys` against `libparsermodel` for the same input,
+which is *exactly* the Phase-6 comparison with Ethernet swapped in for Verilator
+DPI. Same oracle, same corpus, same pass criteria, and no new correctness argument
+to make. Options 2 and 3 are the better *demo*, and are cheap once 4 works.
+
+> **Checksums are the trap.** Changing a UDP port invalidates the UDP checksum
+> (and touching IP fields invalidates the IPv4 header checksum), so a naive
+> rewrite produces frames the receiver silently discards — which looks exactly
+> like "the parser didn't work". Three ways out: (a) **incremental update**
+> (RFC 1624) — cheap in hardware, and itself good evidence we understood the
+> packet; (b) **zero the UDP checksum** — legal in IPv4, **illegal in IPv6**;
+> (c) **disable rx checksum validation on hp5** (`ethtool -K rx off`, or capture
+> with `AF_PACKET` before the stack checks). Prefer (a) for the demo, (c) while
+> bringing it up.
+
+### Test ladder
+
+Each rung is independently verifiable, and failures stay attributable:
+
+| | Test | Transport | Oracle |
+|---|---|---|---|
+| A | Packets injected over **UART/JTAG**, `flow_keys` read back | no Ethernet at all | `libparsermodel` |
+| B | FPGA transmits to **itself** (Tang A ↔ Tang B, DAC) | SerDes/PCS only | frame integrity |
+| C | hp5 → Tang → hp5, **pass-through** | full wire path | byte-identical echo |
+| D | hp5 → Tang → hp5, **`flow_keys` metadata frame** | wire path + parser | `libparsermodel` |
+| E | hp5 → Tang → hp5, **transformed packet** | the demo | expected transform |
+| F | **Rate + cycles/packet** | benchmark | Phase 9 |
+
+**A comes before any Ethernet work** and is the natural successor to UART hello
+world: it exercises the parser on real silicon with the MAC entirely out of the
+picture, so a mismatch is unambiguously the parser's.
+
+### Tooling on hp5
+
+- **Generate:** `scapy` (already in the dev shell) for correctness work;
+  `tcpreplay` to replay the pinned xdp2 `proto_audit` corpus; a
+  pktgen/DPDK-class generator only for rung F.
+- **Capture and verify:** `tcpdump` / `AF_PACKET`, diffed against
+  `libparsermodel` run over the same input — the identical oracle used in
+  simulation, which is the point.
+- **Two ports, one machine:** hp5 both generates and verifies, so the loop closes
+  without a second host or manual comparison.
+- hp5 will likely need **promiscuous mode** (or the Tang must write a dst MAC hp5
+  accepts) for returned frames to reach userspace.
+
+### An architectural fork to decide later
+
+Two very different designs can carry this demo:
+
+1. **CVA6 + parser unit, software-driven** — frames land in the packet buffer, the
+   core runs the Phase-7 slice program. This is the project's actual thesis
+   (CPU-in-the-datapath), and the only version that measures **cycles/packet**, the
+   headline metric. Throughput is modest by construction.
+2. **Parser unit as a standalone streaming block**, no CPU. Much faster, and a
+   flashier line-rate demo — but it demonstrates a fixed-function parser, *not* an
+   ISA extension, so it does not support the thesis.
+
+**Take (1).** The demo is about correctness and cycles/packet, not saturating the
+link — a ~100 MHz CVA6 cannot parse 64 B frames at 10G line rate (14.88 Mpps) and
+is comfortable near 1500 B (~820 Kpps). The value of a real 10G link is a genuine
+datapath to measure *against* wire rate, not to fill it.
+
 ## What comes next
 
 **UART hello world** — the other half of
