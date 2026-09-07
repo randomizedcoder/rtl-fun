@@ -472,13 +472,37 @@ for this trivial design. PnR took **21 s**, peak memory **1202 MB**.
 Not built yet, but the hardware exists, which de-risks the Phase-9 endgame. Recorded
 here so the topology and its ordering are not re-derived later.
 
-**Available:** hp5 has an **Intel X710 dual-port 10GbE SFP+** (`i40e`, fw 6.00) —
-one cage appears already populated with a 10GBASE-SR optic (its `ethtool` link
-modes are narrowed to `1000baseX` + `10000baseSR`, while the empty port advertises
-the NIC's full `10000baseT/SR/LR` set). Plus 4× Intel optics and a **10GTek
+**Available:** hp5 has an **Intel X710 dual-port 10GbE SFP+** (`i40e`, fw 6.00),
+**both cages populated**, plus two more optics spare and a **10GTek
 CAB-ZSP/ZSP-P0.5M** passive SFP28 DAC (IEEE 802.3by / SFF-8402, 10–25G multi-rate,
 so 10G-compatible; the board's transceivers top out at 12.5 Gbps, which covers
 10.3125 Gbps and rules out 25G).
+
+The installed optics, read with `sudo ethtool -m` (2026-09-07):
+
+| Field | Value |
+|---|---|
+| Vendor / PN | **Intel Corp `AFBR-709DMZ-IN3`** rev G4.1 (Intel-coded Avago/Broadcom) |
+| Type | **10GBASE-SR**, 850 nm multimode, LC duplex |
+| Signalling | BR nominal **10300 MBd**, encoding **64B/66B** |
+| Reach | OM3 300 m · OM2 80 m · OM1 30 m |
+| Ports | `enp1s0f0np0` SN AA1824308S4 · `enp1s0f1np1` SN AD18233051C — identical PN/rev |
+| DOM | **Supported** (Tx/Rx power, laser bias, temperature, voltage) |
+
+> **`ethtool -m` mislabels these as "Transceiver type: Ethernet: 1000BASE-SX".**
+> Ignore that line. It reports only one compliance code, but the raw
+> `Transceiver codes : 0x10 0x00 0x00 0x01 ...` has **both** 10GBASE-SR (byte 3,
+> `0x10`) and 1000BASE-SX (byte 6, `0x01`) — these are dual-rate modules with
+> `RATE_SELECT implemented`. The `10300 MBd` nominal bit rate and 64B/66B encoding
+> are the unambiguous tells that this is a 10G part.
+
+**DOM is a real debugging asset** and worth using deliberately. With nothing
+plugged in, both modules read Tx ≈ **−2.75 / −2.21 dBm** (healthy for SR) and Rx
+≈ **−35 / −31 dBm** with `Laser rx power low warning: On` — i.e. transmitting
+fine, receiving nothing, exactly as expected for dark fibre. Once a link is
+attempted, `ethtool -m` distinguishes "no light arriving" (cabling, or the far end
+not transmitting) from "light arriving but no link" (a PCS/encoding fault in our
+RTL) — a distinction that is otherwise very hard to make from the FPGA side.
 
 **Target topology — DUT in the middle**, so one machine both generates and verifies:
 
@@ -496,8 +520,13 @@ same corpus. Only the transport differs (Verilator DPI → Ethernet).
 **Bring it up in this order.** Each link costs a full 10G PCS/MAC in fabric, so
 two links doubles the work before anything is proven:
 
-1. **Loopback, no NIC.** Tang SFP+ A ↔ Tang SFP+ B with the 0.5 m DAC. Any failure
-   is unambiguously ours. This is where the SerDes and its **156.25 MHz reference
+0. **Validate the test equipment first, with no FPGA involved.** Join the two X710
+   ports to each other with an LC-LC multimode patch and confirm a 10G link comes
+   up host-to-host. That proves the optics, the fibre and the NIC before any of
+   them can be blamed on our RTL. Costs one cable and five minutes.
+1. **Loopback, no NIC.** Tang SFP+ A ↔ Tang SFP+ B with the 0.5 m DAC — **no optics
+   or fibre needed for this step**, which is why the DAC is the right tool here.
+   Any failure is unambiguously ours. This is where the SerDes and its **156.25 MHz reference
    clock** get sorted — on this board the refclk comes from two onboard **MS5351**
    programmable clock generators, themselves configured over UART. Start from
    Sipeed's `sfp+` example (10GbE UDP, marked verified).
