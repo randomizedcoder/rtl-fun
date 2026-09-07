@@ -227,9 +227,29 @@ Artifacts (gitignored `build/`): `build/gowin-cva6-imafdc-patched/synth.log` (th
   wants — use the full grade-suffixed order code, e.g. `set_device -name GW5AST-138B
   GW5AST-LV138FPG676AC1/I0` (also `C2/I1`; device_version B or C). `device-check.tcl` tries the
   candidate spellings and uses the first accepted.
-- **SystemVerilog:** `add_file -type verilog` parses Verilog, not SV (`logic`/`always_ff` are
-  rejected) — the blinky probe is plain Verilog-2001; the sv2v-flattened CVA6 netlist is already
-  plain Verilog.
+- **SystemVerilog — CORRECTED 2026-09-07: Gowin *does* support it.** The earlier
+  claim here ("`add_file -type verilog` parses Verilog, not SV") was true of that
+  *invocation* but wrong as a statement about the tool, and the mistake sent the
+  project down an sv2v detour. `add_file`'s own help reads: *"automatically judge
+  the file's type by it extension name. This option can override it."* — so
+  `-type verilog` on a `.sv` file **forces** Verilog mode. The working form is:
+
+  ```tcl
+  set_option -verilog_std sysv2017   ;# also sysv-2017 / sysv. NOT sysv_2017
+  add_file /work/rtl/parser_pkg.sv   ;# no -type: let the extension decide
+  ```
+
+  With that, GowinSynthesis parses our real parser RTL — packages, `always_comb`,
+  packed structs — and compiles `parser_execute`. It still stops later inside
+  synthesis with an internal `ERROR (SP00018) ... error bus name set`, so sv2v is
+  not yet fully retired; but this is now a specific, tractable bug rather than "the
+  tool cannot read our language". Probe it with `nix run .#fpga-build -- sv-probe`.
+
+  Worth chasing, because the sv2v path is what produced the monolithic flattened
+  netlist that defeated BSRAM inference and made `cv64a6_imafdc` look like it
+  overflowed the device ([fpga-platform-assessment.md](fpga-platform-assessment.md) §5a).
+  The board designs stay plain Verilog-2001 regardless — that is a simplicity
+  choice for `blinky_top`/`hello_top`, not a tool limitation.
 - **9p vs virtiofs** — the shares use **9p** (built into qemu, single self-contained process, no
   `virtiofsd`); switch to `proto = "virtiofs"` in `nix/gowin-vm.nix` for faster shares.
 - **RAM** — `microvm.mem` defaults to 8 GiB (override `mem`/`vcpu` in `local.nix`); the blinky gate

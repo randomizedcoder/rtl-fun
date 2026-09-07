@@ -75,17 +75,66 @@ comparison in [fpga-platform-assessment.md](fpga-platform-assessment.md).
 - Decide packet buffer width (128/256-bit) per Phase 4; this is where the
   bandwidth thesis (Risk R1) gets tested on real hardware.
 
-### 8.4 Bring-up sequence
+### 8.4 Incremental plan
 
-0. **Board bring-up** (prerequisite, split out of step 1): talk to the board over
-   JTAG, program it, and run a self-built blinky — the repeatable
-   edit→synth→program→observe loop. See
-   [fpga-bringup-tang-mega-138k-pro.md](fpga-bringup-tang-mega-138k-pro.md).
-1. Synthesize/P&R stock CVA6 on the board; boot, blink, UART hello.
-2. Add the parser unit; run the Phase-6 directed vectors from on-chip memory
-   (no MAC yet) and confirm `flow_keys` match the model.
-3. Bring up the MAC in loopback; push known frames from a host; confirm parse.
-4. Live traffic: parse real frames; log per-packet cycle counts.
+The ordering principle: **each milestone should fail for exactly one reason.**
+Cheap milestones that de-risk our own RTL come before the expensive one that
+depends on CVA6 fitting, so a failure is always attributable.
+
+| M | Milestone | Proves | Main risk |
+|---|---|---|---|
+| **M0** | **Board bring-up** — program, LEDs, UART | ✅ **Done** 2026-09-07 | — |
+| **M1** | **Parser unit alone on the FPGA**, packet from on-chip ROM, `flow_keys` out over UART | *Our* RTL works on real silicon | Gowin SystemVerilog front end |
+| **M2** | **Host → FPGA packet injection**, run the 22-case suite / corpus | The Phase-6 oracle works over a wire | No known UART RX pin |
+| **M3** | **Stock CVA6 on the FPGA**, boots, prints from software | The host core fits and runs | **BRAM inference** — the big one |
+| **M4** | **CVA6 + parser unit**, runs the Phase-7 slice from on-chip memory | The actual thesis, in hardware | Timing on the FU (G14) |
+| **M5** | **Cycle counters** → cycles/packet | The headline metric | — |
+| **M6** | **Ethernet**: SFP+ loopback, then one link to hp5 | A real datapath | 10G PCS + MS5351 refclk |
+| **M7** | **The demo**: hp5 → Tang → hp5 with a parse-driven transformation | End to end | Checksums |
+| **M8** | **Phase 9 benchmark** vs `flow_dissector` | The project's claim | — |
+
+**M1 is the next real milestone** and is deliberately small: no CPU, no MAC, no
+DDR. It instantiates the existing parser datapath, feeds it one packet baked into
+a ROM, and prints the resulting `flow_keys` over the UART built in M0 — which the
+host diffs against `libparsermodel`. If that matches, our RTL is proven on silicon
+independently of every remaining unknown. Expect a few thousand LUTs against
+138,240 available.
+
+> **M1's gating question — can Gowin read our SystemVerilog?** Newly promising.
+> `set_option -verilog_std sysv2017` plus `add_file` *without* `-type` (so the
+> `.sv` extension decides) gets GowinSynthesis to **parse and compile
+> `parser_execute`** — packages, `always_comb`, packed structs and all. It then
+> stops inside synthesis with an internal `ERROR (SP00018) ... error bus name set`.
+> So the honest status is *partially working, specific bug*, not *unsupported*.
+> Reproduce with `nix run .#fpga-build -- sv-probe`. Falling back to sv2v is always
+> possible; the reason to push is that the sv2v flatten is what defeated BSRAM
+> inference in the Tier-2 CVA6 probe (§5a of the platform assessment), so a
+> hierarchical SystemVerilog path may quietly fix **M3's** main risk too.
+>
+> The same probe surfaced `WARN (EX2420): Latch inferred for net 'src[63]'` in
+> `parser_execute.sv:323`, inside an `always_comb`. Verilator `-Wall` and the
+> SymbiYosys proofs are clean on this module, so it is most likely a front-end
+> artifact around a struct-returning function — but it is **unconfirmed**, and a
+> latch in synthesized hardware is a real bug class. Resolve it during M1 rather
+> than carrying it.
+
+**M2 is blocked on a return path.** `uart_tx` is P15; no vendor example we have
+drives an RX pin, so the link is transmit-only today. Either find RX in the board
+schematic, or inject over JTAG instead (openFPGALoader only programs, so that
+means OpenOCD or a user-JTAG register). Until then M1 can still run from a
+ROM-baked packet.
+
+**M3 is the expensive one** and the only milestone likely to force a fallback: if
+CVA6 cannot be made to fit with BSRAM properly inferred, the documented options are
+a smaller CVA6 config, **Ibex** (Phase 0's fallback — the parser unit is
+width-parameterized), or the Xilinx board in
+[fpga-platform-assessment.md](fpga-platform-assessment.md). Nothing in M1/M2/M6
+depends on M3, so it can be attacked in parallel rather than blocking everything.
+
+**M6 is independent of M3/M4** and could proceed in parallel — Sipeed ships a
+verified `sfp+` example to start from. Sequencing within it, and the demo options
+for M7, are in
+[fpga-bringup-tang-mega-138k-pro.md](fpga-bringup-tang-mega-138k-pro.md#demo-and-test-options-sketch).
 
 ### 8.5 Instrumentation
 
