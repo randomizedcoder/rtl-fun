@@ -467,6 +467,57 @@ for this trivial design. PnR took **21 s**, peak memory **1202 MB**.
 - **Programming the hardened Andes A25** is untouched, as is OpenOCD/GDB over JTAG
   for a fabric CVA6.
 
+## The 10 GbE test harness (hardware on hand)
+
+Not built yet, but the hardware exists, which de-risks the Phase-9 endgame. Recorded
+here so the topology and its ordering are not re-derived later.
+
+**Available:** hp5 has an **Intel X710 dual-port 10GbE SFP+** (`i40e`, fw 6.00) —
+one cage appears already populated with a 10GBASE-SR optic (its `ethtool` link
+modes are narrowed to `1000baseX` + `10000baseSR`, while the empty port advertises
+the NIC's full `10000baseT/SR/LR` set). Plus 4× Intel optics and a **10GTek
+CAB-ZSP/ZSP-P0.5M** passive SFP28 DAC (IEEE 802.3by / SFF-8402, 10–25G multi-rate,
+so 10G-compatible; the board's transceivers top out at 12.5 Gbps, which covers
+10.3125 Gbps and rules out 25G).
+
+**Target topology — DUT in the middle**, so one machine both generates and verifies:
+
+```
+  hp5 port0 ──fibre──► Tang SFP+ A        traffic in
+                          │
+                    CVA6 + parser unit     parse -> flow_keys
+                          │
+  hp5 port1 ◄──fibre──  Tang SFP+ B        results / forwarded frames out
+```
+
+The oracle is unchanged from simulation: compare against `libparsermodel` over the
+same corpus. Only the transport differs (Verilator DPI → Ethernet).
+
+**Bring it up in this order.** Each link costs a full 10G PCS/MAC in fabric, so
+two links doubles the work before anything is proven:
+
+1. **Loopback, no NIC.** Tang SFP+ A ↔ Tang SFP+ B with the 0.5 m DAC. Any failure
+   is unambiguously ours. This is where the SerDes and its **156.25 MHz reference
+   clock** get sorted — on this board the refclk comes from two onboard **MS5351**
+   programmable clock generators, themselves configured over UART. Start from
+   Sipeed's `sfp+` example (10GbE UDP, marked verified).
+2. **One link to hp5.** Proves interop with a real MAC and real frames.
+3. **Both links.** The topology above, for the Phase-9 benchmark.
+
+**Module compatibility notes.** The FPGA never reads a module's vendor EEPROM — it
+just drives the SerDes — so anything fits the Tang side. The risk is Intel-side
+only: Intel NICs have historically rejected third-party optics (the strict
+whitelist and `allow_unsupported_sfp` belong to the older X520/`ixgbe`; X710 is
+generally permissive with passive DACs). **Intel optics in the X710 sidesteps this
+entirely**, so the optics are the lower-risk choice there and the DAC is best used
+for the board-to-board loopback in step 1. Optics also need **LC-LC multimode
+(OM3/OM4) patch cables**, which a DAC does not — a DAC is one integrated assembly.
+
+**Expectation setting.** A ~100 MHz CVA6 cannot parse 64 B frames at 10G line rate
+(14.88 Mpps); it is comfortable near 1500 B (~820 Kpps) — see
+[fpga-platform-assessment.md](fpga-platform-assessment.md). The link exists to give
+the parser a *real* datapath to be measured against wire rate, not to saturate it.
+
 ## What comes next
 
 **UART hello world** — the other half of
