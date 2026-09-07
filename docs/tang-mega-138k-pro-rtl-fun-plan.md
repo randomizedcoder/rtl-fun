@@ -1,5 +1,24 @@
 # Tang Mega 138K Pro FPGA Bring-Up Plan for `rtl-fun`
 
+> **Status: superseded in part (2026-09-07).** This is the *pre-purchase* plan,
+> written before the board existed. Two things in it are now known to be wrong or
+> done:
+>
+> - **The open-source path is not available.** Experiment 1 lists nextpnr and
+>   Apicula; [fpga-platform-assessment.md](fpga-platform-assessment.md) §4 later
+>   established that Apicula has no usable GW5AST-138 support, so **Gowin EDA is the
+>   only way to a bitstream** for this part. nextpnr/apicula are not in the flake.
+> - **Experiments 1 and 4 are largely done in software already** — the microVM gate
+>   (Tier-1 GO) and the CVA6 capacity probe (Tier-2), see
+>   [gowin-microvm.md](gowin-microvm.md).
+>
+> For anything hands-on with the actual board, use
+> **[fpga-bringup-tang-mega-138k-pro.md](fpga-bringup-tang-mega-138k-pro.md)**.
+> This document is kept for its longer-range experiment ladder (experiments 6-12:
+> packet-window BRAM, one custom instruction end-to-end, performance counters,
+> DDR3, 10GbE), which remains the plan of record.
+
+
 ## Purpose
 
 This document describes a practical path for using the **Sipeed Tang

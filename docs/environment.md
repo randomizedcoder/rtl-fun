@@ -26,6 +26,8 @@ is the human-readable snapshot.
 | cocotb | 2.0.1 | 6 | Python co-sim testbenches |
 | scapy | 2.7.0 | 2 | packet-corpus generation |
 | pytest | 9.1.1 | 6 | test runner |
+| openFPGALoader | 1.1.1 | 8 | program the FPGA over USB-JTAG |
+| Gowin EDA | 1.9.11.03 Education / 1.9.12.03 commercial | 8 | bitstream generation (in the microVM) |
 | poppler-utils (pdftotext) | 26.06.0 | docs | patent PDF extraction |
 | riscv64-none-elf-gcc | 15.3.0 | 0/7 | bare-metal RISC-V cross compiler |
 | riscv64-none-elf-binutils | 2.46 | 0/7 | assembler / linker / nm / objdump |
@@ -43,6 +45,12 @@ is the human-readable snapshot.
   `make verilate`, producing `build/cva6/work-ver/Variane_testharness`.
 
 ## Known follow-ups
+
+- **Gowin EDA is not in `nix develop`.** It is proprietary and node-locked, so it
+  is packaged separately (`nix build .#gowin-eda-edu` / `.#gowin-eda`, from
+  `nix/gowin-eda.nix`) and runs inside the microVM, not the dev shell. Which of the
+  two editions the GW5AST-138 flow actually needs is still **TBD** — see
+  [fpga-bringup-tang-mega-138k-pro.md](fpga-bringup-tang-mega-138k-pro.md).
 
 - **Python pin.** `nix/packages.nix` pins `python313` only because cocotb did not
   yet support Python 3.14. nixpkgs' current default `python3` is already **3.14.7**.

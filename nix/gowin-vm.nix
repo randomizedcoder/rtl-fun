@@ -175,7 +175,7 @@ let
           # interactive experience. It only fires when /work/build/gowin/RUN_GATE exists; a normal
           # `nix run .#gowin-vm` (no marker) just boots to the shell.
           systemd.services.gowin-gate = {
-            description = "Gowin GW5AST-138 marker-gated autorun (Tier-1 gate / Tier-2 CVA6 synth)";
+            description = "Gowin GW5AST-138 marker-gated autorun (Tier-1 gate / Tier-2 CVA6 synth / generic Tcl)";
             wantedBy = [ "multi-user.target" ];
             after = [ "multi-user.target" ];
             serviceConfig = {
@@ -229,7 +229,36 @@ let
                 exit 0
               fi
 
-              echo "[gowin-gate] no RUN_GATE/RUN_CVA6 marker under /work/build/gowin — interactive boot, skipping autorun"
+              # Generic Tcl runner (Phase-8 board bring-up: blinky and anything after it).
+              # The marker carries `tcl=<path>` (required) and optional `outdir=<path>`
+              # and `env=K=V` lines — one env= per line, passed through to gw_sh.
+              if [ -e /work/build/gowin/RUN_TCL ]; then
+                tcl=$(sed -n 's/^tcl=//p' /work/build/gowin/RUN_TCL)
+                outdir=$(sed -n 's/^outdir=//p' /work/build/gowin/RUN_TCL)
+                : "''${outdir:=/work/build/gowin-tcl}"
+                mkdir -p "$outdir"
+                cd "$outdir"
+                # Collect `env=K=V` lines into an env(1) argument list.
+                envargs=()
+                while IFS= read -r kv; do envargs+=("$kv"); done \
+                  < <(sed -n 's/^env=//p' /work/build/gowin/RUN_TCL)
+                {
+                  echo "[gowin-gate] ===== generic Tcl run ====="
+                  echo "[gowin-gate] tcl=$tcl outdir=$outdir"
+                  echo "[gowin-gate] env: ''${envargs[*]-<none>}"
+                  if [ -z "$tcl" ] || [ ! -e "$tcl" ]; then
+                    echo "[gowin-gate] ERROR: tcl= missing or not found in RUN_TCL marker"
+                  else
+                    env "''${envargs[@]}" gowin-check "$tcl" || echo "[gowin-gate] gw_sh exit=$?"
+                  fi
+                  echo "[gowin-gate] ===== done ====="
+                } 2>&1 | tee "$outdir/gowin.log"
+                rm -f /work/build/gowin/RUN_TCL
+                systemctl poweroff
+                exit 0
+              fi
+
+              echo "[gowin-gate] no RUN_GATE/RUN_CVA6/RUN_TCL marker under /work/build/gowin — interactive boot, skipping autorun"
               exit 0
             '';
           };

@@ -12,19 +12,29 @@ cycles/packet on an actual pipeline rather than in a simulator.
 
 - Phase 5 RTL, lint-clean and passing Phase 6 co-sim.
 - Phase 7 toolchain (a runnable slice-parser binary).
-- An FPGA board — **TBD** (drives MAC/memory choices).
+- An FPGA board — **Sipeed Tang Mega 138K Pro** (decided; see 8.1).
 
 ## Design detail
 
 ### 8.1 Target platform (Decision)
 
-Pick a board with a usable Ethernet MAC/PHY and enough logic for CVA6 + the
-parser unit + packet buffer. **TBD** — candidates differ in MAC IP, DDR, and
-vendor flow. Bias toward one with a well-supported RISC-V + Ethernet reference
-design to minimize plumbing.
+**Decided: the Sipeed Tang Mega 138K Pro** (Gowin `GW5AST-LV138FPG676AC1/I0`,
+1 GB DDR3, 2× SFP+). Selected in
+[fpga-platform-assessment.md](fpga-platform-assessment.md); the board arrived and
+was powered up on **2026-09-07**.
 
-A candidate under evaluation is the **Sipeed Tang Mega 138K Pro** (Gowin GW5AST-138,
-1 GB DDR3, 2× SFP+) — see the detailed bring-up plan in
+> **Start here for anything hands-on:**
+> **[fpga-bringup-tang-mega-138k-pro.md](fpga-bringup-tang-mega-138k-pro.md)** —
+> the standing reference for how to use this board: pin map, the two USB ports,
+> the programming ladder (`nix run .#fpga-{detect,load,flash,build}`), the Gowin
+> gotchas, and a live record of what does and does not work.
+
+The assessment's verdict stands: this is the **endgame** board (best I/O for the
+10 GbE target), not the low-risk prototyping board — the cost is integration
+effort, chiefly mapping CVA6's SRAM macros onto Gowin BSRAM. A documented Xilinx
+fallback (Alinx AX7325B / Genesys 2) remains if that proves intractable.
+
+The older, pre-purchase experiment ladder is in
 [tang-mega-138k-pro-rtl-fun-plan.md](tang-mega-138k-pro-rtl-fun-plan.md): a NixOS
 toolchain (open-source yosys / nextpnr-gowin / apicula where possible, Gowin EDA for
 hard IP), the go/no-go feasibility questions (does CVA6 synthesize/fit/route on Gowin),
@@ -67,6 +77,10 @@ comparison in [fpga-platform-assessment.md](fpga-platform-assessment.md).
 
 ### 8.4 Bring-up sequence
 
+0. **Board bring-up** (prerequisite, split out of step 1): talk to the board over
+   JTAG, program it, and run a self-built blinky — the repeatable
+   edit→synth→program→observe loop. See
+   [fpga-bringup-tang-mega-138k-pro.md](fpga-bringup-tang-mega-138k-pro.md).
 1. Synthesize/P&R stock CVA6 on the board; boot, blink, UART hello.
 2. Add the parser unit; run the Phase-6 directed vectors from on-chip memory
    (no MAC yet) and confirm `flow_keys` match the model.
@@ -104,7 +118,7 @@ comparison in [fpga-platform-assessment.md](fpga-platform-assessment.md).
 
 ## Open questions
 
-- **TBD:** board + MAC IP selection.
+- **Decided:** board (8.1). **TBD:** MAC IP selection.
 - **Decision:** packet-buffer fill — simple DMA vs. streaming into a wide window.
 - If CVA6 is too large for the chosen board, fall back to **Ibex** (Phase 0) —
   the width-parameterized parser unit should drop in.

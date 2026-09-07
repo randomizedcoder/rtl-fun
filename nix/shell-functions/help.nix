@@ -64,6 +64,14 @@
       nix run .#parser-formal     SymbiYosys: parser_execute safety + wrap G2 (k-induction)
       nix run .#parser-wrap-test  cva6_parser_wrap commit/flush state (I1/G2)
 
+    FPGA board (Phase 8)          — Sipeed Tang Mega 138K Pro / Gowin GW5AST-138
+      nix run .#fpga-detect       scan the JTAG chain (expect IDCODE 0x0001081b)
+      nix run .#fpga-build        our RTL -> .fs via Gowin EDA in the licensed microVM
+      nix run .#fpga-load  -- X.fs   program SRAM  (volatile, the fast inner loop)
+      nix run .#fpga-flash -- X.fs   program SPI flash (persists across power cycle)
+      nix run .#gowin-vm          interactive Gowin microVM (needs --impure; see docs)
+      Guide: docs/fpga-bringup-tang-mega-138k-pro.md
+
     Meta
       rtl-help             show this message
 

@@ -17,7 +17,7 @@ not a blocker:
 | Question | Verdict |
 | --- | --- |
 | Will the design **fit**? | ✅ **Yes.** CVA6 `cv64a6_imafdc` fits with proper BRAM mapping (real logic ≈15K FF; caches ≈9% of the 6.12 Mbit block RAM — §5a). The parser add-on is **negligible** (~6K LUT4 — §2). Room to spare on a 138K-LUT4 / 340-BSRAM part. |
-| Can it be **built** (toolchain + license)? | ✅ **Yes.** The Education/NODELOCK **Gowin license synthesizes AND place-and-routes** the exact part (Tier-1 GO, real bitstream — §4), and full CVA6 **elaborates + synthesizes** in GowinSynthesis (§5a). |
+| Can it be **built** (toolchain + license)? | ✅ **Yes.** The NODELOCK **Gowin license synthesizes AND place-and-routes** the exact part (Tier-1 GO, real bitstream — §4) — with the **commercial** IDE 1.9.12.03; the Education edition does not carry this part number (see §4), and full CVA6 **elaborates + synthesizes** in GowinSynthesis (§5a). |
 | Does the **I/O** match the goal? | ✅ **Best in class.** 2× SFP+ (10 GbE), DDR3, PCIe — the strongest fit of any candidate for the 10 GbE endgame, and it's cheap. |
 | The catch? | ⚠️ **Integration effort.** No CVA6 FPGA reference design for Gowin; CVA6's SRAM macros must be mapped onto Gowin BSRAM by hand, and the SV→Gowin path needs care (we hit `$bits` + config-struct friction via sv2v). This is the "highest integration effort" board (§6, #5). |
 
@@ -156,14 +156,25 @@ Apicula (`gowin_pack`) → openFPGALoader**. Apicula's device coverage, as of th
 - Gowin EDA runs **synthesis + place-and-route + timing in software with no board attached**
   — so exact fit/Fmax for GW5AST-138 is answerable **pre-purchase**, for the price of a free
   Gowin EDA download.
-- ✅ **RESOLVED — GO (2026-08-25):** despite Sipeed listing the 138K Pro as wanting the Gowin
-  **commercial** IDE, the obtained **Education / NODELOCK license synthesizes AND
+- ✅ **RESOLVED — GO (2026-08-25):** the obtained **NODELOCK license synthesizes AND
   place-and-routes** `GW5AST-LV138FPG676AC1/I0` (the Tang Mega part). Verified end-to-end in the
   reproducible feasibility VM — `set_device` + `run syn` + `run pnr` all pass and a bitstream is
   produced (blinky probe: 26/138,240 LUT, 26/139,140 FF). See
   **[docs/gowin-microvm.md](./gowin-microvm.md)** (`nix run .#gowin-vm` → Tier-1 gate). The board
   is therefore a viable target on licensing grounds; for the CVA6 capacity/fit question see §5
   (Tier-2, now **measured**).
+  - ⚠️ **Correction (2026-09-07): this GO needs the COMMERCIAL IDE.** An earlier
+    wording of this bullet said the *Education* edition did it "despite Sipeed listing
+    the commercial IDE". The license is indeed NODELOCK/STD, but the IDE edition is a
+    separate axis, and **Sipeed was right**: Gowin EDA **1.9.11.03 Education**'s
+    `data/device/device_info.csv` lists only `GW5AST-LV138PG484AC1/I0` — the 484-pin
+    **non-Pro** package — and no `FPG676` order code at all, so `set_device` for the
+    Tang Mega Pro part cannot resolve. (It does ship the package pin data at
+    `data/device/GW5AST-138B/FCPBGA676A.json`; it is the order-code *index* that is
+    missing.) Commercial **1.9.12.03** carries it as row `gw5ast138b-007`. Both
+    editions are packaged as store paths in
+    [`nix/gowin-eda.nix`](../nix/gowin-eda.nix); use `.#gowin-eda`. This does not
+    change the GO — only which download it depends on.
 
 Sources: [Project Apicula](https://github.com/yosyshq/apicula) ·
 [GW5A support issue #204](https://github.com/YosysHQ/apicula/issues/204) ·
