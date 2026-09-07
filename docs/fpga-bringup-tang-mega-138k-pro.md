@@ -354,6 +354,7 @@ itself, because every on-board step is gated behind step 0.
 | 4 | Our blinky: Gowin build | ✅ **Verified** 2026-09-07 | `BUILD RESULT: OK`. `nix run .#fpga-build` → `build/fpga-blinky/impl/pnr/blinky_top.fs`. See [build results](#first-build-results) |
 | 5 | Our blinky: on hardware | ✅ **Verified** 2026-09-07 | Unison blink confirmed flashing by eye — **our RTL runs on the FPGA** |
 | 6 | Edit → rebuild → reload round trip | ✅ **Verified** 2026-09-07 | `TICK_DIV` 25M→6.25M rebuilt + reloaded (`0x6957`), then the 6-pattern sequencer (`0x94D9`, 108 logic / 48 FF, TNS 0.000). Loop closed |
+| 7 | **UART hello world** | ✅ **Verified** 2026-09-07 | `hello_top` (197 logic / 90 FF, TNS 0.000) emits `rtl-fun uart NNNN` twice a second on P15; read at **115200** on `/dev/ttyUSB1` via `nix run .#fpga-uart`, 100% printable, counter incrementing |
 
 ### First build results
 
@@ -404,6 +405,27 @@ for this trivial design. PnR took **21 s**, peak memory **1202 MB**.
 > clock — the warning is resolved by a later routing phase and is benign here.
 
 ### Findings so far
+
+- **The documented 4x-baud firmware bug does NOT affect this board.** Sipeed's FAQ
+  warns that "the actual baudrate is always four times the set baudrate", but our
+  debugger firmware (`2025030317`, March 2025) is clean: a design transmitting at
+  115200 reads correctly at 115200. `nix run .#fpga-uart` proves it rather than
+  assuming it — it scores several candidate bauds by printable-ASCII ratio:
+
+  ```
+     115200 :  152 bytes, 100% printable   <- correct
+      28800 :   40 bytes,  80% printable
+     460800 :  317 bytes,  41% printable
+  ```
+
+  Keep the auto-detect anyway: it costs seconds and turns "the UART is garbage"
+  into a specific, answered question.
+- **Send a COUNTER, not a banner.** `hello_top` emits `rtl-fun uart 004d`,
+  `004e`, ... A fixed string proves very little — it can be a stuck buffer, an
+  echo, or a previously-flashed image. A monotonically incrementing sequence
+  proves the design is live *and* that the baud is right. The LEDs mirror the low
+  6 bits of the same counter, so the two output paths can be checked against each
+  other.
 
 - **Sipeed's `led` demo only animates while you HOLD the U4 button.** Its top level
   is `led led_inst(..., .rst_n(!rst))` with `rst` on U4 at `PULL_MODE=UP`, so
@@ -640,6 +662,25 @@ is comfortable near 1500 B (~820 Kpps). The value of a real 10G link is a genuin
 datapath to measure *against* wire rate, not to fill it.
 
 ## What comes next
+
+**Rung A of the packet ladder: inject a frame over UART/JTAG, read the `flow_keys`
+back**, and diff against `libparsermodel`. No Ethernet, no MAC, no SerDes — so any
+mismatch is unambiguously the parser's. The UART transport that this needs now
+exists and is verified. See [Demo and test options](#demo-and-test-options-sketch).
+
+Two things still open before that:
+
+- **The UART RX pin (host → FPGA) is unknown.** `uart_tx` is P15, but no vendor
+  example we have drives a receive pin, so today the link is transmit-only.
+  Injecting packets needs a return path — either find RX in the board schematic,
+  or push frames over **JTAG** instead (openFPGALoader programs but does not do
+  general JTAG transfers, so this likely means OpenOCD or a user-JTAG register).
+- **A bigger design.** `hello_top` is 197 LUT. CVA6 plus the parser is four orders
+  of magnitude larger, and the known blocker is BRAM inference — mapping CVA6's
+  SRAM macros onto Gowin BSRAM (see
+  [fpga-platform-assessment.md](fpga-platform-assessment.md) §5a).
+
+### Older notes
 
 **UART hello world** — the other half of
 [`phase-8-fpga.md`](phase-8-fpga.md) §8.4 step 1: a design that prints over

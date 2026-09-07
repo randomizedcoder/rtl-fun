@@ -10,16 +10,22 @@ first — pin map, the programming ladder, and the Gowin gotchas.
 
 | File | What |
 |---|---|
-| `blinky.tcl` | `gw_sh` build script: `set_device` candidate loop, sources, syn + pnr |
+| `blinky.tcl` / `hello.tcl` | `gw_sh` build scripts: `set_device` candidate loop, sources, syn + pnr |
 | `src/blinky_top.v` | 6-pattern LED sequencer. **Verilog-2001** — see below |
-| `src/blinky_top.cst` | Pin constraints (clock + 6 active-low LEDs) |
-| `src/blinky_top.sdc` | 50 MHz clock constraint, so every build reports timing |
+| `src/hello_top.v` | UART hello world: emits `rtl-fun uart NNNN` on P15 |
+| `src/uart_tx.v` | Minimal 8N1 UART transmitter (reusable) |
+| `src/*.cst` | Pin constraints (clock, 6 active-low LEDs, `uart_tx` P15) |
+| `src/*.sdc` | 50 MHz clock constraint, so every build reports timing |
 
 ## Build and run
 
 ```
 nix run .#fpga-build                                  # -> build/fpga-blinky/impl/pnr/blinky_top.fs
 nix run .#fpga-load -- build/fpga-blinky/impl/pnr     # program SRAM
+
+nix run .#fpga-build -- hello                         # the UART design
+nix run .#fpga-load  -- build/fpga-hello/impl/pnr
+nix run .#fpga-uart                                   # read it back (auto-detects baud)
 ```
 
 **Six patterns, ~3.75 s each, cycling forever:** all-flash → walk up → ping-pong →

@@ -66,7 +66,8 @@
 
     FPGA board (Phase 8)          — Sipeed Tang Mega 138K Pro / Gowin GW5AST-138
       nix run .#fpga-detect       scan the JTAG chain (expect IDCODE 0x0001081b)
-      nix run .#fpga-build        our RTL -> .fs via Gowin EDA in the licensed microVM
+      nix run .#fpga-build [-- X] our RTL -> .fs via Gowin EDA (design X, default blinky)
+      nix run .#fpga-uart         read the board UART (auto-detects baud)
       nix run .#fpga-load  -- X.fs   program SRAM  (volatile, the fast inner loop)
       nix run .#fpga-flash -- X.fs   program SPI flash (persists across power cycle)
       nix run .#gowin-vm          interactive Gowin microVM (needs --impure; see docs)

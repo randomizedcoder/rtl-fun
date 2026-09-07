@@ -332,6 +332,7 @@
             fpga-load = fpga.fpga-load;
             fpga-flash = fpga.fpga-flash;
             fpga-build = fpga.fpga-build;
+            fpga-uart = fpga.fpga-uart;
             # The pinned vendor examples + their prebuilt 6-LED bitstream.
             tang-mega-examples = fpga.tang-mega-examples;
             tang-mega-led-bitstream = fpga.tang-mega-led-bitstream;
@@ -562,10 +563,17 @@
           };
 
           # Synthesize a board design with Gowin EDA inside the licensed microVM
-          # and emit a .fs: `nix run .#fpga-build`.
+          # and emit a .fs: `nix run .#fpga-build [-- <design>]` (default blinky).
           apps.fpga-build = {
             type = "app";
             program = "${fpga.fpga-build}/bin/fpga-build";
+          };
+
+          # Read the board's UART (2nd FT2232 interface), auto-detecting the baud:
+          # `nix run .#fpga-uart`.
+          apps.fpga-uart = {
+            type = "app";
+            program = "${fpga.fpga-uart}/bin/fpga-uart";
           };
 
           # Single-step a parse for debugging: `nix run .#pm-trace [-- x.pcap]`.

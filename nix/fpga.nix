@@ -73,6 +73,15 @@ let
     script = ../scripts/fpga-flash.sh;
   };
 
+  # Read the board's UART — the second FT2232 interface. Auto-detects the baud,
+  # because Sipeed document a firmware bug that rescales it by 4x. python3 only
+  # scores printable-ASCII ratio; no pyserial, stty does the port setup.
+  fpga-uart = mkRunner {
+    name = "fpga-uart";
+    script = ../scripts/fpga-uart.sh;
+    extraInputs = [ pkgs.python3 pkgs.coreutils ];
+  };
+
   # Drives the Gowin microVM. Needs `nix` on PATH because the VM runner is
   # evaluated with --impure (it reads GOWIN_VM_LOCAL); see scripts/fpga-build.sh.
   # Does not use fpgaLib — it never touches the board.
@@ -123,7 +132,7 @@ let
   };
 in
 {
-  inherit fpga-detect fpga-load fpga-flash fpga-build;
+  inherit fpga-detect fpga-load fpga-flash fpga-build fpga-uart;
   inherit tang-mega-examples tang-mega-led-bitstream;
   inherit openfpgaloader;
 }

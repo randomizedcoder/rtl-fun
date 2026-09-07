@@ -1,7 +1,8 @@
 # scripts/fpga-build.sh — synthesize a board design with Gowin EDA in the microVM.
 #
-#   nix run .#fpga-build                     # default: the blinky design
-#   FPGA_TCL=/work/fpga/.../other.tcl nix run .#fpga-build
+#   nix run .#fpga-build                # default: the blinky design
+#   nix run .#fpga-build -- hello       # any <name>.tcl in fpga/tang-mega-138k-pro/
+#   FPGA_TCL=/work/... nix run .#fpga-build   # explicit guest path, escape hatch
 #
 # Gowin EDA cannot run on the host (node-locked license + a prebuilt Qt closure),
 # so it runs inside the microVM from nix/gowin-vm.nix, which presents the licensed
@@ -16,9 +17,22 @@ set -euo pipefail
 
 REPO_ROOT="${REPO_ROOT:-$PWD}"
 
+# Which design to build: first argument, else $FPGA_DESIGN, else blinky.
+design="${1:-${FPGA_DESIGN:-blinky}}"
+
+if [ ! -r "$REPO_ROOT/fpga/tang-mega-138k-pro/$design.tcl" ] && [ -z "${FPGA_TCL:-}" ]; then
+  echo "ERROR: no such design '$design'." >&2
+  echo "  expected $REPO_ROOT/fpga/tang-mega-138k-pro/$design.tcl" >&2
+  echo "  available:" >&2
+  for t in "$REPO_ROOT"/fpga/tang-mega-138k-pro/*.tcl; do
+    [ -e "$t" ] && echo "    $(basename "$t" .tcl)" >&2
+  done
+  exit 1
+fi
+
 # Paths as the GUEST sees them: the repo is 9p-mounted at /work.
-FPGA_TCL="${FPGA_TCL:-/work/fpga/tang-mega-138k-pro/blinky.tcl}"
-FPGA_OUTDIR="${FPGA_OUTDIR:-/work/build/fpga-blinky}"
+FPGA_TCL="${FPGA_TCL:-/work/fpga/tang-mega-138k-pro/$design.tcl}"
+FPGA_OUTDIR="${FPGA_OUTDIR:-/work/build/fpga-$design}"
 
 # Same paths as the HOST sees them, for the marker + result reporting.
 host_outdir="${FPGA_OUTDIR/#\/work/$REPO_ROOT}"
