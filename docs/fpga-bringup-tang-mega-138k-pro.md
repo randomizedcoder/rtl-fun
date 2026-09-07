@@ -315,10 +315,13 @@ Every one of these has already cost time. Collected here so they cost it once.
 | Gotcha | What to do |
 |---|---|
 | **`set_device` rejects the marketing name** | `GW5AST-LV138FPG676A` fails; the DB keys the grade-suffixed order code `GW5AST-LV138FPG676AC1/I0`. Reuse the candidate loop in `blinky.tcl` / `device-check.tcl` |
-| **`add_file -type verilog` is Verilog, not SystemVerilog** | `logic` / `always_ff` are rejected. Board designs are Verilog-2001; the parser RTL reaches Gowin via sv2v |
+| **`add_file -type verilog` is Verilog, not SystemVerilog** | `logic` / `always_ff` are rejected in that mode. `add_file` *without* `-type` + `set_option -verilog_std sysv2017` makes GowinSynthesis *parse* SystemVerilog, but it then hits the `SP00018` bug below. Board designs stay Verilog-2001; the parser RTL reaches Gowin via sv2v→yosys |
+| **`ERROR (SP00018) ... error bus name set`** on the parser RTL | A GowinSynthesis V1.9.12.03 front-end bug: it floods this on our parser logic in SystemVerilog **and** in sv2v-flattened Verilog, even on `parser_execute` alone. Workaround (M1): **sv2v → yosys `flatten` → Gowin** (`nix run .#fpga-m1-rtl`). See [phase-8-status.md](phase-8-status.md) #13 |
 | **License looks for a server, not a file** | With no `gwlicense.ini` beside the binary, Gowin defaults to a license *server* and fails with "Connection timeout". The wrapper writes `[license] lic="/work/gowin"`. `LM_LICENSE_FILE` is **not** the hook — Gowin uses its own format, not FlexLM |
 | **`gw_sh` needs a display** | It initialises a QApplication and aborts on the `xcb` plugin. `QT_QPA_PLATFORM=offscreen` |
 | **sv2v output trips GowinSynthesis** | Raw `flat.v` fails on `$bits` (use the yosys-cleaned `flat_synth.v`); sv2v leaves `CVA6Cfg.{ASID_WIDTH,VMID_WIDTH,VpnLen,PtLevels}` as illegal dotted constants → substitute `16 / 14 / 27 / 3` |
+| **yosys `flatten` needs `$paramod` names gone** | Gowin rejects yosys's `$paramod$…` module names; `flatten` to a single module before `write_verilog` |
+| **A zero-init loop before `$readmemh` bakes an all-zero ROM under yosys** | yosys keeps the loop's zeros, not the file. Guard sim-only zero-init with `` `ifndef SYNTHESIS `` and run `sv2v --define=SYNTHESIS` (see `rtl/parser_cam.sv`, `rtl/parser_pktbuf.sv`, `tb/parser_top.sv`). `nix run .#fpga-m1-rtl` does this |
 | **UART baud is 4x what you set** | A known debugger-firmware bug per the vendor FAQ. Relevant to the hello-world step, not to blinky |
 
 ## Deliverables / artifacts

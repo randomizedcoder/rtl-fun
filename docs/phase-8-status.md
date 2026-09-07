@@ -27,7 +27,7 @@ Plan and per-milestone risks: [phase-8-fpga.md §8.4](phase-8-fpga.md#84-increme
 | M | Milestone | Status |
 |---|---|---|
 | **M0** | Board bring-up — program, LEDs, UART | ✅ **Done** 2026-09-07 |
-| **M1** | Parser unit alone on the FPGA | ⏳ Next |
+| **M1** | Parser unit alone on the FPGA | ✅ **Done** 2026-09-07 — `flow_keys` from ROM-baked packet == `libparsermodel` on the board (see [M1 log](#m1--parser-unit-alone-done)) |
 | **M2** | Host → FPGA packet injection | ⏳ Blocked: no known UART RX pin |
 | **M3** | Stock CVA6 on the FPGA | ⏳ Not started (BRAM inference is the risk) |
 | **M4** | CVA6 + parser unit | ⏳ Not started |
@@ -183,6 +183,67 @@ for this trivial design. PnR took **21 s**, peak memory **1202 MB**.
 - [x] Editing `TICK_DIV` visibly changes the board's behaviour (✅).
 - [x] Utilization and timing reports captured from `impl/` (✅ see above).
 
+## M1 — parser unit alone (done)
+
+**2026-09-07 — ✅ our parser RTL runs on real silicon.** The M1 design (`m1_top`
+wrapping the verified `parser_top` = a hardware `pm_run`) was synthesized, programmed to
+SRAM, and its streamed `flow_keys` matched `libparsermodel` **byte-for-byte** on the
+board:
+
+```
+$ nix run .#fpga-m1-check
+=== reading /dev/ttyUSB1 at 115200 for 5s ===
+  flow_keys MATCH (48 bytes)
+  exit code MATCH (fffffffc)          # P_STOP_OKAY = -4
+  live seq counter = 0046             # incrementing -> design live, baud correct
+RESULT: PASS — M1 parsed the packet on the board == libparsermodel (baud 115200).
+```
+
+This is the M1 exit criterion, **observed** (not merely "programmed"): the parser
+datapath parsed a ROM-baked eth/ipv4/tcp packet on the FPGA and produced exactly the
+golden model's `flow_keys` + exit code. Utilization **2751 LUT / 688 FF / 0 latches**
+(≈2% of the device), timing clean. The build path is `nix run .#fpga-m1-roms` →
+`.#fpga-m1-rtl` → `.#fpga-build -- m1` → `.#fpga-load` → `.#fpga-m1-check`.
+
+**How SP00018 was worked around.** GowinSynthesis V1.9.12.03 cannot synthesize our parser
+RTL directly (challenge #13, below — it floods `SP00018` on both SystemVerilog and
+sv2v-flattened Verilog, even on `parser_execute` alone). The route that works is
+**sv2v → yosys `flatten` → GowinSynthesis** (`nix run .#fpga-m1-rtl`): sv2v converts the
+SystemVerilog, yosys flattens to one clean module and re-emits plain Verilog that Gowin
+accepts. Two sub-problems were solved to get a *correct* build (challenge #18): sv2v
+couldn't slice an `int` loop var (→ sized cast), and yosys's memory-init bake was clobbered
+by the sim-only zero-init loops (→ guarded with `` `ifndef SYNTHESIS ``, sv2v run with
+`--define=SYNTHESIS`). All RTL edits are behaviour-neutral — the whole Phase-6 suite stays
+green.
+
+**Built and verified (in simulation):**
+- **The M1 design.** `fpga/tang-mega-138k-pro/src/m1_top.sv` wraps the verified
+  `tb/parser_top.sv` (the hardware `pm_run`) with a power-on reset, a readout FSM, and
+  the M0 `uart_tx`; it emits `FK <96 hex = 48 flow_keys bytes> <8 hex code> <4 hex seq>`
+  ~2×/s. Verilator-lint-clean. Constraints (`m1_top.cst`/`.sdc`) reuse the M0 pins.
+- **Reproducible ROM images.** `nix run .#fpga-m1-roms` generates
+  `roms/m1/{program,cam,pktbuf,params,expected}.hex` from the golden model (`gen_vectors`),
+  with a `-- --check` drift guard — the same guarantee `parser-gen-check` gives Phase-7.
+- **Host oracle.** `nix run .#fpga-m1-check` reads the UART and diffs the streamed
+  `flow_keys` byte-for-byte against `expected.hex` + exit code against `EXP_CODE` — the
+  Phase-6 oracle with the transport swapped from Verilator DPI to a wire.
+- **Nix + docs.** New module `nix/fpga-m1.nix` (roms / rtl-flatten / check targets),
+  wired into `flake.nix`, `rtl-help`, and `docs/nix.md`.
+- **RTL correctness preserved.** All the RTL edits below are behaviour-neutral:
+  `parser-lint`, `parser-sim`, `parser-sim-suite`, `parser-sim-decode` (22/22 each) and
+  `parser-formal` all stay green.
+
+**What the latch fixes bought us** (kept regardless — they are correct): the SV front end
+no longer emits *any* `EX2420` latch warning on the parser, and #14 is resolved. They did
+**not** clear SP00018, which proved separate (#13).
+
+**Why this matters for M3.** The sv2v → yosys → Gowin route now has a *working, verified*
+recipe (`nix run .#fpga-m1-rtl`), and the memory-init trick (`` `ifndef SYNTHESIS ``) is
+exactly what a larger design needs. But note yosys `flatten` inlines everything into one
+module, and for CVA6-scale memories that is the flatten that defeats BSRAM inference
+([assessment §5a](fpga-platform-assessment.md)) — so M3 will likely need a *hierarchical*
+yosys pass (keep RAMs as memory, avoid full flatten) rather than this exact recipe.
+
 ## Challenges and how they were resolved
 
 Every one of these cost real time. Symptom first, because that is how you will
@@ -202,13 +263,15 @@ meet them again.
 | 10 | Verilator refused to build `uart_tx` | `baud_cnt` was 16-bit but `DIV` was a 32-bit localparam | Size the divider explicitly. Part-selecting an **identifier** (`DIV32[19:0]`) is the Verilog-2001-legal form; you cannot part-select an expression |
 | 11 | Believed Gowin could not read our SystemVerilog at all | `add_file -type verilog` **forces** Verilog mode. Its own help: *"automatically judge the file's type by it extension name. This option can override it."* | `set_option -verilog_std sysv2017` (**not** `sysv_2017`) + `add_file` with **no** `-type`. Gowin then parses and compiles `parser_execute`. See #13 |
 | 12 | Killed a healthy build after wrongly reporting the VM had booted | A monitor used `pgrep -f 'qemu-system-x86_64'`, which **matched its own command line** | Never key progress on process names that contain the pattern you are matching. Watch for artifacts the job actually produces (`gowin.log`, a `.fs`) |
+| 14 | `WARN (EX2420) : Latch inferred` on `always_comb` temporaries (`src[63]`, then `camr[31]`, `ok`, `next_pos[1]` as each was fixed) | GowinSynthesis applies its whole-`always_comb` latch analysis to block-local **and** arm-local temporaries; any temp written on only some `case` paths and left undefaulted reads as a held latch (Verilator/formal are clean because it is never read off those paths — a false latch) | Default every such temp unconditionally in the defaults block, and hoist arm-local decls to the top (`rtl/parser_execute.sv`, `rtl/parser_decode.sv`). Behaviour-neutral; sim + formal stay green. **All parser latch warnings gone** — but it did **not** clear #13, which proved to be a separate, deeper bug |
+| 18 | The yosys-flattened M1 built OK but used only 270 LUT / 138 FF and parsed an empty packet | Two yosys-bake bugs: (a) `$paramod$…`-mangled submodule names Gowin rejects; (b) the sim-only memory **zero-init loop before `$readmemh`** clobbers the file init, so every `prog_rom`/`mem`/`entry` cell baked to zero and `opt` then constant-folded the whole parser away | (a) `flatten` to one module; (b) guard the zero-init loops with `` `ifndef SYNTHESIS `` and run `sv2v --define=SYNTHESIS` (`rtl/parser_cam.sv`, `rtl/parser_pktbuf.sv`, `tb/parser_top.sv`). ROMs then bake correctly (53 words / 28 bytes / 13 CAM), utilization jumps to 2751 LUT, and the on-board `flow_keys` matches the model |
+| 19 | sv2v aborts flattening `parser_top`: *"can't determine the type of `i[...]` because the inner type int can't be indexed"* | sv2v 0.0.13.1 cannot bit-slice an `int` loop variable (`i[META_OFF_W-1:0]` in the metadata scatter) | Use a sized cast `META_OFF_W'(i)` instead of a slice (`tb/parser_top.sv`). Identical for `i`∈0..7; Verilator-clean; sim stays 22/22 |
 
 ### Open challenges
 
 | # | Problem | Status |
 |---|---|---|
-| 13 | Gowin SystemVerilog stops with internal `ERROR (SP00018) ... error bus name set` after successfully parsing and compiling `parser_execute` | **Open.** Partially working, specific bug — not "unsupported". Worth pushing: the sv2v workaround is what defeated BSRAM inference and made `cv64a6_imafdc` look oversized ([assessment §5a](fpga-platform-assessment.md)), so a hierarchical SV path may also fix M3's main risk. Reproduce: `nix run .#fpga-build -- sv-probe` |
-| 14 | `WARN (EX2420) : Latch inferred for net 'src[63]'` in an `always_comb`, `rtl/parser_execute.sv:323` | **Open, unconfirmed.** Verilator `-Wall` and the SymbiYosys proofs are clean on this module, so it is probably a front-end artifact around a struct-returning function — but a latch in synthesized hardware is a real bug class. Resolve during M1; do not carry it |
+| 13 | GowinSynthesis floods `ERROR (SP00018) ... error bus name set` during synthesis of the parser RTL | **Open (worked around for M1).** *Not* the latches (#14) and *not* packed structs: it fires on `parser_execute` alone in SV after every latch was cleared, on the full M1 in SV, **and** on the full M1 as sv2v-flattened plain Verilog. Every module compiles first; the flood comes at elaboration with no actionable message — a GowinSynthesis V1.9.12.03 front-end bug on our parser logic, independent of the SV surface. Reproduce: `nix run .#fpga-build -- sv-probe`. **Workaround (M1):** sv2v → yosys `flatten` → Gowin (`nix run .#fpga-m1-rtl`) re-emits Verilog Gowin accepts. Still worth a real fix (a Gowin-version bump, or isolating the exact construct) before M3, since flatten hurts BSRAM inference at CVA6 scale |
 | 15 | UART **RX** pin (host → FPGA) unknown | **Open.** `uart_tx` is P15; no vendor example we have drives a receive pin, so the link is transmit-only. Blocks M2. Either find RX in the board schematic, or inject over JTAG (needs OpenOCD or a user-JTAG register — openFPGALoader only programs) |
 | 16 | **BRAM inference** for CVA6's SRAM macros onto Gowin BSRAM | **Open.** The known headline risk for M3; see [assessment §5a](fpga-platform-assessment.md). May be reduced or removed by #13 |
 | 17 | **GAO** (Gowin's on-chip logic analyzer) is GUI-bound, our microVM is headless | **Open.** It captures hundreds of internal nets over JTAG — far beyond what LEDs or UART reach. Needs an X11 path into the VM. Until then, on-board debug is LEDs + UART |

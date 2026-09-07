@@ -221,6 +221,10 @@
             openfpgaloader-fork = openfpgaloader-src;
           };
 
+          # Phase-8 milestone M1 (parser unit alone on the FPGA): the model-driven ROM
+          # generator + drift guard, and the on-board flow_keys oracle. See §8.4.
+          fpga-m1 = import ./nix/fpga-m1.nix { inherit pkgs; };
+
           # Phase-8 toolchain: the proprietary Gowin EDA installers as store paths,
           # consumed by nix/gowin-vm.nix via `gowinInstall` in nix/gowin/local.nix.
           gowin-eda = import ./nix/gowin-eda.nix { inherit nixpkgs system; };
@@ -333,6 +337,10 @@
             fpga-flash = fpga.fpga-flash;
             fpga-build = fpga.fpga-build;
             fpga-uart = fpga.fpga-uart;
+            # Phase-8 milestone M1 (parser-on-ROM): ROM generator, sv2v flatten, oracle.
+            fpga-m1-roms = fpga-m1.fpga-m1-roms;
+            fpga-m1-rtl = fpga-m1.fpga-m1-rtl;
+            fpga-m1-check = fpga-m1.fpga-m1-check;
             # The pinned vendor examples + their prebuilt 6-LED bitstream.
             tang-mega-examples = fpga.tang-mega-examples;
             tang-mega-led-bitstream = fpga.tang-mega-led-bitstream;
@@ -574,6 +582,28 @@
           apps.fpga-uart = {
             type = "app";
             program = "${fpga.fpga-uart}/bin/fpga-uart";
+          };
+
+          # Milestone M1: generate the parser's on-chip ROM images from the golden
+          # model (or `-- --check` to drift-guard the committed set):
+          # `nix run .#fpga-m1-roms`. Build the design with `nix run .#fpga-build -- m1`.
+          apps.fpga-m1-roms = {
+            type = "app";
+            program = "${fpga-m1.fpga-m1-roms}/bin/fpga-m1-roms";
+          };
+
+          # Milestone M1: sv2v-flatten the parser RTL for GowinSynthesis:
+          # `nix run .#fpga-m1-rtl` -> build/fpga-m1-rtl/parser_m1.v.
+          apps.fpga-m1-rtl = {
+            type = "app";
+            program = "${fpga-m1.fpga-m1-rtl}/bin/fpga-m1-rtl";
+          };
+
+          # Milestone M1 oracle: read the board's UART and diff the streamed flow_keys
+          # against libparsermodel, byte-for-byte: `nix run .#fpga-m1-check`.
+          apps.fpga-m1-check = {
+            type = "app";
+            program = "${fpga-m1.fpga-m1-check}/bin/fpga-m1-check";
           };
 
           # Single-step a parse for debugging: `nix run .#pm-trace [-- x.pcap]`.

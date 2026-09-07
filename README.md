@@ -163,8 +163,14 @@ complete; phases are now being built in order.
   [docs/fpga-bringup-tang-mega-138k-pro.md](docs/fpga-bringup-tang-mega-138k-pro.md);
   progress, measurements and the challenge log are in
   [docs/phase-8-status.md](docs/phase-8-status.md).
-  Next is UART hello world; the known blocker beyond it is BRAM inference for CVA6's SRAM
-  macros ([docs/fpga-platform-assessment.md](docs/fpga-platform-assessment.md) §5a).
+  **M0 (bring-up) and M1 (parser unit alone) are done and verified on the board:** the
+  parser datapath parses a ROM-baked packet on the FPGA and streams a `flow_keys` that
+  matches `libparsermodel` byte-for-byte (`nix run .#fpga-m1-check`). GowinSynthesis
+  can't ingest our RTL directly (an `SP00018` front-end bug), so the flow is
+  sv2v → yosys flatten → Gowin (`nix run .#fpga-m1-rtl`). Next is M2 (host→FPGA packet
+  injection, blocked on the unknown UART RX pin); the known blocker beyond it is BRAM
+  inference for CVA6's SRAM macros
+  ([docs/fpga-platform-assessment.md](docs/fpga-platform-assessment.md) §5a).
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its
 testbenches in [`tb/`](tb/README.md) and the vector generator + formal harness in

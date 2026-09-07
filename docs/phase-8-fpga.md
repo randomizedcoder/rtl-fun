@@ -89,7 +89,7 @@ depends on CVA6 fitting, so a failure is always attributable.
 | M | Milestone | Proves | Main risk |
 |---|---|---|---|
 | **M0** | **Board bring-up** — program, LEDs, UART | ✅ **Done** 2026-09-07 | — |
-| **M1** | **Parser unit alone on the FPGA**, packet from on-chip ROM, `flow_keys` out over UART | *Our* RTL works on real silicon | Gowin SystemVerilog front end |
+| **M1** | **Parser unit alone on the FPGA**, packet from on-chip ROM, `flow_keys` out over UART | ✅ **Done** 2026-09-07 — on-board `flow_keys` == model | (Gowin SV front end — worked around via yosys, [status #13](phase-8-status.md)) |
 | **M2** | **Host → FPGA packet injection**, run the 22-case suite / corpus | The Phase-6 oracle works over a wire | No known UART RX pin |
 | **M3** | **Stock CVA6 on the FPGA**, boots, prints from software | The host core fits and runs | **BRAM inference** — the big one |
 | **M4** | **CVA6 + parser unit**, runs the Phase-7 slice from on-chip memory | The actual thesis, in hardware | Timing on the FU (G14) |
@@ -98,30 +98,28 @@ depends on CVA6 fitting, so a failure is always attributable.
 | **M7** | **The demo**: hp5 → Tang → hp5 with a parse-driven transformation | End to end | Checksums |
 | **M8** | **Phase 9 benchmark** vs `flow_dissector` | The project's claim | — |
 
-**M1 is the next real milestone** and is deliberately small: no CPU, no MAC, no
-DDR. It instantiates the existing parser datapath, feeds it one packet baked into
-a ROM, and prints the resulting `flow_keys` over the UART built in M0 — which the
-host diffs against `libparsermodel`. If that matches, our RTL is proven on silicon
-independently of every remaining unknown. Expect a few thousand LUTs against
-138,240 available.
+**M1 is ✅ done** (2026-09-07). It is deliberately small: no CPU, no MAC, no DDR. It
+instantiates the existing parser datapath (`tb/parser_top.sv`, a hardware `pm_run`),
+feeds it one eth/ipv4/tcp packet baked into on-chip ROM, and streams the resulting
+`flow_keys` over the M0 UART — which the host (`nix run .#fpga-m1-check`) diffs against
+`libparsermodel`. On the board it matched **byte-for-byte** (48 bytes + exit code), so
+our RTL is proven on silicon. **2751 LUT / 688 FF / 0 latches**, ~2% of the device. The
+full build path and challenge story are in [phase-8-status.md](phase-8-status.md).
 
-> **M1's gating question — can Gowin read our SystemVerilog?** Newly promising.
-> `set_option -verilog_std sysv2017` plus `add_file` *without* `-type` (so the
-> `.sv` extension decides) gets GowinSynthesis to **parse and compile
-> `parser_execute`** — packages, `always_comb`, packed structs and all. It then
-> stops inside synthesis with an internal `ERROR (SP00018) ... error bus name set`.
-> So the honest status is *partially working, specific bug*, not *unsupported*.
-> Reproduce with `nix run .#fpga-build -- sv-probe`. Falling back to sv2v is always
-> possible; the reason to push is that the sv2v flatten is what defeated BSRAM
-> inference in the Tier-2 CVA6 probe (§5a of the platform assessment), so a
-> hierarchical SystemVerilog path may quietly fix **M3's** main risk too.
+> **M1's gating question — can Gowin synthesize our RTL? Answered: not directly, but
+> yes via yosys.** GowinSynthesis V1.9.12.03 floods `ERROR (SP00018) ... error bus name
+> set` on our parser logic in **every** form tried — SystemVerilog (`set_option
+> -verilog_std sysv2017` + `add_file` without `-type`), sv2v-flattened plain Verilog,
+> and even `parser_execute` alone. It is a Gowin front-end bug, not a SystemVerilog-
+> surface problem (reproduce: `nix run .#fpga-build -- sv-probe`). The route that works
+> is **sv2v → yosys `flatten` → GowinSynthesis** (`nix run .#fpga-m1-rtl`), the repo's
+> `flat_synth.v` technique. Caveat for **M3**: a full yosys flatten is exactly what
+> defeats BSRAM inference at CVA6 scale ([§5a](fpga-platform-assessment.md)), so M3 will
+> want a *hierarchical* yosys pass, or a fix/upgrade of the Gowin front end.
 >
-> The same probe surfaced `WARN (EX2420): Latch inferred for net 'src[63]'` in
-> `parser_execute.sv:323`, inside an `always_comb`. Verilator `-Wall` and the
-> SymbiYosys proofs are clean on this module, so it is most likely a front-end
-> artifact around a struct-returning function — but it is **unconfirmed**, and a
-> latch in synthesized hardware is a real bug class. Resolve it during M1 rather
-> than carrying it.
+> The same push resolved the old latch note (`EX2420` on `src[63]` etc.): they were
+> false latches from undefaulted `always_comb` temporaries; defaulting them cleared
+> every parser latch warning without changing behaviour (Verilator/formal stay green).
 
 **M2 is blocked on a return path.** `uart_tx` is P15; no vendor example we have
 drives an RX pin, so the link is transmit-only today. Either find RX in the board

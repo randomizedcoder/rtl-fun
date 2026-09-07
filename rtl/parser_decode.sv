@@ -52,9 +52,13 @@ module parser_decode
     logic [1:0] next_pos;
 
     // defaults: a NOP-ish micro-op; illegal unless a group claims the word.
+    // next_pos is defaulted so GowinSynthesis does not infer a false latch on the
+    // paths that don't assign it (see rtl/parser_execute.sv for the same class of
+    // fix, and docs/phase-8-status.md challenges #13/#14). Verilator/formal clean.
     m         = '0;
     m.op      = OP_INITPARSER;
     illegal_o = 1'b1;
+    next_pos  = '0;
 
     if (opcode == OPCODE_C0) begin
       unique case (fnc4)
