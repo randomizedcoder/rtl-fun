@@ -29,7 +29,15 @@ module parser_top
     output logic [7:0]          meta_rdata_o,
     output logic                done_o,
     output logic signed [31:0]  code_o,
-    output logic                busy_o
+    output logic                busy_o,
+    // Packet-buffer write port (host injection, Phase-8 M2). Tie off (all zero) for
+    // ROM-only use (M1, sim) — then the packet comes from PKT_FILE via $readmemh and
+    // this port is inert, exactly as before it existed. m2_top drives it to load a
+    // packet received over UART while the core is held in reset.
+    input  logic                 pkt_wr_en_i,
+    input  logic [PKT_OFF_W-1:0] pkt_wr_addr_i,
+    input  logic [7:0]           pkt_wr_be_i,
+    input  logic [63:0]          pkt_wr_data_i
 );
 
   // ---- program ROM + metadata RAM (ROM filled from PROG_FILE in sim) ----
@@ -78,9 +86,12 @@ module parser_top
   // ---- leaf units ----
   logic [PKT_OFF_W-1:0] mem_off;
   logic [63:0]          mem_win_be;
-  // packet comes from $readmemh(PKT_FILE); the MMIO write port is unused here.
+  // Packet source: $readmemh(PKT_FILE) for ROM-only use, or the write port for M2
+  // host injection (pkt_wr_*). The two never conflict — injection holds the core in
+  // reset and PKT_FILE is "" in the M2 build.
   parser_pktbuf #(.INIT_FILE(PKT_FILE)) u_pktbuf (
-      .clk_i, .wr_en_i(1'b0), .wr_addr_i('0), .wr_be_i('0), .wr_data_i('0),
+      .clk_i, .wr_en_i(pkt_wr_en_i), .wr_addr_i(pkt_wr_addr_i),
+      .wr_be_i(pkt_wr_be_i), .wr_data_i(pkt_wr_data_i),
       .req_off_i(mem_off), .win_be_o(mem_win_be));
 
   logic [3:0]  cam_share;

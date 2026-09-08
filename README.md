@@ -163,13 +163,15 @@ complete; phases are now being built in order.
   [docs/fpga-bringup-tang-mega-138k-pro.md](docs/fpga-bringup-tang-mega-138k-pro.md);
   progress, measurements and the challenge log are in
   [docs/phase-8-status.md](docs/phase-8-status.md).
-  **M0 (bring-up) and M1 (parser unit alone) are done and verified on the board:** the
-  parser datapath parses a ROM-baked packet on the FPGA and streams a `flow_keys` that
-  matches `libparsermodel` byte-for-byte (`nix run .#fpga-m1-check`). GowinSynthesis
-  can't ingest our RTL directly (an `SP00018` front-end bug), so the flow is
-  sv2v → yosys flatten → Gowin (`nix run .#fpga-m1-rtl`). Next is M2 (host→FPGA packet
-  injection, blocked on the unknown UART RX pin); the known blocker beyond it is BRAM
-  inference for CVA6's SRAM macros
+  **M0 (bring-up), M1 (parser unit alone) and M2 (host packet injection) are done and
+  verified on the board:** the parser datapath runs on the FPGA and produces `flow_keys`
+  that match `libparsermodel` byte-for-byte — M1 from a ROM-baked packet
+  (`nix run .#fpga-m1-check`), M2 for the **whole 22-case suite injected over UART**
+  (`nix run .#fpga-m2-inject -- --suite`, 22/22). GowinSynthesis can't ingest our RTL
+  directly (an `SP00018` front-end bug), so the flow is sv2v → yosys flatten → Gowin
+  (`nix run .#fpga-m{1,2}-rtl`). The debug UART's RX pin is CPU-locked, so M2 injects over
+  an external 3.3 V USB-UART on PMOD2. Next is **M3 (stock CVA6 on the FPGA)**; its known
+  blocker is BRAM inference for CVA6's SRAM macros
   ([docs/fpga-platform-assessment.md](docs/fpga-platform-assessment.md) §5a).
 
 The parser unit now exists as synthesizable RTL ([`rtl/`](rtl/README.md)), with its

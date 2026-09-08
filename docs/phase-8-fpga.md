@@ -90,7 +90,7 @@ depends on CVA6 fitting, so a failure is always attributable.
 |---|---|---|---|
 | **M0** | **Board bring-up** — program, LEDs, UART | ✅ **Done** 2026-09-07 | — |
 | **M1** | **Parser unit alone on the FPGA**, packet from on-chip ROM, `flow_keys` out over UART | ✅ **Done** 2026-09-07 — on-board `flow_keys` == model | (Gowin SV front end — worked around via yosys, [status #13](phase-8-status.md)) |
-| **M2** | **Host → FPGA packet injection**, run the 22-case suite / corpus | The Phase-6 oracle works over a wire | No known UART RX pin |
+| **M2** | **Host → FPGA packet injection**, run the 22-case suite / corpus | ✅ **Done** 2026-09-07 — all 22 cases parse on-board, `flow_keys` + code == model | (debug UART RX is CPU-locked — used an external USB-UART on PMOD2, [status #15](phase-8-status.md)) |
 | **M3** | **Stock CVA6 on the FPGA**, boots, prints from software | The host core fits and runs | **BRAM inference** — the big one |
 | **M4** | **CVA6 + parser unit**, runs the Phase-7 slice from on-chip memory | The actual thesis, in hardware | Timing on the FU (G14) |
 | **M5** | **Cycle counters** → cycles/packet | The headline metric | — |
@@ -121,11 +121,22 @@ full build path and challenge story are in [phase-8-status.md](phase-8-status.md
 > false latches from undefaulted `always_comb` temporaries; defaulting them cleared
 > every parser latch warning without changing behaviour (Verilator/formal stay green).
 
-**M2 is blocked on a return path.** `uart_tx` is P15; no vendor example we have
-drives an RX pin, so the link is transmit-only today. Either find RX in the board
-schematic, or inject over JTAG instead (openFPGALoader only programs, so that
-means OpenOCD or a user-JTAG register). Until then M1 can still run from a
-ROM-baked packet.
+**M2 is ✅ done** (2026-09-07). The whole Phase-6 directed suite now runs on real
+silicon over a wire: the host frames each packet, sends it to the FPGA over UART,
+`m2_top` loads it into the packet buffer (`parser_pktbuf`'s write port), runs the
+*same* baked parse graph (program + CAM are identical across all 22 cases; only the
+packet differs), and streams the resulting `flow_keys` back — which `nix run
+.#fpga-m2-inject -- --suite` diffs against `libparsermodel`. **All 22 cases matched**
+(`flow_keys` + exit code, byte-for-byte). **5306 LUT/ALU / 2831 FF / 0 latches**, ~3.8%
+of the device.
+
+> **M2's return path — the debug UART is fabric-TX-only.** The USB debug UART's RX net
+> is ball **N16**, but N16 is a **dedicated CPU pin** GowinSynthesis PnR refuses
+> (`PR2017`); it is wired to the hardened Andes CPU, not the fabric. (The AE350 demo's
+> "UART2" U16/V16 are `SDRAM_D0/D1` on the Pro — not an alternative.) So M2 uses an
+> external **3.3 V USB-UART adapter on PMOD2** (`uart_rx` C21, `uart_tx` B20),
+> loopback-confirmed first (`m2loop` + `fpga-m2-loopback-check`). Full story in
+> [phase-8-status.md #15](phase-8-status.md) and the [board manual](fpga-bringup-tang-mega-138k-pro.md).
 
 **M3 is the expensive one** and the only milestone likely to force a fallback: if
 CVA6 cannot be made to fit with BSRAM properly inferred, the documented options are

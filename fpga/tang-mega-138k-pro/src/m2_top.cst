@@ -1,0 +1,39 @@
+//
+// m2_top.cst — physical constraints for Phase-8 M2 (host packet injection).
+//
+// UART over an EXTERNAL 3.3 V USB-TTL adapter on PMOD2 (bank 5) — the USB debug UART's
+// RX (N16) is a dedicated CPU pin PnR refuses. Pins validated by the m2loop loopback:
+//   uart_rx_pin  C21  PMOD2_IO0   <- adapter TX   (host -> FPGA)
+//   uart_tx_pin  B20  PMOD2_IO1   -> adapter RX   (FPGA -> host)
+//   GND          PMOD2 GND        <- adapter GND   (VCC left disconnected)
+//
+// !! The bank is 3.3 V. The adapter MUST be on its 3.3 V setting. !!
+//
+// PMOD2 is the header at the top of the card, the one of the three closest to the DC
+// power connector (just left of MIPI-CSI0); the board silkscreens each pin's ball name.
+//
+
+// 50 MHz system clock.
+IO_LOC "clk" P16;
+IO_PORT "clk" PULL_MODE=NONE DRIVE=OFF BANK_VCCIO=3.3;
+
+// UART over the external adapter on PMOD2 (bank 5).
+IO_LOC "uart_rx_pin" C21;
+IO_PORT "uart_rx_pin" PULL_MODE=UP BANK_VCCIO=3.3;
+IO_LOC "uart_tx_pin" B20;
+IO_PORT "uart_tx_pin" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+
+// Six user LEDs, active low.
+IO_LOC "led[5]" N23;
+IO_LOC "led[4]" N21;
+IO_LOC "led[3]" M25;
+IO_LOC "led[2]" L20;
+IO_LOC "led[1]" R26;
+IO_LOC "led[0]" J14;
+
+IO_PORT "led[5]" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_PORT "led[4]" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_PORT "led[3]" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_PORT "led[2]" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_PORT "led[1]" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;
+IO_PORT "led[0]" PULL_MODE=NONE DRIVE=8 BANK_VCCIO=3.3;

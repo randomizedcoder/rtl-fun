@@ -77,6 +77,14 @@
         nix run .#fpga-build -- m1  synthesize the parser-on-ROM design
         nix run .#fpga-load -- build/fpga-m1/impl/pnr   program SRAM
         nix run .#fpga-m1-check   read the board UART, diff flow_keys vs libparsermodel
+      M2 (host <-> FPGA over an external 3.3V USB-UART on PMOD2 — debug UART is TX-only):
+        nix run .#fpga-build -- m2loop                    build the UART loopback bitstream
+        nix run .#fpga-load -- build/fpga-m2loop/impl/pnr   program SRAM
+        FPGA_UART=/dev/ttyUSB2 nix run .#fpga-m2-loopback-check   confirm the adapter round-trips
+        nix run .#fpga-m2-rtl     sv2v-flatten m2_top for GowinSynthesis
+        nix run .#fpga-build -- m2   synthesize the injection design
+        nix run .#fpga-load -- build/fpga-m2/impl/pnr   program SRAM
+        FPGA_UART=/dev/ttyUSB2 nix run .#fpga-m2-inject [-- --suite]   inject packets, diff vs model
       Guide: docs/fpga-bringup-tang-mega-138k-pro.md · status: docs/phase-8-status.md
 
     Meta

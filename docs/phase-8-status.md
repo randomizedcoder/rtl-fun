@@ -28,7 +28,7 @@ Plan and per-milestone risks: [phase-8-fpga.md §8.4](phase-8-fpga.md#84-increme
 |---|---|---|
 | **M0** | Board bring-up — program, LEDs, UART | ✅ **Done** 2026-09-07 |
 | **M1** | Parser unit alone on the FPGA | ✅ **Done** 2026-09-07 — `flow_keys` from ROM-baked packet == `libparsermodel` on the board (see [M1 log](#m1--parser-unit-alone-done)) |
-| **M2** | Host → FPGA packet injection | ⏳ Blocked: no known UART RX pin |
+| **M2** | Host → FPGA packet injection | ✅ **Done** 2026-09-07 — all 22 suite cases injected over UART parse on-board, `flow_keys` + code == `libparsermodel` (see [M2 log](#m2--host-packet-injection-done)) |
 | **M3** | Stock CVA6 on the FPGA | ⏳ Not started (BRAM inference is the risk) |
 | **M4** | CVA6 + parser unit | ⏳ Not started |
 | **M5** | Cycle counters → cycles/packet | ⏳ Not started |
@@ -244,6 +244,49 @@ module, and for CVA6-scale memories that is the flatten that defeats BSRAM infer
 ([assessment §5a](fpga-platform-assessment.md)) — so M3 will likely need a *hierarchical*
 yosys pass (keep RAMs as memory, avoid full flatten) rather than this exact recipe.
 
+## M2 — host packet injection (done)
+
+**2026-09-07 — ✅ the whole Phase-6 suite runs on real silicon over a wire.** M1 baked
+one packet into ROM; M2 receives an *arbitrary* packet from the host over UART, loads it
+into the packet buffer, runs the same baked parse graph, and streams `flow_keys` back —
+so the host can drive the entire directed suite and diff every result against the model:
+
+```
+$ FPGA_UART=/dev/ttyUSB2 nix run .#fpga-m2-inject -- --suite
+=== injecting 22 packet(s) on /dev/ttyUSB2 at 115200 ===
+  01-eth-ipv4-tcp            PASS  code=-4
+  ... (02–21) ...
+  22-pkt-1byte               PASS  code=-14
+--------------------------------------------------
+M2 inject: 22 case(s), 0 failure(s)
+```
+
+All 22 cases — v4/v6, VLAN/QinQ, IPv6 ext-headers, the negative/error cases, and the
+boundary cases (256 B, over-buffer, 1-byte) — parsed on the FPGA with `flow_keys` **and**
+exit code matching `libparsermodel` byte-for-byte. This is the Phase-6 oracle with the
+transport swapped from Verilator DPI to a real serial link. Utilization
+**5306 LUT/ALU (5142 LUT + 164 ALU) / 2831 FF / 0 latches**, ~3.8 % of the device.
+
+**Design.** `m2_top` (`fpga/.../src/m2_top.sv`) wraps the verified `parser_top` and adds
+a `uart_rx` receiver + a small FSM. Wire framing host→FPGA is
+`0x7E plen_hi plen_lo nbuf_hi nbuf_lo <nbuf bytes>`; the FSM holds the parser core in
+reset while it writes the bytes into `parser_pktbuf` (whose write port is independent of
+`rst_ni`), releases reset to run, then emits one `FK …` reply line (identical to M1's, so
+the parse/oracle is shared). Program + CAM stay baked from ROM — they are **identical
+across all 22 cases** (verified: 1 unique `program.hex`/`cam.hex`, 20 unique packets), so
+only the packet needs injecting. Build path: `.#fpga-m1-roms` → `.#fpga-m2-rtl` →
+`.#fpga-build -- m2` → `.#fpga-load` → `.#fpga-m2-inject`.
+
+**The one behaviour-neutral RTL change:** `parser_top` gained 4 tie-off-able input ports
+exposing `parser_pktbuf`'s existing write port (`pkt_wr_*`). ROM-only instantiations (M1,
+the Verilator smoke tb) tie them to 0 — identical to the previous internal tie-off — so
+sim/suite/formal stay 22/22 green.
+
+**Return path — see challenge #15.** The USB debug UART is fabric-TX-only (its RX pin N16
+is CPU-dedicated), so M2 uses an external 3.3 V USB-UART adapter on **PMOD2** (`uart_rx`
+C21, `uart_tx` B20), confirmed first with a raw loopback (`m2loop` +
+`.#fpga-m2-loopback-check`, 256/256 bytes echoed).
+
 ## Challenges and how they were resolved
 
 Every one of these cost real time. Symptom first, because that is how you will
@@ -272,7 +315,7 @@ meet them again.
 | # | Problem | Status |
 |---|---|---|
 | 13 | GowinSynthesis floods `ERROR (SP00018) ... error bus name set` during synthesis of the parser RTL | **Open (worked around for M1).** *Not* the latches (#14) and *not* packed structs: it fires on `parser_execute` alone in SV after every latch was cleared, on the full M1 in SV, **and** on the full M1 as sv2v-flattened plain Verilog. Every module compiles first; the flood comes at elaboration with no actionable message — a GowinSynthesis V1.9.12.03 front-end bug on our parser logic, independent of the SV surface. Reproduce: `nix run .#fpga-build -- sv-probe`. **Workaround (M1):** sv2v → yosys `flatten` → Gowin (`nix run .#fpga-m1-rtl`) re-emits Verilog Gowin accepts. Still worth a real fix (a Gowin-version bump, or isolating the exact construct) before M3, since flatten hurts BSRAM inference at CVA6 scale |
-| 15 | UART **RX** pin (host → FPGA) unknown | **Open.** `uart_tx` is P15; no vendor example we have drives a receive pin, so the link is transmit-only. Blocks M2. Either find RX in the board schematic, or inject over JTAG (needs OpenOCD or a user-JTAG register — openFPGALoader only programs) |
+| 15 | UART **RX** pin (host → FPGA) unknown | **Located, but the debug UART is fabric-TX-only** (2026-09-07). The schematic (`downloads/TANG_MEGA-138K_Pro-Dock-4071f_Schematics.pdf`, USB-JTAG&UART sheet) puts `DBG_UART.RX` on ball **N16**, via R95 (0 Ω) to the debugger's TX (`BL616_TX`); the debugger is a **BL616** MCU emulating the FT2232 the `0403:6010` reports. **But N16 is a dedicated CPU pin:** a loopback bitstream (`m2loop`) constraining `uart_rx` to N16 fails PnR with `ERROR (PR2017) ... the location is a dedicated pin (CPU)` — the debug UART's RX is wired to the hardened Andes CPU, not the fabric. The AE350 demo's U16/V16 "UART2" are `SDRAM_D0/D1` on the Pro, so not an alternative. **Resolved:** M2 uses an **external 3.3 V USB-UART adapter on PMOD2** — `uart_rx`=C21 (PMOD2_IO0), `uart_tx`=B20 (PMOD2_IO1), on its own `/dev/ttyUSB*`. Confirmed by a raw loopback (`m2loop`, 256/256 bytes) then the full injection suite (22/22). Recorded in the [board manual](fpga-bringup-tang-mega-138k-pro.md) pin map |
 | 16 | **BRAM inference** for CVA6's SRAM macros onto Gowin BSRAM | **Open.** The known headline risk for M3; see [assessment §5a](fpga-platform-assessment.md). May be reduced or removed by #13 |
 | 17 | **GAO** (Gowin's on-chip logic analyzer) is GUI-bound, our microVM is headless | **Open.** It captures hundreds of internal nets over JTAG — far beyond what LEDs or UART reach. Needs an X11 path into the VM. Until then, on-board debug is LEDs + UART |
 
