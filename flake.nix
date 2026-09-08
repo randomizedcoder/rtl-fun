@@ -224,6 +224,7 @@
           # Phase-8 milestone M1 (parser unit alone on the FPGA): the model-driven ROM
           # generator + drift guard, and the on-board flow_keys oracle. See §8.4.
           fpga-m1 = import ./nix/fpga-m1.nix { inherit pkgs; };
+          fpga-m2 = import ./nix/fpga-m2.nix { inherit pkgs; };
 
           # Phase-8 toolchain: the proprietary Gowin EDA installers as store paths,
           # consumed by nix/gowin-vm.nix via `gowinInstall` in nix/gowin/local.nix.
@@ -341,6 +342,9 @@
             fpga-m1-roms = fpga-m1.fpga-m1-roms;
             fpga-m1-rtl = fpga-m1.fpga-m1-rtl;
             fpga-m1-check = fpga-m1.fpga-m1-check;
+            fpga-m2-loopback-check = fpga-m2.fpga-m2-loopback-check;
+            fpga-m2-rtl = fpga-m2.fpga-m2-rtl;
+            fpga-m2-inject = fpga-m2.fpga-m2-inject;
             # The pinned vendor examples + their prebuilt 6-LED bitstream.
             tang-mega-examples = fpga.tang-mega-examples;
             tang-mega-led-bitstream = fpga.tang-mega-led-bitstream;
@@ -604,6 +608,27 @@
           apps.fpga-m1-check = {
             type = "app";
             program = "${fpga-m1.fpga-m1-check}/bin/fpga-m1-check";
+          };
+
+          # Milestone M2 rung 0: confirm the external USB-UART adapter on PMOD2 by
+          # echoing a byte pattern through the m2loop bitstream:
+          #   FPGA_UART=/dev/ttyUSB2 nix run .#fpga-m2-loopback-check
+          apps.fpga-m2-loopback-check = {
+            type = "app";
+            program = "${fpga-m2.fpga-m2-loopback-check}/bin/fpga-m2-loopback-check";
+          };
+
+          # M2 RTL flatten (sv2v -> yosys) -> build/fpga-m2-rtl/parser_m2.v.
+          apps.fpga-m2-rtl = {
+            type = "app";
+            program = "${fpga-m2.fpga-m2-rtl}/bin/fpga-m2-rtl";
+          };
+
+          # M2 host oracle: inject packets over UART, diff flow_keys vs the model.
+          #   FPGA_UART=/dev/ttyUSB2 nix run .#fpga-m2-inject [-- --suite]
+          apps.fpga-m2-inject = {
+            type = "app";
+            program = "${fpga-m2.fpga-m2-inject}/bin/fpga-m2-inject";
           };
 
           # Single-step a parse for debugging: `nix run .#pm-trace [-- x.pcap]`.

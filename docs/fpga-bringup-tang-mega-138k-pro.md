@@ -43,9 +43,23 @@ the part.
 |---|---|---|
 | `clk` | **P16** | **50 MHz** (vendor `led.v` divides by `50000000`) |
 | `led[5:0]` | **N23, N21, M25, L20, R26, J14** | **Active low** (`assign led = ~led_reg`) |
-| `uart_tx` | **P15** | FPGA → debugger. RX pin **TBD** — not in any example we have |
+| `uart_tx` | **P15** | FPGA → debugger. `DBG_UART.TX` → R128 (0 Ω) → `BL616_RX`. Confirmed by M0. |
+| `uart_rx` | **N16** (unusable) | debugger → FPGA. `DBG_UART.RX` → R95 (0 Ω) → `BL616_TX`, but **N16 is a dedicated CPU pin** — GowinSynthesis PnR rejects it as fabric I/O (`PR2017 ... dedicated pin (CPU)`). So the debug UART is **fabric-TX-only**; the RX side is wired to the hardened Andes CPU, not the FPGA fabric. See M2 notes. |
 | `rst` | U4 | active-high in `led/src/top.cst` |
 | `rst_n` | K16 | active-low in `pro_ddr_test/src/pro.cst` — a **different** button |
+| **M2 UART rx** | **C21** (PMOD2_IO0) | host → FPGA via an **external 3.3 V USB-TTL adapter** (the debug UART's RX is CPU-locked, above). Loopback-confirmed on the board 2026-09-07. |
+| **M2 UART tx** | **B20** (PMOD2_IO1) | FPGA → host on the same adapter. |
+
+> **External M2 UART — how to wire it.** The USB debug UART is transmit-only from
+> fabric (N16 above), so host→FPGA injection uses a small 3.3 V USB-TTL serial adapter
+> on **PMOD2**. The board silkscreens each PMOD pin with its FPGA **ball name**, so you
+> wire by label, not pin number. **PMOD2 is the header at the top of the card, the one
+> of the three closest to the DC power connector** (just left of `MIPI-CSI0`). Connect:
+> adapter **TX → `C21`**, adapter **RX → `B20`**, adapter **GND → a `GND`** pin; leave
+> **VCC/3V3 unconnected** and set the adapter's voltage switch to **3.3 V** (5 V or true
+> RS-232 damages the FPGA). It enumerates as its own `/dev/ttyUSB*` (e.g. `ttyUSB2`).
+> Confirm the link with `FPGA_UART=/dev/ttyUSB2 nix run .#fpga-m2-loopback-check` while
+> the `m2loop` bitstream is loaded.
 
 > **Correction to the vendor wiki.** Its peripheral table lists the user LEDs as
 > "6x WS2812 addressable RGB". They are not — they are six plain GPIO pins, one
@@ -345,8 +359,18 @@ Progress, measurements and the challenge log live in
 
 ## Open questions
 
-- **UART RX pin.** `uart_tx` is P15; no vendor example we have drives RX. Needed
-  for the hello-world step. **TBD** — likely needs the board schematic.
+- **UART RX pin — located but NOT fabric-usable** (2026-09-07). The board schematic
+  (`downloads/TANG_MEGA-138K_Pro-Dock-4071f_Schematics.pdf`, USB-JTAG&UART sheet)
+  shows `DBG_UART.RX` on ball **N16**, wired via R95 (0 Ω) to the debugger's TX
+  (`BL616_TX`). The debugger is a **BL616** RISC-V MCU (it emulates the FT2232 the
+  `0403:6010` VID/PID reports), interface B = the UART on `/dev/ttyUSB1`. **But N16 is
+  a dedicated CPU pin:** a loopback bitstream constraining `uart_rx` to N16 fails PnR
+  with `PR2017 ... the location is a dedicated pin (CPU)` (build `m2loop`, 2026-09-07).
+  So the USB debug UART is **transmit-only from the FPGA fabric** — its RX is routed to
+  the hardened Andes CPU, not the fabric. The AE350 demo's "UART2" pins (U16/V16) are
+  **not** an alternative: on the Pro they are `SDRAM_D0/D1` (bank 2). Host→FPGA therefore
+  needs one of: **JTAG injection** (user-JTAG register), an **external USB-UART dongle on
+  a free PMOD pin**, or re-scoping M2 to a **ROM-baked whole-suite** run (no injection).
 - **Which reset button.** U4 (active-high) vs K16 (active-low). **TBD.**
 - **GAO** (Gowin Analyzer Oscilloscope, the on-chip logic analyzer) is the real
   hardware debugger for this part, but it is GUI-bound (`gw_ide`) and our microVM
@@ -536,11 +560,12 @@ exists and is verified. See [Demo and test options](#demo-and-test-options-sketc
 
 Two things still open before that:
 
-- **The UART RX pin (host → FPGA) is unknown.** `uart_tx` is P15, but no vendor
-  example we have drives a receive pin, so today the link is transmit-only.
-  Injecting packets needs a return path — either find RX in the board schematic,
-  or push frames over **JTAG** instead (openFPGALoader programs but does not do
-  general JTAG transfers, so this likely means OpenOCD or a user-JTAG register).
+- **The USB debug UART is fabric-TX-only.** Its RX net is on N16 (schematic), but N16
+  is a dedicated CPU pin the FPGA fabric cannot use (see the pin map and Open questions
+  above). So host→FPGA over `/dev/ttyUSB1` is not available to our fabric design. The
+  return path M2 needs is therefore one of: JTAG injection (user-JTAG register over the
+  ttyUSB0 side), an external USB-UART dongle wired to a free PMOD pin, or re-scoping M2
+  to run the whole 22-case suite from on-chip ROM (no host injection at all).
 - **A bigger design.** `hello_top` is 197 LUT. CVA6 plus the parser is four orders
   of magnitude larger, and the known blocker is BRAM inference — mapping CVA6's
   SRAM macros onto Gowin BSRAM (see

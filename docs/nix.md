@@ -53,7 +53,8 @@ nix/
   model.nix                   # golden-model apps: model-test, model-analyze, model-fuzz, pm-trace
   rtl.nix                     # parser-unit sim/lint/analyze/formal apps (Phase 5/6)
   fpga.nix                    # Phase-8 board bring-up: fpga-detect/load/flash/build/uart + vendor bitstream
-  fpga-m1.nix                 # Phase-8 M1: fpga-m1-roms (model→ROM + drift guard), fpga-m1-check (UART oracle)
+  fpga-m1.nix                 # Phase-8 M1: fpga-m1-roms (model→ROM + drift guard), fpga-m1-rtl (sv2v flatten), fpga-m1-check (UART oracle)
+  fpga-m2.nix                 # Phase-8 M2: fpga-m2-loopback-check, fpga-m2-rtl (sv2v flatten), fpga-m2-inject (UART packet injection oracle)
   devshell.nix                # mkShell: tools + CVA6_SRC/CV_SW_PREFIX + banner + rtl-help
   shell-functions/
     help.nix                  # the rtl-help function
@@ -77,7 +78,11 @@ scripts/
   parser-wrap-test.sh         # cva6_parser_wrap commit/flush state testbench (I1/G2)
   parser-coverage.sh          # Verilator line/toggle + functional cover-point closure (G12, N7)
   fpga-m1-roms.sh             # gen the M1 on-chip ROM images from the model (--check = drift guard) (Phase 8)
+  fpga-m1-rtl.sh              # sv2v→yosys flatten the M1 RTL for GowinSynthesis (Phase 8)
   fpga-m1-check.sh            # read the board UART, diff streamed flow_keys vs libparsermodel (Phase 8)
+  fpga-m2-loopback-check.sh   # M2: echo a byte pattern through the external PMOD2 UART to confirm it (Phase 8)
+  fpga-m2-rtl.sh              # sv2v→yosys flatten the M2 injection RTL (m2_top + uart_rx/tx) (Phase 8)
+  fpga-m2-inject.sh           # M2: frame packets over UART, diff returned flow_keys vs the model (--suite = all 22) (Phase 8)
 ```
 
 ## Runnable apps (`nix run .#<name>`)

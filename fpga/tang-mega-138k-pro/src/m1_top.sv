@@ -69,7 +69,12 @@ module m1_top (
       .meta_rdata_o(meta_rdata),
       .done_o      (done),
       .code_o      (code),
-      .busy_o      (/* unused */)
+      .busy_o      (/* unused */),
+      // ROM-only: packet from PKT_FILE, injection write port tied off.
+      .pkt_wr_en_i  (1'b0),
+      .pkt_wr_addr_i('0),
+      .pkt_wr_be_i  (8'h0),
+      .pkt_wr_data_i(64'h0)
   );
 
   // latch the exit code once the parse finishes (it is sticky, but latch for LEDs)
