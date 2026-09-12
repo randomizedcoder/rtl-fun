@@ -55,6 +55,8 @@ nix/
   fpga.nix                    # Phase-8 board bring-up: fpga-detect/load/flash/build/uart + vendor bitstream
   fpga-m1.nix                 # Phase-8 M1: fpga-m1-roms (model→ROM + drift guard), fpga-m1-rtl (sv2v flatten), fpga-m1-check (UART oracle)
   fpga-m2.nix                 # Phase-8 M2: fpga-m2-loopback-check, fpga-m2-rtl (sv2v flatten), fpga-m2-inject (UART packet injection oracle)
+  fpga-m3.nix                 # Phase-8 M3: fpga-m3-core-rtl (stock CVA6 → Gowin input, hierarchy KEPT for BSRAM inference)
+  fpga-m3-xilinx.nix          # Phase-8 M3a pivot: fpga-m3-xilinx-fit (stock CVA6 fit+route on xc7k325t via openXC7 — yosys+nextpnr-xilinx, no Vivado/board)
   devshell.nix                # mkShell: tools + CVA6_SRC/CV_SW_PREFIX + banner + rtl-help
   shell-functions/
     help.nix                  # the rtl-help function
@@ -83,6 +85,8 @@ scripts/
   fpga-m2-loopback-check.sh   # M2: echo a byte pattern through the external PMOD2 UART to confirm it (Phase 8)
   fpga-m2-rtl.sh              # sv2v→yosys flatten the M2 injection RTL (m2_top + uart_rx/tx) (Phase 8)
   fpga-m2-inject.sh           # M2: frame packets over UART, diff returned flow_keys vs the model (--suite = all 22) (Phase 8)
+  fpga-m3-core-rtl.sh         # M3a: resolve stock-CVA6 flist + sv2v (NO flatten) so Gowin infers BSRAM; s0/s1/s2 ladder (Phase 8)
+  fpga-m3-xilinx-fit.sh       # M3a pivot: openXC7 fit+route of stock CVA6 on xc7k325t (chipdb/synth/pnr stages) (Phase 8)
 ```
 
 ## Runnable apps (`nix run .#<name>`)

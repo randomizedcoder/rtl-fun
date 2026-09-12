@@ -225,6 +225,12 @@
           # generator + drift guard, and the on-board flow_keys oracle. See §8.4.
           fpga-m1 = import ./nix/fpga-m1.nix { inherit pkgs; };
           fpga-m2 = import ./nix/fpga-m2.nix { inherit pkgs; };
+          # Phase-8 milestone M3 (stock CVA6 on the FPGA): the CVA6 synth-input prep
+          # (strategy ladder, hierarchy preserved for BSRAM inference). See §8.4 M3a.
+          fpga-m3 = import ./nix/fpga-m3.nix { inherit pkgs cva6-src; };
+          # M3a verify-before-buy: open-source (openXC7) fit + place-and-route of stock
+          # CVA6 on Xilinx 7-series (xc7k325t / Genesys 2) — the pivot check. See §8.4 M3a.
+          fpga-m3-xilinx = import ./nix/fpga-m3-xilinx.nix { inherit pkgs; };
 
           # Phase-8 toolchain: the proprietary Gowin EDA installers as store paths,
           # consumed by nix/gowin-vm.nix via `gowinInstall` in nix/gowin/local.nix.
@@ -345,6 +351,9 @@
             fpga-m2-loopback-check = fpga-m2.fpga-m2-loopback-check;
             fpga-m2-rtl = fpga-m2.fpga-m2-rtl;
             fpga-m2-inject = fpga-m2.fpga-m2-inject;
+            # Phase-8 milestone M3a (stock CVA6 fit check): CVA6 synth-input prep.
+            fpga-m3-core-rtl = fpga-m3.fpga-m3-core-rtl;
+            fpga-m3-xilinx-fit = fpga-m3-xilinx.fpga-m3-xilinx-fit;
             # The pinned vendor examples + their prebuilt 6-LED bitstream.
             tang-mega-examples = fpga.tang-mega-examples;
             tang-mega-led-bitstream = fpga.tang-mega-led-bitstream;
@@ -629,6 +638,23 @@
           apps.fpga-m2-inject = {
             type = "app";
             program = "${fpga-m2.fpga-m2-inject}/bin/fpga-m2-inject";
+          };
+
+          # Milestone M3a: prepare the stock-CVA6 synth input (hierarchy preserved so
+          # GowinSynthesis can infer BSRAM). Strategy ladder s0|s1|s2:
+          #   nix run .#fpga-m3-core-rtl -- s0   then   nix run .#fpga-build -- m3-core
+          apps.fpga-m3-core-rtl = {
+            type = "app";
+            program = "${fpga-m3.fpga-m3-core-rtl}/bin/fpga-m3-core-rtl";
+          };
+
+          # M3a open-source verify-before-buy: stock CVA6 fit + place-and-route on
+          # xc7k325t (Genesys 2) via yosys synth_xilinx + nextpnr-xilinx, no Vivado/board.
+          #   nix run .#fpga-m3-xilinx-fit             (chipdb -> synth -> pnr -> verdict)
+          #   nix run .#fpga-m3-xilinx-fit -- synth    (just the LUT6/FF/DSP/BRAM count)
+          apps.fpga-m3-xilinx-fit = {
+            type = "app";
+            program = "${fpga-m3-xilinx.fpga-m3-xilinx-fit}/bin/fpga-m3-xilinx-fit";
           };
 
           # Single-step a parse for debugging: `nix run .#pm-trace [-- x.pcap]`.

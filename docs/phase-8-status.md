@@ -29,7 +29,7 @@ Plan and per-milestone risks: [phase-8-fpga.md §8.4](phase-8-fpga.md#84-increme
 | **M0** | Board bring-up — program, LEDs, UART | ✅ **Done** 2026-09-07 |
 | **M1** | Parser unit alone on the FPGA | ✅ **Done** 2026-09-07 — `flow_keys` from ROM-baked packet == `libparsermodel` on the board (see [M1 log](#m1--parser-unit-alone-done)) |
 | **M2** | Host → FPGA packet injection | ✅ **Done** 2026-09-07 — all 22 suite cases injected over UART parse on-board, `flow_keys` + code == `libparsermodel` (see [M2 log](#m2--host-packet-injection-done)) |
-| **M3** | Stock CVA6 on the FPGA | ⏳ Not started (BRAM inference is the risk) |
+| **M3** | Stock CVA6 on the FPGA | ⛔ **M3a gate: does not fit the GW5AST-138** (2026-09-11) — RV64GC CVA6 is ~4.7× over on LUTs; BSRAM inference solved and the crash fixed, but LUT area is the wall. **Fallback triggered: move the host core to a Xilinx Kintex-7 board** (see [M3a fit verdict](#m3a--fit-verdict-cva6-does-not-fit-the-gw5ast-138--pivot-to-xilinx)) |
 | **M4** | CVA6 + parser unit | ⏳ Not started |
 | **M5** | Cycle counters → cycles/packet | ⏳ Not started |
 | **M6** | Ethernet: loopback, then hp5 | ⏳ Not started (independent of M3/M4) |
@@ -287,6 +287,106 @@ is CPU-dedicated), so M2 uses an external 3.3 V USB-UART adapter on **PMOD2** (`
 C21, `uart_tx` B20), confirmed first with a raw loopback (`m2loop` +
 `.#fpga-m2-loopback-check`, 256/256 bytes echoed).
 
+## M3a — fit verdict: CVA6 does not fit the GW5AST-138 → pivot to Xilinx
+
+**Date: 2026-09-11. Decision: RV64GC CVA6 (`cv64a6_imafdc_sv39`) will not fit the
+Tang Mega 138K Pro. Move the host core to a Xilinx Kintex-7 board.**
+
+M3a asked the true project-gate question — *does a RV64 host core fit on this board at
+all?* After solving BSRAM inference (challenge #16) and fixing the GowinSynthesis
+LUT-mapper crash (wbuf-depth 8→2 patch), the answer is a clean **no**, and the reason is
+not fixable by tooling:
+
+| Resource | Depth-2 CVA6 (yosys good mapper) | GW5AST-138 | Verdict |
+|---|---|---|---|
+| **LUT-equiv** | **≈645,000** (487k LUT + 158k MUX2_LUT) | 138,240 | **4.7× over** |
+| LUT (GowinSynthesis ABC) | 2,019,335 | 138,240 | 14.6× over (`RP0006`) |
+| FF / DFF | 25,699 | 139,140 | fits |
+| BSRAM (SPX9) | 72 | 340 | fits |
+| DSP | 0 used | — | fits |
+
+- **The wall is pure combinational LUT area**, not memory (BSRAM solved, only 72/340
+  blocks) and not flops (25.7k/139k). No mapping strategy closes a 4.7× LUT gap — even
+  yosys's clean gw5a mapping is 4.7× over before GowinSynthesis's ABC piles on.
+- **The FPU is not the lever.** `fpu_wrap` (fpnew FMA + divsqrt + FP32/FP64 cast)
+  flattens to **26,843 LUT-equiv (~4%, 0 DSP)**. Dropping it (`cv64a6_imac`) saves ~5%
+  of a core that is 470% over — the documented fallback rung-1 is confirmed useless.
+- **What was salvaged:** BSRAM inference is solved end-to-end (SPX9 hard-map), the
+  ifCut crash is root-caused and fixed, and stock CVA6's front end is SP00018-clean
+  (#13 is parser-specific). None of that survives the LUT-area overflow, but it retires
+  the two open Gowin challenges for the host-core question.
+
+### Recommended board: **Digilent Genesys 2 (Xilinx Kintex-7 `xc7k325tffg900-2`)**
+
+This is **CVA6's own reference/development platform** — the switch buys turnkey, not a
+second port. Evidence in the pinned tree (`build/cva6/corev_apu/fpga/`):
+
+- Default part in `sourceme.sh` is `xc7k325tffg900-2`; `constraints/genesys-2.xdc`,
+  `scripts/program_genesys2.tcl`, and `xilinx/xlnx_mig_7_ddr3/mig_genesys2.prj` (DDR3)
+  are all present. `make` → `ariane_xilinx.bit` targets it directly.
+- **Kintex-7 325T: 203,800 LUT6, 407,600 FF, 445×36 Kb BRAM (≈16 Mbit), 840 DSP.**
+- **How big is CVA6 on Xilinx, really?** Published Vivado utilization (PERCIVAL, arXiv
+  2111.15286, Vivado 2020.2, XC7K325T): bare CVA6 **28,950 LUT6 / 19,579 FF**; +FP32
+  **+6,452 LUT** → full `cv64a6_imafdc` ≈ **40–50k LUT6**. That is **~22%** of the Kintex-7
+  325T and **~33%** of an Artix-7 200T (134,600 LUT6) — **both fit comfortably; fit is not
+  the differentiator.** (This also corrects an earlier draft estimate of ~110–130k LUT6,
+  which was too high.)
+- **Why the Gowin path looked 14–45× bigger:** our flow reported 645k LUT4 (yosys) /
+  2.02M (GowinSynthesis) vs the real ~45k LUT6. The gap is **toolchain, not design** —
+  (1) LUT4 vs LUT6 fabric (~2×), (2) multipliers built from LUTs because our gw5a flow had
+  **no DSP mapping** (Xilinx sends them to DSP48), (3) sv2v packed-struct/config explosion
+  that Vivado avoids by reading SystemVerilog natively, (4) GowinSynthesis's ABC being ~3×
+  worse than yosys on the identical netlist. A well-mapped CVA6 is ~80–110k LUT4-equiv, so
+  the GW5AST-138's 138k LUT4 was marginal even ideally, and the bad tools pushed it far over.
+- Board has DDR3 SODIMM (real DRAM via the in-tree MIG flow — M3b could use it instead
+  of a BSRAM scratchpad), USB-UART, USB-JTAG, and **GTX transceivers (~12.5 Gb/s → true
+  10GE)**. Needs Vivado (free ML Standard/WebPACK does **not** cover Kintex-7 325T; requires
+  a paid/edu Vivado license — the one real cost).
+
+**Alternatives considered:**
+
+| Board | Part | 10GE? | Turnkey in CVA6 tree? | Vivado | Note |
+|---|---|---|---|---|---|
+| **Genesys 2** *(chosen)* | Kintex-7 XC7K325T | ✅ GTX ~12.5G | ✅ xdc + program + MIG | paid/edu | CVA6 reference; ~22% LUT6; DDR3; the only 10GE-capable option |
+| KC705 (Xilinx dev kit) | Kintex-7 XC7K325T | ✅ GTX | ✅ (kc705.xdc, MIG) | paid/edu | Same silicon, pricier/older, often EOL |
+| Nexys Video | Artix-7 XC7A200T | ❌ GTP ~6.6G | ✅ (nexys_video.xdc, MIG) | **free** | Fits comfortably (~33% LUT6); turnkey; but GbE-only, no SFP, **no 10GE** |
+| Puzhi PZ-A7200T | Artix-7 XC7A200T | ❌ GTP ~6.6G | ❌ (write your own .xdc/MIG) | **free** | Cheapest ($398), 2×SFP + 2×GbE, DDR3; but custom bring-up + vendor risk; **no 10GE** |
+| VC707 | Virtex-7 XC7VX485T | ✅ GTX | ✅ (vc707.xdc, MIG) | paid/edu | Bigger/overkill, expensive |
+| Alinx AX7325B | Kintex-7 XC7K325T | ✅ GTX | ❌ (write your own .xdc/MIG) | paid/edu | Same silicon as Genesys 2, cheaper, but no turnkey constraints |
+
+**Decision (user, 2026-09-12): Genesys 2 (Kintex-7 XC7K325T).** Since all candidates fit
+CVA6 comfortably, fit is not the driver — **10GE is a hard project requirement** (Phase-9
+benchmark + the installed 10G optics), and **only the Kintex-7's GTX transceivers reach
+10 Gb/s**; Artix-7's GTP caps at ~6.6 Gb/s. Genesys 2 is also the exact part CVA6 is built
+and regression-tested on (turnkey xdc/MIG/program scripts). Cost: a paid/edu Vivado license.
+
+**Verify-before-buy (user requirement):** confirm the footprint on our *actual* RTL —
+and that it *routes* — before purchasing hardware, using the fully open-source **openXC7**
+flow, no Vivado / no license / no board. Productized as one reproducible target:
+
+```
+nix run .#fpga-m3-core-rtl -- s2       # produce build/fpga-m3-core-rtl/elab.il (elaborated cva6)
+nix run .#fpga-m3-xilinx-fit           # chipdb -> synth_xilinx -> nextpnr-xilinx -> verdict
+```
+
+(`nix/fpga-m3-xilinx.nix` + `scripts/fpga-m3-xilinx-fit.sh`, pinning yosys + nextpnr-xilinx +
+pypy3 from nixpkgs). It synthesizes `fpga/genesys2/cva6_fit_top.v` — a register-ring harness
+that wraps stock `cva6`, folds its 8347 IO bits down to 4 device pins, and leaves the
+6905-bit `rvfi_probes_o` trace port unconnected so DCE prunes it (matching CVA6's real
+`corev_apu/fpga` SoC → a *deployment-faithful* footprint). Two results:
+
+1. **`synth_xilinx -family xc7`** → the definitive LUT6 / FF / DSP48 / RAMB count on our RTL.
+   The 7-series LUT6 fabric is identical across Artix/Kintex, so the count certifies the
+   Genesys 2 fit directly.
+2. **`nextpnr-xilinx`** place-and-route on the real `xc7k325tffg900-2` chip database → a routed
+   `fasm` + achieved Fmax. This is stronger than a count alone: it proves the core actually
+   *places and routes* on the target, i.e. that a bitstream is buildable once the hardware
+   arrives. (The raw core cannot be routed standalone — 8347 IO bits ≫ ~500 pins — which is
+   why the harness exists.)
+
+Numbers (LUT6/FF/DSP + route/Fmax) recorded here when the run lands. If ever borderline,
+a third check is **free** Vivado targeting XC7A200T (no board; same fabric ⇒ certifies Kintex).
+
 ## Challenges and how they were resolved
 
 Every one of these cost real time. Symptom first, because that is how you will
@@ -316,7 +416,7 @@ meet them again.
 |---|---|---|
 | 13 | GowinSynthesis floods `ERROR (SP00018) ... error bus name set` during synthesis of the parser RTL | **Open (worked around for M1).** *Not* the latches (#14) and *not* packed structs: it fires on `parser_execute` alone in SV after every latch was cleared, on the full M1 in SV, **and** on the full M1 as sv2v-flattened plain Verilog. Every module compiles first; the flood comes at elaboration with no actionable message — a GowinSynthesis V1.9.12.03 front-end bug on our parser logic, independent of the SV surface. Reproduce: `nix run .#fpga-build -- sv-probe`. **Workaround (M1):** sv2v → yosys `flatten` → Gowin (`nix run .#fpga-m1-rtl`) re-emits Verilog Gowin accepts. Still worth a real fix (a Gowin-version bump, or isolating the exact construct) before M3, since flatten hurts BSRAM inference at CVA6 scale |
 | 15 | UART **RX** pin (host → FPGA) unknown | **Located, but the debug UART is fabric-TX-only** (2026-09-07). The schematic (`downloads/TANG_MEGA-138K_Pro-Dock-4071f_Schematics.pdf`, USB-JTAG&UART sheet) puts `DBG_UART.RX` on ball **N16**, via R95 (0 Ω) to the debugger's TX (`BL616_TX`); the debugger is a **BL616** MCU emulating the FT2232 the `0403:6010` reports. **But N16 is a dedicated CPU pin:** a loopback bitstream (`m2loop`) constraining `uart_rx` to N16 fails PnR with `ERROR (PR2017) ... the location is a dedicated pin (CPU)` — the debug UART's RX is wired to the hardened Andes CPU, not the fabric. The AE350 demo's U16/V16 "UART2" are `SDRAM_D0/D1` on the Pro, so not an alternative. **Resolved:** M2 uses an **external 3.3 V USB-UART adapter on PMOD2** — `uart_rx`=C21 (PMOD2_IO0), `uart_tx`=B20 (PMOD2_IO1), on its own `/dev/ttyUSB*`. Confirmed by a raw loopback (`m2loop`, 256/256 bytes) then the full injection suite (22/22). Recorded in the [board manual](fpga-bringup-tang-mega-138k-pro.md) pin map |
-| 16 | **BRAM inference** for CVA6's SRAM macros onto Gowin BSRAM | **Open.** The known headline risk for M3; see [assessment §5a](fpga-platform-assessment.md). May be reduced or removed by #13 |
+| 16 | **BRAM inference** for CVA6's SRAM macros onto Gowin BSRAM | **Open — root-caused 2026-09-09; fix proven, not yet wired in.** M3a S1 (sv2v → hierarchical yosys, no flatten) synthesized to completion but inferred **0 BSRAM**: `ERROR (RP0001)` 558,788 DFF > 139,140 (~4× over), ~543 Kbit of I$/D$ data+tag landed in flops. No `SP00018` (stock CVA6's front end is clean — #13 is parser-specific). **Cause:** the memory RTL is BSRAM-friendly and stays a `$mem_v2` inside yosys, but `write_verilog -noattr` lowers the byte-write-enable into **64 per-bit write conditionals** (`mem[a][n:n] <=`), which GowinSynthesis reads as an arbitrary per-bit write mask and cannot match to its BSRAM template → demoted to registers. The S1 flow runs **no** yosys BRAM mapping, so the whole decision falls on Gowin inference in the one form that defeats it. **Fix (proven end-to-end):** map memories in yosys — `synth_gowin -family gw5a -run :map_ffs` emits hard **`SPX9`** gw5a BSRAM primitives (a native Gowin cell, `prim_sim.v:1402`); no CVA6 patch needed. **Confirmed through GowinSynthesis V1.9.12.03 (2026-09-09):** `nix run .#fpga-build -- m3-ramtest` synthesizes the SPX9 netlist and its resource report shows **`BSRAM=2`, `REG=-` (0 registers), `LUT=13`** — the memory lands in block RAM, not flops. Both legs are reproducible nix targets (`nix run .#fpga-m3-core-rtl -- diag`; `-- m3-ramtest`). **S2 wired + emit-validated at scale (2026-09-10):** `scripts/fpga-m3-core-rtl.sh` s2 runs `synth_gowin`'s gw5a **coarse pass with `alumacc` removed** + `map_ram` (s1 kept as the 0-BSRAM FAIL for the record). Two `-run` stop points were tried and rejected first: `:map_ffs` inserts ~155k illegal internal IBUF/OBUF under `-noflatten`; `:map_gates` fast-failed the fit with `ERROR (EX3937): Instantiating unknown module '$macc_v2'` because `alumacc` fuses arithmetic into un-renderable `$alu`/`$macc_v2` macros. Removing `alumacc` (there is no clean inverse; full `techmap` over-lowers to gates) keeps `+`/`-`/`*` high-level for GowinSynthesis's own DSP inference. Emit-validated on the full core from the checkpoint: **4 SPX9, 0 `$alu`/`$macc`, 0 IBUF/OBUF, 0 residual `$mem`, 0 per-bit writes**, 139 modules. Full diagnosis + reproducer: [gowin-bsram-inference-debug.md](gowin-bsram-inference-debug.md). **1st full fit (2026-09-10): BSRAM inference SOLVED end-to-end** — the flake netlist (`nix run .#fpga-m3-core-rtl -- s2`) synthesized clean for ~6 h with **no EX3937, no SP00018**, and GowinSynthesis processed the 4 SPX9 as block RAM (`EX0346` `mem.0.x` `WRITE_MODE` notes) — vindicating the hard-map vs S1's 0-BSRAM. **But a new blocker surfaced:** gw_sh **aborted at `[75%] Tech-Mapping`** with an embedded-ABC assertion `If_CutAreaDerefed` (`ifCut.c:1109`, SIGABRT) — a numerical-robustness bug in GowinSynthesis V1.9.12.03's LUT-mapper, *not* a fit/overflow (no resource report reached). 2nd run with `set_option -retiming 0` (2026-09-10) **only delayed the identical crash** (Tech-Mapping Phase 0 took ~2h13m, then the same `If_CutAreaDerefed` abort ~76 min into phase-3 area recovery) — the ABC bug is robust to mapping-effort perturbation. **Two full ~6–7 h runs crash identically. Blocker escalated:** the remaining directions are (a) yosys-side decomposition of the big arithmetic cones (likely the 64×64 MUL + FPU mantissa mults; risk of LUT bloat, ~6–7 h/attempt), (b) a **GowinSynthesis version bump** (root-cause fix for the embedded-ABC defect; needs a newer Gowin EDA — ties to #13), or (c) the fallback ladder (premature — the blocker is a tool crash, not a fit failure; BSRAM + front end are proven). BSRAM inference itself is **SOLVED end-to-end**. **Crash root-caused + fixed, then the true wall revealed (2026-09-11):** the `If_CutAreaDerefed` abort was localized to `wt_dcache_wbuffer`'s fully-associative coalescing cone; reducing `CVA6ConfigWtDcacheWbufDepth` 8→2 (patch `nix/cva6-parser/m3a-wbuf-depth.patch`) **stopped the crash** — the full fit then ran all Tech-Mapping phases 0–4 to completion, no SIGABRT. But it overflowed: GowinSynthesis mapped the depth-2 core to **2,019,335 LUTs** (`RP0006`, 14.6× the 138,240-LUT device). An independent yosys reference on the same netlist (`synth_gowin -family gw5a` coarse, `-noflatten`) gives **≈645k LUT-equiv** (487,138 basic LUT + 158,396 MUX2_LUT), 8,754 ALU, 25,699 DFF, 72 SPX9 — **still 4.7× over even under the good mapper**. The FF and BSRAM budgets both fit; the wall is pure combinational **LUT area**. The FPU is **not** the lever — `fpu_wrap` flattens to only 26,843 LUT-equiv (~4%, 0 DSP), so `cv64a6_imac` saves ~5% of a core that is 470% over. **Verdict: RV64GC CVA6 cannot fit the GW5AST-138 by any mapping trick.** Fallback ladder triggered at the documented M3a gate → **pivot the host core to a Xilinx Kintex-7 board** (CVA6's turnkey reference platform). See [M3a — fit verdict](#m3a--fit-verdict-cva6-does-not-fit-the-gw5ast-138--pivot-to-xilinx). #16 (BSRAM) and #13 (parser-only SP00018) are both **moot for the Gowin host-core path** — they do not arise on Xilinx |
 | 17 | **GAO** (Gowin's on-chip logic analyzer) is GUI-bound, our microVM is headless | **Open.** It captures hundreds of internal nets over JTAG — far beyond what LEDs or UART reach. Needs an X11 path into the VM. Until then, on-board debug is LEDs + UART |
 
 ## Conventions for updating this file

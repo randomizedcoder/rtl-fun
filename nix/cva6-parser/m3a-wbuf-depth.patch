@@ -1,0 +1,26 @@
+M3a (Phase 8): reduce the write-through D-cache coalescing write-buffer depth
+from 8 to 2 for cv64a6_imafdc_sv39.
+
+Why: GowinSynthesis V1.9.12.03's embedded ABC LUT-mapper has a numerical-robustness
+bug (`If_CutAreaDerefed`, ifCut.c:1109) that diverges/asserts on wt_dcache_wbuffer's
+fully-associative coalescing logic. Localized via the m3-cone subtree reproducer:
+cva6 -> wt_cache_subsystem -> wt_dcache -> wt_dcache_wbuffer; standalone the wbuffer
+maps to 337,865 LUTs (2.4x the device) or, in-context, crashes the mapper. The
+associative match + byte coalescing scales with WtDcacheWbufDepth, so a shallower
+buffer shrinks exactly the cone that trips ABC. Depth is a microarchitectural
+performance knob (coalescing capacity), NOT an ISA/functional change — the core stays
+RV64GC cv64a6_imafdc_sv39; CVA6's own cv32a6_embedded config already ships depth 2.
+This keeps GowinSynthesis's efficient cross-boundary mapping (and DSP inference),
+unlike a yosys LUT pre-map. See docs/gowin-bsram-inference-debug.md / phase-8-status.md.
+
+--- a/core/include/cv64a6_imafdc_sv39_config_pkg.sv
++++ b/core/include/cv64a6_imafdc_sv39_config_pkg.sv
+@@ -49,7 +49,7 @@
+   localparam CVA6ConfigDcacheIdWidth = 1;
+   localparam CVA6ConfigMemTidWidth = 2;
+
+-  localparam CVA6ConfigWtDcacheWbufDepth = 8;
++  localparam CVA6ConfigWtDcacheWbufDepth = 2;
+
+   localparam CVA6ConfigNrScoreboardEntries = 8;
+
