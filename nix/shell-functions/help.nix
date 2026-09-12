@@ -85,6 +85,12 @@
         nix run .#fpga-build -- m2   synthesize the injection design
         nix run .#fpga-load -- build/fpga-m2/impl/pnr   program SRAM
         FPGA_UART=/dev/ttyUSB2 nix run .#fpga-m2-inject [-- --suite]   inject packets, diff vs model
+      M3a (does stock CVA6 fit? synthesize with BSRAM inferred — no board, read the util report):
+        nix run .#fpga-m3-core-rtl [-- s0|s1|s2]   prep the stock-CVA6 synth input (hierarchy kept)
+        nix run .#fpga-build -- m3-core            fit-check synth; PASS iff BSRAM>0 and LUT/FF fit
+      M3a Xilinx pivot (open-source verify-before-buy: CVA6 fit+route on xc7k325t/Genesys 2, no Vivado/board):
+        nix run .#fpga-m3-core-rtl -- s2           first, to produce build/fpga-m3-core-rtl/elab.il
+        nix run .#fpga-m3-xilinx-fit [-- chipdb|synth|pnr]   yosys+nextpnr-xilinx -> LUT6/FF/DSP + routed
       Guide: docs/fpga-bringup-tang-mega-138k-pro.md · status: docs/phase-8-status.md
 
     Meta
