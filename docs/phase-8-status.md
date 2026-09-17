@@ -384,8 +384,64 @@ that wraps stock `cva6`, folds its 8347 IO bits down to 4 device pins, and leave
    arrives. (The raw core cannot be routed standalone — 8347 IO bits ≫ ~500 pins — which is
    why the harness exists.)
 
-Numbers (LUT6/FF/DSP + route/Fmax) recorded here when the run lands. If ever borderline,
-a third check is **free** Vivado targeting XC7A200T (no board; same fabric ⇒ certifies Kintex).
+**Result (run completed 2026-09-16 after ~4.5 days) — the open flow is NOT a reliable LUT
+oracle for CVA6; treat it as a FF/DSP/BRAM check only.** `synth_xilinx` mapped stock CVA6 to:
+
+| Resource | Count | vs xc7k325t (407,600 FF / 203,800 LUT6 / 840 DSP / 445 RAMB36) | Fits? |
+|---|---|---|---|
+| **LUTs (total)** | **628,762** (LUT2 186,780 · LUT5 124,433 · LUT6 114,959 · LUT3 114,599 · LUT4 87,677 · LUT1 314) | nextpnr packed to **640,815 / 407,600 SLICE_LUTX = 157%** | ❌ overflow |
+| FF (FDCE 24,105 · FDPE 44 · FDRE 69) | 24,218 | ~6% | ✅ |
+| DSP48E1 | 71 | of 840 | ✅ |
+| RAMB36E1 | 36 | of 445 | ✅ |
+| CARRY4 | **1,629** | — | ⚠️ far too few for a 64-bit core |
+
+**nextpnr-xilinx PnR: failed to place** — `ERROR: no Bels remaining of type 'SLICE_LUTX'`
+(157% over). No route, no Fmax produced.
+
+**This 628k-LUT figure is a yosys/abc9 mapping-quality artifact, ~12× CVA6's true Vivado
+size — not a real fit failure.** Three proofs: (1) PERCIVAL measured `cv64a6_imafdc` at
+**28,950 LUT6 + ~6.5k FP ≈ 40–50k LUT6** on this exact part (~22% of the 325T); Tom Herbert's
+Rocket cross-check (AWS F2, Vivado) is ~50k LUT6 too. (2) It is essentially the **same
+≈630–645k** the Gowin open flow produced (645k LUT4-equiv) — two independent open ABC-based
+mappers landing at ~640k while Vivado gives ~50k is a *mapper* signature, not a *design* one.
+(3) The **1,629 CARRY4** is the tell: Vivado maps CVA6's many 64-bit adders/comparators onto
+carry chains, but yosys+abc9 here largely did not, so wide arithmetic ballooned into LUTs
+(also the cause of the ~108 CPU-hour ABC9 runtime). The FF / DSP48 / RAMB counts, by contrast,
+are reliable and all fit comfortably.
+
+**Bottom line for verify-before-buy:** the openXC7 flow is a good *FF/DSP/BRAM* sanity check
+and a reproducibility artifact, but it **cannot confirm the LUT fit** for an arithmetic-heavy
+core like CVA6 — it over-reports LUTs ~12×. The definitive LUT check is **Vivado** (free
+WebPACK targeting XC7A200T certifies the identical 7-series fabric with no board/license, or
+the edu license on the 325T), which agrees with PERCIVAL + Tom that CVA6 uses ~22% of the
+Genesys 2. **The buy decision is unchanged** (Vivado-grade evidence says it fits; 10GE forces
+Kintex GTX regardless) — what we learned is *which tool* can certify the fit.
+
+#### openXC7 flow — runtime & observations log (for re-run estimation)
+
+Whole-flow CVA6-on-openXC7 is **long** and **memory-heavy** — the numbers below let a
+re-run be planned rather than watched. Host: 61 GB RAM, run 2026-09-12; wall-clock and RSS
+are the two things worth budgeting. Watch `build/fpga-m3-xilinx/synth.log`, not the process
+(gotcha #12) — yosys sits in state `S` waiting on its `yosys-abc` child through all of ABC9.
+
+| Phase | Wall-clock | Peak RSS | Notes / gotchas |
+|---|---|---|---|
+| **chipdb** (pypy3 `bbaexport.py` + `bbasm`) | ~minutes (one-off) | ~7 GB (transient) | `xc7k325tffg900.bin` is **460 MB**; cached in `build/fpga-m3-xilinx/chipdb/` and skipped on re-run (`rm` to force). Only the first run pays this. |
+| **synth, pre-ABC** (`read_rtlil` elab.il → `synth_xilinx` coarse → `memory_bram` → DSP infer → XAIGER export) | **~1h21m** | ~a few GB | RAMB36E1 + DSP48E1 cells appear here — the memories map to block RAM and multipliers to DSP48 *before* LUT mapping. Ends with "Extracted **5.19M AND gates**, 26,429 inputs / 49,350 outputs" — that network size is what makes the next phase slow. |
+| **ABC9** (LUT6 technology mapping, `4.46.17.5`) | **≈107 h (~4.5 days!)** — 09-12 10:36 → 09-16 22:18, the dominant cost by far | grew 0.9 → **~1.8 GB** (abc child) + **~32 GB** (parent yosys holding the design) | **Single-threaded** — pinned one core at ~100% the entire time (cumulative CPU ≈ wall, no I/O wait — real work, not hung). RSS crept slowly the whole run (still exploring mappings). More cores do not help, only clock speed does. The 5.19M-gate *flattened* AIG is why abc9 took days; `-flatten` on a whole RV64 core is close to worst-case input. |
+| **write_json + stat** | ~2 min (right after ABC9) | — | `cva6_fit_top.json` is **679 MB**; counts in `cva6_fit_top.stat.txt`. |
+| **nextpnr-xilinx** PnR | ~2 min, then **hard-failed placement** | — | `SLICE_LUTX 640,815/407,600 = 157%` → `ERROR: no Bels remaining` — the 12×-inflated LUT count doesn't fit; no route/Fmax. `pnr.log` is 202 MB (mostly negative-timing-budget spam). |
+
+**Total wall-clock ≈ 4 days 13 hours** (yosys 09-12 09:15 → 09-16 22:18), ABC9 ≈ 107 h of it.
+
+**Estimation + method takeaways for next time:** (1) **Do not repeat this exact flow for CVA6.**
+`-flatten` + full `-abc9` on a whole RV64 core = ~108 CPU-hours single-threaded AND a ~12×-inflated
+LUT count that fails PnR — the worst of both. (2) ABC9 dominates (~99% of wall); everything before
+it is ~1.5 h. It is single-core, so pick the fastest-clocked host, not the most cores; keep ≥ 32 GB
+free. (3) chipdb is a 460 MB one-off — don't delete it between runs. (4) **For a real LUT verdict,
+use Vivado, not this flow** (see the result box above — the open ABC mapper doesn't use CARRY4
+chains and over-reports LUTs ~12×). If the open flow is ever rerun, it is only a FF/DSP/BRAM check;
+use `abc9 -fast` / drop `-flatten` (per-module mapping) to cut the runtime from days to hours.
 
 ## Challenges and how they were resolved
 
