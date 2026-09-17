@@ -417,6 +417,36 @@ the edu license on the 325T), which agrees with PERCIVAL + Tom that CVA6 uses ~2
 Genesys 2. **The buy decision is unchanged** (Vivado-grade evidence says it fits; 10GE forces
 Kintex GTX regardless) — what we learned is *which tool* can certify the fit.
 
+##### The definitive Vivado LUT check is now a reproducible target
+
+To close the LUT thread on our *own* RTL (not just PERCIVAL's/Tom's cores), the Vivado
+check is productized the same way as everything else — one `nix run` target, no ad-hoc host
+steps:
+
+```
+nix run .#fpga-m3-vivado-fit             # Vivado synth-only -> util.rpt -> fit verdict
+nix run .#fpga-m3-vivado-fit -- report   # re-print utilization + verdict from util.rpt
+```
+
+`nix/fpga-m3-vivado.nix` + `scripts/fpga-m3-vivado-fit.sh` + `fpga/genesys2/m3-vivado-fit.tcl`.
+It runs Vivado `synth_design -mode out_of_context` on the **same** `cva6_core_sv2v.v` input the
+openXC7 flow used (+ the `cva6_fit_top` harness) — so the Vivado-vs-abc9 delta is
+apples-to-apples on identical RTL — and prints LUT6 / FF / DSP48 / RAMB36 / CARRY4 against the
+325T budget. Default part is **XC7A200T** (`xc7a200tsbg484-1`): the largest **free**-tier
+7-series part, with the *identical* LUT6 fabric to the Genesys 2's 325T, so an A200T count
+certifies the Kintex with **no board and no license cost**. Override `XILINX_PART=xc7k325tffg900-2`
+with an edu/paid license for the exact part.
+
+**Host-tool dependency (documented impurity, like the Gowin path):** Vivado is not in nixpkgs;
+install free WebPACK/ML Standard (covers A200T) and put `vivado` on `PATH` (source
+`settings64.sh`) or export `$VIVADO`. Synth-only, so this runs in minutes-to-an-hour, not the
+openXC7 days.
+
+**Result (pending the run):** to be filled in once Vivado is installed and the target runs —
+expected ~40–60k LUT6 (per PERCIVAL + Tom), well under the 325T's 203,800, closing
+verify-before-buy on our actual RTL. Until then the buy decision rests on the two independent
+Vivado datapoints above; this target makes it *our* number, reproducibly.
+
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 
 Whole-flow CVA6-on-openXC7 is **long** and **memory-heavy** — the numbers below let a

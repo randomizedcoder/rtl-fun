@@ -231,6 +231,10 @@
           # M3a verify-before-buy: open-source (openXC7) fit + place-and-route of stock
           # CVA6 on Xilinx 7-series (xc7k325t / Genesys 2) — the pivot check. See §8.4 M3a.
           fpga-m3-xilinx = import ./nix/fpga-m3-xilinx.nix { inherit pkgs; };
+          # M3a verify-before-buy, definitive LUT number: Vivado synth-only on our actual
+          # CVA6 RTL — the trustworthy LUT oracle that closes the openXC7 mapper-artifact
+          # thread. Host-tool dependency (free Vivado on PATH). See §8.4 M3a.
+          fpga-m3-vivado = import ./nix/fpga-m3-vivado.nix { inherit pkgs; };
 
           # Phase-8 toolchain: the proprietary Gowin EDA installers as store paths,
           # consumed by nix/gowin-vm.nix via `gowinInstall` in nix/gowin/local.nix.
@@ -354,6 +358,7 @@
             # Phase-8 milestone M3a (stock CVA6 fit check): CVA6 synth-input prep.
             fpga-m3-core-rtl = fpga-m3.fpga-m3-core-rtl;
             fpga-m3-xilinx-fit = fpga-m3-xilinx.fpga-m3-xilinx-fit;
+            fpga-m3-vivado-fit = fpga-m3-vivado.fpga-m3-vivado-fit;
             # The pinned vendor examples + their prebuilt 6-LED bitstream.
             tang-mega-examples = fpga.tang-mega-examples;
             tang-mega-led-bitstream = fpga.tang-mega-led-bitstream;
@@ -655,6 +660,16 @@
           apps.fpga-m3-xilinx-fit = {
             type = "app";
             program = "${fpga-m3-xilinx.fpga-m3-xilinx-fit}/bin/fpga-m3-xilinx-fit";
+          };
+
+          # M3a verify-before-buy, definitive LUT number: Vivado synth-only on our actual
+          # CVA6 RTL — the trustworthy oracle vs the openXC7 ~628k abc9 artifact. Needs
+          # free Vivado on PATH (or $VIVADO); no board, no license for the A200T default.
+          #   nix run .#fpga-m3-vivado-fit             (synth -> report -> verdict)
+          #   nix run .#fpga-m3-vivado-fit -- report   (re-print utilization + verdict)
+          apps.fpga-m3-vivado-fit = {
+            type = "app";
+            program = "${fpga-m3-vivado.fpga-m3-vivado-fit}/bin/fpga-m3-vivado-fit";
           };
 
           # Single-step a parse for debugging: `nix run .#pm-trace [-- x.pcap]`.

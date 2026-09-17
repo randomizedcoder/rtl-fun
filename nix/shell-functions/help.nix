@@ -91,6 +91,9 @@
       M3a Xilinx pivot (open-source verify-before-buy: CVA6 fit+route on xc7k325t/Genesys 2, no Vivado/board):
         nix run .#fpga-m3-core-rtl -- s2           first, to produce build/fpga-m3-core-rtl/elab.il
         nix run .#fpga-m3-xilinx-fit [-- chipdb|synth|pnr]   yosys+nextpnr-xilinx -> LUT6/FF/DSP + routed
+      M3a Vivado LUT oracle (definitive count on our RTL; needs free Vivado on PATH or $VIVADO, no board):
+        nix run .#fpga-m3-core-rtl -- s0           first, to produce build/fpga-m3-core-rtl/cva6_core_sv2v.v
+        nix run .#fpga-m3-vivado-fit [-- synth|report]   Vivado synth-only -> trustworthy LUT6/FF/DSP + verdict
       Guide: docs/fpga-bringup-tang-mega-138k-pro.md · status: docs/phase-8-status.md
 
     Meta
