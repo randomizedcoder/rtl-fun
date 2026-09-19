@@ -58,6 +58,9 @@ nix/
   fpga-m3.nix                 # Phase-8 M3: fpga-m3-core-rtl (stock CVA6 → Gowin input, hierarchy KEPT for BSRAM inference)
   fpga-m3-xilinx.nix          # Phase-8 M3a pivot: fpga-m3-xilinx-fit (stock CVA6 fit+route on xc7k325t via openXC7 — yosys+nextpnr-xilinx, no Vivado/board)
   fpga-m3-vivado.nix          # Phase-8 M3a LUT oracle: fpga-m3-vivado-fit (Vivado synth-only on our CVA6 RTL — trustworthy LUT count; host-tool dep, free Vivado on PATH)
+  vivado-fhs.nix              # Run proprietary Vivado (installer + tools) on NixOS via buildFHSEnv sandbox: vivado-fhs (shell) + `vivado` wrapper for $VIVADO (NixOS analogue of the Gowin microVM)
+  vivado-license-mac.nix      # The single repo-recorded MAC the free Vivado Basic license (2026.1+) is node-locked to — makes one license portable across machines
+  vivado-license-netdev.nix   # NixOS module (flake output nixosModules.vivado-license-netdev): dummy NIC `vivadolic` carrying that MAC, so FlexLM sees the same host ID everywhere
   devshell.nix                # mkShell: tools + CVA6_SRC/CV_SW_PREFIX + banner + rtl-help
   shell-functions/
     help.nix                  # the rtl-help function

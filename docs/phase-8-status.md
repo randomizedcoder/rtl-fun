@@ -434,13 +434,68 @@ openXC7 flow used (+ the `cva6_fit_top` harness) — so the Vivado-vs-abc9 delta
 apples-to-apples on identical RTL — and prints LUT6 / FF / DSP48 / RAMB36 / CARRY4 against the
 325T budget. Default part is **XC7A200T** (`xc7a200tsbg484-1`): the largest **free**-tier
 7-series part, with the *identical* LUT6 fabric to the Genesys 2's 325T, so an A200T count
-certifies the Kintex with **no board and no license cost**. Override `XILINX_PART=xc7k325tffg900-2`
-with an edu/paid license for the exact part.
+certifies the Kintex with **no board cost**. (The free Basic tier actually covers the 325T too —
+see licensing note below — so `XILINX_PART=xc7k325tffg900-2` also works for the exact part.)
 
 **Host-tool dependency (documented impurity, like the Gowin path):** Vivado is not in nixpkgs;
-install free WebPACK/ML Standard (covers A200T) and put `vivado` on `PATH` (source
-`settings64.sh`) or export `$VIVADO`. Synth-only, so this runs in minutes-to-an-hour, not the
-openXC7 days.
+install it (free tier covers the 7-series — see licensing note below) and put `vivado` on `PATH`
+(source `settings64.sh`) or export `$VIVADO`. Synth-only, so this runs in minutes-to-an-hour, not
+the openXC7 days.
+
+**Licensing reality (changed in 2026.1 — our earlier "no license cost" assumption was wrong).**
+Vivado **2026.1** moved to a **tiered licensing model** (Basic / Core / Pro / Enterprise / Gold).
+The old "Standard Edition needs no license" rule ended: even the **free "Vivado Basic" tier now
+requires a generated license file** — `synth_design` errors `valid license was not found` without
+one (proven here: a trivial 2-gate synth fails identically on xc7a35t, xc7a200t, *and* xc7k325t,
+so it is a license-**file** gate, not device-tier, not the sandbox). Two silver linings: (1) the
+free **Basic tier covers all 7-series** — Artix-7 **and** Kintex-7, so we can synth the exact
+`xc7k325t`, not just the A200T proxy; (2) our synth-only utilization flow is Basic-tier
+functionality (the tier-gating hits impl/timing-closure/DFX/encrypted-bitstream, which we do not
+run). The Basic license is FlexLM **node-locked to a NIC MAC** (host ID) — so, like Gowin, the free
+tier is effectively MAC-locked. Get it free from AMD Product Licensing (account login) against the
+recorded MAC below.
+
+**On NixOS:** Vivado ships as pre-built FHS binaries (its installer JRE and the tools link
+`libX11.so.6` / `libstdc++` / … at `/usr/lib` paths NixOS lacks — the raw `.bin` dies with
+`libX11.so.6: cannot open shared object file`, and the 98 GB SFD tar has the identical problem
+since it uses the same `xsetup`/JRE). Run both the installer and the tools inside a `buildFHSEnv`
+sandbox — the reproducible NixOS analogue of the Gowin microVM (`nix/vivado-fhs.nix`):
+
+```
+nix run .#vivado-fhs                 # interactive FHS shell — run the installer here (needs a display)
+#   inside: ./FPGAs_..._Lin64.bin  -> Vivado -> Vivado ML Standard (free) -> 7-Series only
+export VIVADO_SETTINGS=/path/to/Xilinx/<ver>/Vivado/settings64.sh
+export VIVADO="$(nix build --no-link --print-out-paths .#vivado-fhs-vivado)/bin/vivado"
+nix run .#fpga-m3-vivado-fit         # the `vivado` wrapper re-enters the sandbox automatically
+```
+
+*(On hp5 the hardened `vivado-box.nix` variant is used instead — confined FHS with a private home
+and read-only host. For the fit run its isolation hides the repo, so inputs are staged into the box
+home; the permissive `vivado-fhs` above is the general path.)*
+
+**Portable free license via a fixed, repo-recorded MAC.** Because the free Basic license is
+node-locked to a NIC MAC, locking to a *physical* NIC means a separate license per machine. Instead
+we record **one** MAC in the repo and make it present on every machine, so a **single** license is
+portable. `nix/vivado-license-mac.nix` holds it — **`02:ca:6f:00:00:01`** (host ID `02ca6f000001`;
+locally-administered + unicast, cannot collide with a real NIC). Creating an interface with a chosen
+MAC is blocked in unprivileged user namespaces on this kernel (`ip link add` → `Operation not
+permitted`), so the MAC is established at the system layer by a NixOS module,
+`nix/vivado-license-netdev.nix` (flake output `nixosModules.vivado-license-netdev`): it brings up a
+dummy NIC `vivadolic` with that MAC via a stack-agnostic systemd oneshot (adds a NIC, never touches
+real ones). The Vivado box shares the host network namespace, so FlexLM inside it sees `vivadolic`.
+
+```
+# in each machine's NixOS config:
+imports = [ /path/to/rtl-fun/nix/vivado-license-netdev.nix ];   # or inputs.rtl-fun.nixosModules.vivado-license-netdev
+sudo nixos-rebuild switch
+ip link show vivadolic                                          # confirm the fixed MAC is up
+# then: AMD Product Licensing -> free node-locked "Vivado Basic" for host ID 02ca6f000001
+#       -> drop the .lic at the box home ~/.Xilinx/  (or export XILINXD_LICENSE_FILE)
+```
+
+(Caveat: node-locking to a `dummy`-type interface is a common FlexLM-in-VM/container trick but is
+unverified until a `.lic` is in hand; if FlexLM rejects it, fall back to a per-machine license
+against a real NIC MAC.)
 
 **Result (pending the run):** to be filled in once Vivado is installed and the target runs —
 expected ~40–60k LUT6 (per PERCIVAL + Tom), well under the 325T's 203,800, closing

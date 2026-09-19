@@ -235,6 +235,9 @@
           # CVA6 RTL — the trustworthy LUT oracle that closes the openXC7 mapper-artifact
           # thread. Host-tool dependency (free Vivado on PATH). See §8.4 M3a.
           fpga-m3-vivado = import ./nix/fpga-m3-vivado.nix { inherit pkgs; };
+          # Run proprietary Vivado (installer + tools) on NixOS via a buildFHSEnv
+          # sandbox — the reproducible impurity boundary for the host tool. See §8.4 M3a.
+          vivado-fhs = import ./nix/vivado-fhs.nix { inherit pkgs; };
 
           # Phase-8 toolchain: the proprietary Gowin EDA installers as store paths,
           # consumed by nix/gowin-vm.nix via `gowinInstall` in nix/gowin/local.nix.
@@ -359,6 +362,8 @@
             fpga-m3-core-rtl = fpga-m3.fpga-m3-core-rtl;
             fpga-m3-xilinx-fit = fpga-m3-xilinx.fpga-m3-xilinx-fit;
             fpga-m3-vivado-fit = fpga-m3-vivado.fpga-m3-vivado-fit;
+            vivado-fhs = vivado-fhs.vivado-fhs;
+            vivado-fhs-vivado = vivado-fhs.vivado-fhs-vivado;
             # The pinned vendor examples + their prebuilt 6-LED bitstream.
             tang-mega-examples = fpga.tang-mega-examples;
             tang-mega-led-bitstream = fpga.tang-mega-led-bitstream;
@@ -672,6 +677,14 @@
             program = "${fpga-m3-vivado.fpga-m3-vivado-fit}/bin/fpga-m3-vivado-fit";
           };
 
+          # Run Vivado (installer + tools) on NixOS inside a buildFHSEnv sandbox.
+          #   nix run .#vivado-fhs                          (interactive FHS shell — install here)
+          #   nix run .#vivado-fhs -- vivado -version       (run a command in the sandbox)
+          apps.vivado-fhs = {
+            type = "app";
+            program = "${vivado-fhs.vivado-fhs}/bin/vivado-fhs";
+          };
+
           # Single-step a parse for debugging: `nix run .#pm-trace [-- x.pcap]`.
           apps.pm-trace = {
             type = "app";
@@ -739,5 +752,11 @@
         #   nix run .#gowin-vm
         nixosConfigurations.gowin-vm = gowin.nixos;
         packages.x86_64-linux.gowin-vm = gowin.runner;
+
+        # NixOS module: a dummy NIC carrying the fixed Vivado-license MAC
+        # (nix/vivado-license-mac.nix), making one free Basic license portable across
+        # machines. Import into your system config + `nixos-rebuild switch`. See
+        # nix/vivado-license-netdev.nix and docs/phase-8-status.md §"Verify-before-buy".
+        nixosModules.vivado-license-netdev = import ./nix/vivado-license-netdev.nix;
       };
 }

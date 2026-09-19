@@ -94,6 +94,10 @@
       M3a Vivado LUT oracle (definitive count on our RTL; needs free Vivado on PATH or $VIVADO, no board):
         nix run .#fpga-m3-core-rtl -- s0           first, to produce build/fpga-m3-core-rtl/cva6_core_sv2v.v
         nix run .#fpga-m3-vivado-fit [-- synth|report]   Vivado synth-only -> trustworthy LUT6/FF/DSP + verdict
+        nix run .#vivado-fhs        install/run Vivado on NixOS in an FHS sandbox (interactive shell)
+        nix run .#vivado-fhs -- vivado -version   run a command inside the sandbox (set VIVADO_SETTINGS first)
+        Vivado 2026.1 needs a (free) Basic license node-locked to a MAC; nix/vivado-license-mac.nix records it
+        import nixosModules.vivado-license-netdev + nixos-rebuild -> dummy NIC `vivadolic` makes 1 license portable
       Guide: docs/fpga-bringup-tang-mega-138k-pro.md · status: docs/phase-8-status.md
 
     Meta

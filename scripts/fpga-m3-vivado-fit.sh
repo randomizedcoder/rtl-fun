@@ -67,6 +67,11 @@ do_synth() {
     echo "  install free Vivado WebPACK/ML Standard (covers XC7A200T), then either:" >&2
     echo "    source /path/to/Xilinx/Vivado/<ver>/settings64.sh   # puts vivado on PATH" >&2
     echo "    export VIVADO=/path/to/Xilinx/Vivado/<ver>/bin/vivado" >&2
+    echo "  on NixOS, install + run Vivado in the FHS sandbox instead (Vivado's FHS" >&2
+    echo "  binaries won't run natively — libX11.so.6 etc.):" >&2
+    echo "    nix run .#vivado-fhs                     # interactive shell: run the installer here" >&2
+    echo "    export VIVADO_SETTINGS=/path/to/Xilinx/<ver>/Vivado/settings64.sh" >&2
+    echo "    export VIVADO=\"\$(nix build --no-link --print-out-paths .#vivado-fhs-vivado)/bin/vivado\"" >&2
     exit 1
   fi
   if [ ! -s "$SV2V" ]; then
