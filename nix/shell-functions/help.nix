@@ -100,6 +100,8 @@
         nix run .#vivado-fhs -- vivado -version   run a command inside the sandbox (set VIVADO_SETTINGS first)
         Vivado 2026.1 needs a (free) Basic license node-locked to a MAC; nix/vivado-license-mac.nix records it
         import nixosModules.vivado-license-netdev + nixos-rebuild -> dummy NIC `vivadolic` makes 1 license portable
+        nix run .#fpga-vivado-license-check   probe what your Vivado license permits (synth/impl/bitstream) on a part
+                                              (RESULT: free Basic does FULL impl+bitstream on xc7k325t — no edu license)
         CPU-isolated host (isolcpus=)? pin Vivado to spare cores: taskset -c 2-7 nix run .#fpga-m3-vivado-fit
       Guide: docs/fpga-bringup-tang-mega-138k-pro.md · status: docs/phase-8-status.md
 

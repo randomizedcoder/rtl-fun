@@ -235,6 +235,9 @@
           # CVA6 RTL — the trustworthy LUT oracle that closes the openXC7 mapper-artifact
           # thread. Host-tool dependency (free Vivado on PATH). See §8.4 M3a.
           fpga-m3-vivado = import ./nix/fpga-m3-vivado.nix { inherit pkgs; };
+          # Phase-A pre-buy: probe what the Vivado license permits on a part (synth vs
+          # impl vs bitstream) via a trivial design — no board, no CVA6. See §8.4.
+          fpga-vivado-license-check = import ./nix/fpga-vivado-license-check.nix { inherit pkgs; };
           # Run proprietary Vivado (installer + tools) on NixOS via a buildFHSEnv
           # sandbox — the reproducible impurity boundary for the host tool. See §8.4 M3a.
           vivado-fhs = import ./nix/vivado-fhs.nix { inherit pkgs; };
@@ -362,6 +365,7 @@
             fpga-m3-core-rtl = fpga-m3.fpga-m3-core-rtl;
             fpga-m3-xilinx-fit = fpga-m3-xilinx.fpga-m3-xilinx-fit;
             fpga-m3-vivado-fit = fpga-m3-vivado.fpga-m3-vivado-fit;
+            fpga-vivado-license-check = fpga-vivado-license-check.fpga-vivado-license-check;
             vivado-fhs = vivado-fhs.vivado-fhs;
             vivado-fhs-vivado = vivado-fhs.vivado-fhs-vivado;
             # The pinned vendor examples + their prebuilt 6-LED bitstream.
@@ -675,6 +679,15 @@
           apps.fpga-m3-vivado-fit = {
             type = "app";
             program = "${fpga-m3-vivado.fpga-m3-vivado-fit}/bin/fpga-m3-vivado-fit";
+          };
+
+          # Phase-A pre-buy: what does the installed Vivado license permit on a part?
+          # Pushes a trivial design through synth -> place -> route -> write_bitstream.
+          #   nix run .#fpga-vivado-license-check                 (probe xc7k325tffg900-2)
+          #   XILINX_PART=<part> nix run .#fpga-vivado-license-check
+          apps.fpga-vivado-license-check = {
+            type = "app";
+            program = "${fpga-vivado-license-check.fpga-vivado-license-check}/bin/fpga-vivado-license-check";
           };
 
           # Run Vivado (installer + tools) on NixOS inside a buildFHSEnv sandbox.

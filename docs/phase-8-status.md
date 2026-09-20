@@ -676,6 +676,31 @@ proven reference for the one hard part, vs. the Genesys 2's *open-ended* FMC 10G
 The cost is that we own the board support. Board-bring-up files will live under
 `fpga/ax7325b/` (starting with `ax7325b.xdc`).
 
+#### Pre-purchase gateware+software validation (prove we can build it, before buying)
+
+The AX7325B is not turnkey for CVA6, so the risk is "can we create the gateware/software?",
+not "does it fit". Nearly all of that is provable **now on hp5, with no board**, using the
+installed Vivado (FHS box) + the reproducible `nix run` flow. Only silicon bring-up (DDR3
+calibration, GTX link SI to a real NIC, real throughput, final timing sign-off) needs
+hardware. Staged as reproducible targets; results recorded here as they land.
+
+**A1 — Vivado license boundary: FULL flow is free on the 325T (2026-09-20).** New target
+`nix run .#fpga-vivado-license-check` (`nix/fpga-vivado-license-check.nix`,
+`scripts/fpga-vivado-license-check.sh`, `fpga/vivado/license-probe.tcl`) pushes a trivial
+design through synth → place → route → `write_bitstream` on a part and reports which license
+features Vivado grants. **Result on the free "Basic" tier, `xc7k325tffg900-2`:** both
+`Vivado_Synthesis` *and* `Vivado_Implementation` granted; `write_bitstream completed
+successfully` (11.4 MB `.bit`). So — correcting the earlier "synth-only" assumption — **a
+complete routed bitstream + timing on the exact AX7325B die is free-tier; no edu license
+needed.** This unblocks the full-SoC impl proofs below at zero license cost.
+
+Remaining pre-buy steps (planned, reproducible targets): A2 full turnkey **Genesys 2** SoC
+build (synth→impl→bitstream+timing on the same `xc7k325tffg900-2` die — proves the flow +
+CVA6+DDR3 route/timing without new RTL); B3 **MIG** pinout validation on `mig_ax7325b.prj`;
+B4 the **AX7325B** `ariane_xilinx` variant full-SoC build; C5 **10G MAC + GTX** build-only
+fit on the 325T; D6 end-to-end **functional sim** (packets → parser → flow_keys + a CVA6
+NIC driver). Plan: `~/.claude/.../plans/ok-in-this-folder-jolly-perlis.md`.
+
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 
 Whole-flow CVA6-on-openXC7 is **long** and **memory-heavy** — the numbers below let a
