@@ -91,13 +91,16 @@
       M3a Xilinx pivot (open-source verify-before-buy: CVA6 fit+route on xc7k325t/Genesys 2, no Vivado/board):
         nix run .#fpga-m3-core-rtl -- s2           first, to produce build/fpga-m3-core-rtl/elab.il
         nix run .#fpga-m3-xilinx-fit [-- chipdb|synth|pnr]   yosys+nextpnr-xilinx -> LUT6/FF/DSP + routed
-      M3a Vivado LUT oracle (definitive count on our RTL; needs free Vivado on PATH or $VIVADO, no board):
-        nix run .#fpga-m3-core-rtl -- s0           first, to produce build/fpga-m3-core-rtl/cva6_core_sv2v.v
-        nix run .#fpga-m3-vivado-fit [-- synth|report]   Vivado synth-only -> trustworthy LUT6/FF/DSP + verdict
+      M3a Vivado LUT oracle (RESULT: CVA6 = 48,217 LUT6 = 24% of the 325T — FITS; needs free Vivado, no board):
+        nix run .#fpga-m3-core-rtl -- s0           first, to produce files.txt + incdirs.txt (+ cva6_core_sv2v.v)
+        nix run .#fpga-m3-vivado-fit [-- synth|report]   NATIVE Vivado synth-only -> trustworthy LUT6/FF/DSP + verdict
+        FPGA_M3_VIVADO_MODE=sv2v nix run .#fpga-m3-vivado-fit   reproduce the sv2v-inflated 277k contrast figure
+        (Vivado is SV-native — the default reads CVA6's real .sv flist, NOT sv2v; sv2v is only for the open tools)
         nix run .#vivado-fhs        install/run Vivado on NixOS in an FHS sandbox (interactive shell)
         nix run .#vivado-fhs -- vivado -version   run a command inside the sandbox (set VIVADO_SETTINGS first)
         Vivado 2026.1 needs a (free) Basic license node-locked to a MAC; nix/vivado-license-mac.nix records it
         import nixosModules.vivado-license-netdev + nixos-rebuild -> dummy NIC `vivadolic` makes 1 license portable
+        CPU-isolated host (isolcpus=)? pin Vivado to spare cores: taskset -c 2-7 nix run .#fpga-m3-vivado-fit
       Guide: docs/fpga-bringup-tang-mega-138k-pro.md · status: docs/phase-8-status.md
 
     Meta

@@ -37,7 +37,11 @@ let
   targetPkgs = p: (with p; [
     # base runtime
     coreutils bash zsh gnugrep gnused gawk findutils which procps util-linux
-    glibc (lib.getLib stdenv.cc.cc) zlib ncurses5 libuuid libxcrypt-legacy expat
+    glibc (lib.getLib stdenv.cc.cc) zlib libuuid libxcrypt-legacy expat
+    # ncurses: Vivado 2026.1's libxv_commontasks needs libncurses.so.5 (abi5 compat)
+    # AND libxv_tcltasks needs libtinfo.so.6 (ncurses 6) — provide both, or `vivado
+    # -mode batch` dies loading feature 'core'.
+    ncurses5 ncurses
     # X11 (installer + Vivado GUI)
     libx11 libxext libxrender libxtst libxi
     libxft libxfixes libxrandr libxinerama libxcursor
@@ -46,6 +50,8 @@ let
     # GTK / font / rendering stack
     freetype fontconfig glib gtk2 gtk3 gdk-pixbuf pango cairo atk dbus
     libGL libGLU mesa nss nspr
+    # Vivado's libnlview (netlist render, pulled in by feature 'core') needs these.
+    pixman libpng
     # things Vivado shells out to
     graphviz unzip lsb-release nettools e2fsprogs
   ]);
@@ -53,6 +59,12 @@ let
   # Enter the FHS sandbox. With no args -> interactive bash (for the install wizard).
   # With args -> source $VIVADO_SETTINGS (if set) then exec them (for `vivado ...`).
   runScript = pkgs.writeShellScript "vivado-fhs-run" ''
+    # The "LD trick": the FHS exposes the abi-compat ncurses libs as filename symlinks in
+    # /usr/lib (libncurses.so.5, libtinfo.so.6), but ldconfig indexes them by SONAME
+    # (libncursesw.*), so a DT_NEEDED for the exact filename misses the cache. Putting
+    # /usr/lib on the search path lets Vivado's Tcl `load` of libxv_commontasks /
+    # libxv_tcltasks resolve them by filename (feature 'core' fails otherwise).
+    export LD_LIBRARY_PATH="/usr/lib''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     if [ -n "''${VIVADO_SETTINGS:-}" ] && [ -f "''${VIVADO_SETTINGS:-}" ]; then
       # shellcheck disable=SC1090
       . "''${VIVADO_SETTINGS}"

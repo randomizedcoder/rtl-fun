@@ -497,10 +497,32 @@ ip link show vivadolic                                          # confirm the fi
 unverified until a `.lic` is in hand; if FlexLM rejects it, fall back to a per-machine license
 against a real NIC MAC.)
 
-**Result (pending the run):** to be filled in once Vivado is installed and the target runs —
-expected ~40–60k LUT6 (per PERCIVAL + Tom), well under the 325T's 203,800, closing
-verify-before-buy on our actual RTL. Until then the buy decision rests on the two independent
-Vivado datapoints above; this target makes it *our* number, reproducibly.
+**★ Result (2026-09-19): CVA6 FITS the xc7k325t at 23.7% LUT — verify-before-buy CLOSED on our own RTL.**
+Free Vivado 2026.1 (Basic tier, node-locked; run on hp5 in the NixOS FHS box) synthesized the **native
+CVA6 SystemVerilog** (top `cva6`, `cv64a6_imafdc_sv39`, the resolved `files.txt` flist — *not* sv2v)
+`-mode out_of_context -flatten_hierarchy none` on the actual Genesys 2 part `xc7k325tffg900-2`:
+
+| Resource | Native Vivado | 325T budget | Util | |
+|---|---|---|---|---|
+| **Slice LUTs (LUT6)** | **48,217** | 203,800 | **23.7%** | ✅ |
+| Slice Registers (FF) | 22,204 | 407,600 | 5.4% | ✅ |
+| DSP48E1 | 27 | 840 | 3.2% | ✅ |
+| Block RAM (RAMB36) | 36 | 445 | 8.1% | ✅ |
+| CARRY4 | 1,831 | — | — | |
+
+**FITS with ~4× LUT headroom** (conservative — `rvfi_probes_o` kept + hierarchy unflattened both only
+add LUTs). This lands exactly on the two independent Vivado datapoints (PERCIVAL ~40–50k same part;
+Tom ~50k Rocket). **Same RTL, three tools:** native Vivado **48.2k** → sv2v+Vivado **277.8k (5.8×)** →
+sv2v+abc9/openXC7 **628.8k (13×)**. The 13× openXC7 figure was *two* compounding artifacts — the abc9
+mapper (~2.3×) on top of the **sv2v input** flattening (~5.8×) — never the design; FF/DSP/BRAM were
+trustworthy in every flow. **Lesson: Vivado is SystemVerilog-native — feed it CVA6's real `.sv`, never
+sv2v** (sv2v is only for the open tools). Memory gotcha: raw `cva6` with rvfi outputs kept OOMs >61 GB
+under default whole-core flattening; `-flatten_hierarchy none` cut peak to ~2.3 GB and finished in ~22 min.
+Reports: `build/fpga-m3-vivado/util_native_k325t.rpt` (+ `_hier`, + `util_sv2v_k325t.rpt` for the contrast).
+The buy decision (Genesys 2) now rests on a first-party Vivado measurement of *our* RTL, not just external
+datapoints. (Productization TODO: a native-flist `nix run` target — the current `fpga-m3-vivado-fit`
+reads the sv2v file and so reports the inflated 277.8k; a follow-up target should read `files.txt`+incdirs
+natively with `-flatten_hierarchy none`, top `cva6`.)
 
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 
