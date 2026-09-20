@@ -564,6 +564,64 @@ we write the board support (`.xdc`, MIG, SFP+/QSFP pinout) ourselves. All three 
 `xc7k325t-2ffg900` we measured, so none changes the fit verdict — the decision is **turnkey
 bring-up (Genesys 2) vs. onboard 10G + more DDR3 for less money (AX7325B)**.
 
+#### What it takes to run CVA6 on the ALINX AX7325B (porting scope + risk)
+
+Onboard 10G/40G is the lower-risk path to the *end goal*: it replaces an open-ended
+integration problem (Genesys 2 needs an FMC→SFP+ mezzanine, plus sourcing a 156.25 MHz
+GTX reference clock onto the right FMC pins) with a **bounded, mostly-mechanical board
+port**. The AX7325B has a **1:1 equivalent for every peripheral CVA6's Genesys 2 flow
+uses**, and — critically — the 10G/40G reference clocks are already on the board:
+
+| CVA6 needs | AX7325B provides | Pin(s) / bank |
+|---|---|---|
+| 200 MHz sys clock (MIG) | 2× 200 MHz differential | `SYS_CLK` AE10/AF10 |
+| 10G refclk | **156.25 MHz** wired to SFP bank | BANK117 |
+| 40G refclk | 125 MHz wired to QSFP bank | BANK118 |
+| DDR3 | **2 GiB** (4× MT41K256M16, 64-bit) | HP banks 32/33/34 |
+| Console UART | USB-UART bridge | AJ26/AK26 *(verify — see caveat)* |
+| Boot media | Micro SD slot | ✓ |
+| Config | 10-pin JTAG (openFPGALoader / Vivado) | ✓ |
+| Status / input | 6 LEDs (4 user) + 2 buttons | ✓ |
+
+**Porting checklist** — CVA6 ships board support in `corev_apu/fpga` for `BOARD=genesys2`;
+the port = creating the ALINX equivalent of each piece:
+
+| Piece | Genesys 2 (exists) | AX7325B (we create) | Effort / risk |
+|---|---|---|---|
+| Pin constraints | `constraints/genesys-2.xdc` | `ax7325b.xdc` (clk, rst, UART, SD, JTAG, LED, DDR3) | mechanical — **LOW** (pinout in hand) |
+| DDR3 MIG | `mig_genesys2.prj` | new MIG: 4× MT41K256M16, 64-bit, 2 GiB, HP banks | **the real work — MEDIUM** |
+| Clocking | clk wizard @ Genesys 2 | retarget to AX7325B 200 MHz `SYS_CLK` | **LOW** |
+| Top-level board select | `ariane_xilinx` `GENESYS2` ifdef | add an `AX7325B` variant | LOW–MEDIUM |
+| Programming | `program_genesys2.tcl` | JTAG via openFPGALoader / Vivado | **LOW** |
+
+**The 10G/40G MAC itself is Phase-9 work, identical on either board** — likely the
+open-source **verilog-ethernet (Forencich) 10G/25G MAC + PCS/PMA on GTX** (avoids Xilinx's
+licensed 10G IP). The AX7325B advantage is that the SFP+ cage and its 156.25 MHz refclk are
+already wired and proven by ALINX's own demo; the Genesys 2 would need the FMC mezzanine +
+refclk sourced first.
+
+**Best de-risking step:** download ALINX's **AX7325B example-design / documentation package**
+(separate from the user manual + PCB `.rar`) — it contains working **DDR3-MIG memtest** and
+**SFP/QSFP GT loopback** demos, which hand us a proven MIG `.prj` and a GT wrapper with the
+correct pin/clock settings to copy. That turns the one MEDIUM item (DDR3) into "replicate
+ALINX's known-good config."
+
+**Risks / caveats on the ALINX side:**
+- **Docs are template-reused across ALINX's Zynq + Kintex lines** — e.g. the manual lists the
+  UART on `PS_MIO12/13` (Zynq PS naming) on a chip with *no* PS. **Verify every pin against the
+  schematic, not just the manual** before trusting the `.xdc`.
+- **No CVA6 community precedent** on this board (Genesys 2 is CVA6's reference) — we'd be first,
+  so less help if something is odd.
+- **DDR3 SI/timing:** trust that ALINX laid out DDR3 correctly — their shipped memtest demo
+  proves it, so replicate their MIG config rather than deriving one.
+- Vivado licensing unchanged — the **free Basic tier covers xc7k325t** (validated this session).
+
+**Assessment:** for the 10G/40G end goal, the AX7325B is genuinely lower-risk — a *bounded*
+port (realistic bring-up ~days: clock→UART→LED, then DDR3 memtest, then drop in CVA6) with a
+proven reference for the one hard part, vs. the Genesys 2's *open-ended* FMC 10G integration.
+The cost is that we own the board support. Board-bring-up files will live under
+`fpga/ax7325b/` (starting with `ax7325b.xdc`).
+
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 
 Whole-flow CVA6-on-openXC7 is **long** and **memory-heavy** — the numbers below let a
