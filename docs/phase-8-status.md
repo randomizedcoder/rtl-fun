@@ -524,6 +524,31 @@ datapoints. (Productization TODO: a native-flist `nix run` target — the curren
 reads the sv2v file and so reports the inflated 277.8k; a follow-up target should read `files.txt`+incdirs
 natively with `-flatten_hierarchy none`, top `cva6`.)
 
+#### Candidate boards — 10 GbE-capable Kintex-7 (fit is settled; the differentiator is 10G I/O + bring-up cost)
+
+CVA6 fits any of these (48,217 LUT6 is 24% of the xc7k325t; LUT/FF/DSP/RAMB counts are
+package-independent, so every xc7k325t board is equivalent on *fit*). The real selection
+axes are **onboard SFP+ cages wired to GTX** (for the installed 10G optics — the whole
+reason for Kintex over Artix), **DDR3 for the CVA6 SoC**, and **board-support bring-up
+cost** (CVA6 ships turnkey files only for the Genesys 2).
+
+| Board | Vendor | Part | Onboard SFP+ (→GTX) | DDR3 | CVA6 board support | Notes |
+|---|---|---|---|---|---|---|
+| **Genesys 2** | Digilent | xc7k325t-2**ffg900** | **None onboard** — GTX exit on the FMC HPC; 10G needs an FMC→SFP+ mezzanine | 1 GiB | **Turnkey** (`genesys-2.xdc`, `mig_genesys2.prj`, `program_genesys2.tcl` in `corev_apu/fpga`) | Fastest software bring-up; ~$999 academic / ~$1,199. 16 GTX (ffg900). |
+| **ALINX AX7325B** | ALINX | xc7k325t-2**ffg676** *(verify)* | **Yes** *(verify count/rate)* — ALINX K7 boards typically bring GTX out to onboard SFP+ | *(verify size)* | **None** — port `.xdc` + MIG DDR3 config + SFP+ constraints | Cheaper; direct 10G without a mezzanine. 8 GTX (ffg676). [product page](https://www.en.alinx.com/Product/FPGA-Development-Boards/Kintex-7/AX7325B.html) |
+| **ALINX AV7K325** | ALINX | xc7k325t *(verify pkg)* | **Yes** *(verify count/rate)* | *(verify size)* | **None** — same porting as above | Newer variant; confirm SFP+/GTX wiring + DDR3 on datasheet. [product page](https://www.en.alinx.com/Product/FPGA-Development-Boards/Kintex-7/AV7K325.html) |
+
+ALINX product pages are JS-rendered and could not be scraped here — the *(verify)* fields
+above must be confirmed against each board's datasheet/PDF. Kintex-7 line index:
+<https://www.en.alinx.com/Product/FPGA-Development-Boards/Kintex-7.html>. AMD embedded-partner
+listing (contact request submitted 2026-09-20):
+<https://www.amd.com/en/search/partner/embedded-partner-solutions.html/5974>.
+
+**Trade-off in one line:** Genesys 2 = turnkey CVA6 software but 10G needs an FMC SFP+ card;
+ALINX = onboard SFP+ (likely cheaper, direct 10G) but we write the board support (`.xdc`,
+MIG, SFP+ pinout) ourselves. Both use the exact xc7k325t we measured, so neither changes the
+fit verdict. **Decision pending** board datasheet confirmation of the SFP+/GTX wiring.
+
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 
 Whole-flow CVA6-on-openXC7 is **long** and **memory-heavy** — the numbers below let a
