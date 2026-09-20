@@ -528,26 +528,41 @@ natively with `-flatten_hierarchy none`, top `cva6`.)
 
 CVA6 fits any of these (48,217 LUT6 is 24% of the xc7k325t; LUT/FF/DSP/RAMB counts are
 package-independent, so every xc7k325t board is equivalent on *fit*). The real selection
-axes are **onboard SFP+ cages wired to GTX** (for the installed 10G optics — the whole
-reason for Kintex over Artix), **DDR3 for the CVA6 SoC**, and **board-support bring-up
+axes are **onboard SFP+ cages wired to GTX at 10G** (for the installed 10G optics — the
+whole reason for Kintex over Artix), **DDR3 for the CVA6 SoC**, and **board-support bring-up
 cost** (CVA6 ships turnkey files only for the Genesys 2).
 
-| Board | Vendor | Part | Onboard SFP+ (→GTX) | DDR3 | CVA6 board support | Notes |
-|---|---|---|---|---|---|---|
-| **Genesys 2** | Digilent | xc7k325t-2**ffg900** | **None onboard** — GTX exit on the FMC HPC; 10G needs an FMC→SFP+ mezzanine | 1 GiB | **Turnkey** (`genesys-2.xdc`, `mig_genesys2.prj`, `program_genesys2.tcl` in `corev_apu/fpga`) | Fastest software bring-up; ~$999 academic / ~$1,199. 16 GTX (ffg900). |
-| **ALINX AX7325B** | ALINX | xc7k325t-2**ffg676** *(verify)* | **Yes** *(verify count/rate)* — ALINX K7 boards typically bring GTX out to onboard SFP+ | *(verify size)* | **None** — port `.xdc` + MIG DDR3 config + SFP+ constraints | Cheaper; direct 10G without a mezzanine. 8 GTX (ffg676). [product page](https://www.en.alinx.com/Product/FPGA-Development-Boards/Kintex-7/AX7325B.html) |
-| **ALINX AV7K325** | ALINX | xc7k325t *(verify pkg)* | **Yes** *(verify count/rate)* | *(verify size)* | **None** — same porting as above | Newer variant; confirm SFP+/GTX wiring + DDR3 on datasheet. [product page](https://www.en.alinx.com/Product/FPGA-Development-Boards/Kintex-7/AV7K325.html) |
+**All three boards carry the identical silicon** — `XC7K325T-2FFG900` (same die, same FFG900
+package, same speed grade **-2** we measured against; the ALINX parts are the industrial-temp
+`…FFG900I`, 16 GTX). So *fit is identical across all three*; the choice is purely 10G wiring
++ DDR3 + bring-up cost. Verified below against the ALINX user manuals
+(`downloads/AX7325B_User Manual.pdf`, `downloads/AV7K325_User_Manual.pdf`, ALINX 2022).
 
-ALINX product pages are JS-rendered and could not be scraped here — the *(verify)* fields
-above must be confirmed against each board's datasheet/PDF. Kintex-7 line index:
-<https://www.en.alinx.com/Product/FPGA-Development-Boards/Kintex-7.html>. AMD embedded-partner
-listing (contact request submitted 2026-09-20):
+| Board | Vendor | Part (all -2 FFG900, 16 GTX) | Onboard SFP+ (→GTX) | Other 10G/serial | DDR3 | CVA6 board support | Cost |
+|---|---|---|---|---|---|---|---|
+| **Genesys 2** | Digilent | xc7k325t-2ffg900 (comm) | **None onboard** — GTX exit on the FMC HPC; 10G needs an FMC→SFP+ mezzanine | PCIe (FMC) | 1 GiB | **Turnkey** (`genesys-2.xdc`, `mig_genesys2.prj`, `program_genesys2.tcl` in `corev_apu/fpga`) | ~$999 edu / ~$1,199 |
+| **ALINX AX7325B** | ALINX | xc7k325t-2ffg900I (ind) | **4× SFP on BANK117 GTX, refclk 156.25 MHz → native 10G-ready** | **QSFP+ 40G** (BANK118, 4×GTX); PCIe x8 Gen2 | **2 GiB** (4×512 MB, 64-bit) + SODIMM expansion | **None** — port `.xdc` + MIG DDR3 + SFP+/QSFP constraints | cheaper |
+| **ALINX AV7K325** | ALINX | xc7k325t-2ffg900I (ind) | **4× SFP on BANK117 GTX, refclk 125 MHz → native 1.25G** (10G needs a 156.25 MHz refclk supplied) | 2× HDMI; PCIe x8 Gen2 | **2 GiB** (4×512 MB, 64-bit) | **None** — same porting as above | cheaper |
+
+**The decisive 10G detail (from the datasheets):** both ALINX boards route 4× SFP to a full
+GTX quad on BANK117, but only the **AX7325B** clocks that bank at **156.25 MHz** — the
+reference 10GbE line-rate clock — and it adds a **40G QSFP+** on BANK118. The **AV7K325**
+clocks its SFP bank at **125 MHz** (native 1.25 GbE); its GTX are 10G-capable silicon, but
+you'd have to supply a 156.25 MHz reference to run them at 10G, and it swaps the QSFP for
+2× HDMI. **For a 10G packet-parser host, AX7325B is the clear ALINX pick.** Both ALINX
+boards carry 2 GiB DDR3 (double the Genesys 2's 1 GiB) and a PCIe x8 Gen2 edge.
+
+Links — [AX7325B](https://www.en.alinx.com/Product/FPGA-Development-Boards/Kintex-7/AX7325B.html)
+· [AV7K325](https://www.en.alinx.com/Product/FPGA-Development-Boards/Kintex-7/AV7K325.html)
+· [K7 line index](https://www.en.alinx.com/Product/FPGA-Development-Boards/Kintex-7.html)
+· AMD embedded-partner listing (contact request submitted 2026-09-20):
 <https://www.amd.com/en/search/partner/embedded-partner-solutions.html/5974>.
 
-**Trade-off in one line:** Genesys 2 = turnkey CVA6 software but 10G needs an FMC SFP+ card;
-ALINX = onboard SFP+ (likely cheaper, direct 10G) but we write the board support (`.xdc`,
-MIG, SFP+ pinout) ourselves. Both use the exact xc7k325t we measured, so neither changes the
-fit verdict. **Decision pending** board datasheet confirmation of the SFP+/GTX wiring.
+**Trade-off in one line:** Genesys 2 = turnkey CVA6 software but 10G needs an FMC SFP+ card
+(and only 1 GiB DDR3); **AX7325B** = onboard 4× 10G SFP + 40G QSFP + 2 GiB DDR3, cheaper, but
+we write the board support (`.xdc`, MIG, SFP+/QSFP pinout) ourselves. All three are the exact
+`xc7k325t-2ffg900` we measured, so none changes the fit verdict — the decision is **turnkey
+bring-up (Genesys 2) vs. onboard 10G + more DDR3 for less money (AX7325B)**.
 
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 
