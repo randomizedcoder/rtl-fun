@@ -59,6 +59,8 @@ nix/
   fpga-m3-xilinx.nix          # Phase-8 M3a pivot: fpga-m3-xilinx-fit (stock CVA6 fit+route on xc7k325t via openXC7 — yosys+nextpnr-xilinx, no Vivado/board)
   fpga-m3-vivado.nix          # Phase-8 M3a LUT oracle: fpga-m3-vivado-fit (Vivado synth-only on NATIVE CVA6 RTL — trustworthy 48,217 LUT6 = 24% of 325T; MODE=sv2v for the inflated contrast; host-tool dep, free Vivado on PATH)
   fpga-vivado-license-check.nix # Phase-A pre-buy: fpga-vivado-license-check (probe what the Vivado license permits on a part — trivial design through synth→place→route→bitstream; free Basic does FULL impl on xc7k325t)
+  fpga-soc-vivado.nix         # Phase-A pre-buy: fpga-soc-vivado (turnkey CVA6 SoC+DDR3 full Vivado build synth→impl→bitstream→timing on xc7k325tffg900-2; board-file-free/part-only; injects a merged RISC-V toolchain for the bootrom; host-tool dep, free Vivado)
+  fpga-mig-check.nix          # Phase-B pre-buy: fpga-mig-check (DDR3 MIG generate + OOC-synth from an explicit mig_<board>.prj — validate byte-lane/bank pinout legality with no board; default ax7325b 64-bit; host-tool dep, free Vivado)
   vivado-fhs.nix              # Run proprietary Vivado (installer + tools) on NixOS via buildFHSEnv sandbox: vivado-fhs (shell) + `vivado` wrapper for $VIVADO (NixOS analogue of the Gowin microVM)
   vivado-license-mac.nix      # The single repo-recorded MAC the free Vivado Basic license (2026.1+) is node-locked to — makes one license portable across machines
   vivado-license-netdev.nix   # NixOS module (flake output nixosModules.vivado-license-netdev): dummy NIC `vivadolic` carrying that MAC, so FlexLM sees the same host ID everywhere
@@ -93,6 +95,8 @@ scripts/
   fpga-m3-core-rtl.sh         # M3a: resolve stock-CVA6 flist + sv2v (NO flatten) so Gowin infers BSRAM; s0/s1/s2 ladder (Phase 8)
   fpga-m3-xilinx-fit.sh       # M3a pivot: openXC7 fit+route of stock CVA6 on xc7k325t (chipdb/synth/pnr stages) (Phase 8)
   fpga-m3-vivado-fit.sh       # M3a LUT oracle: Vivado synth-only on NATIVE CVA6 .sv (MODE=native default; sv2v=contrast), trustworthy util + fit verdict (Phase 8)
+  fpga-soc-vivado.sh          # Phase-A pre-buy: materialize the pinned CVA6 tree, board-file-free source-prep, drive `make fpga` (bootrom→IP gen→synth→impl→bitstream→timing) on the die (Phase 8)
+  fpga-mig-check.sh           # Phase-B pre-buy: DDR3 MIG generate + OOC-synth from fpga/<board>/mig_<board>.prj via fpga/vivado/mig-check.tcl — pinout legality verdict (Phase 8)
 ```
 
 ## Runnable apps (`nix run .#<name>`)

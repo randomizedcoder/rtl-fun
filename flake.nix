@@ -238,6 +238,12 @@
           # Phase-A pre-buy: probe what the Vivado license permits on a part (synth vs
           # impl vs bitstream) via a trivial design — no board, no CVA6. See §8.4.
           fpga-vivado-license-check = import ./nix/fpga-vivado-license-check.nix { inherit pkgs; };
+          # Phase-A pre-buy: drive CVA6's turnkey full Vivado flow (synth->impl->bitstream
+          # ->timing) for the whole SoC+DDR3 on the Genesys 2 / AX7325B die. See §8.4.
+          fpga-soc-vivado = import ./nix/fpga-soc-vivado.nix { inherit pkgs cva6-src; };
+          # Phase-B pre-buy: generate + OOC-synth a DDR3 MIG from an explicit .prj to
+          # validate a memory pinout (AX7325B 64-bit) with no board/SoC. See §8.4.
+          fpga-mig-check = import ./nix/fpga-mig-check.nix { inherit pkgs; };
           # Run proprietary Vivado (installer + tools) on NixOS via a buildFHSEnv
           # sandbox — the reproducible impurity boundary for the host tool. See §8.4 M3a.
           vivado-fhs = import ./nix/vivado-fhs.nix { inherit pkgs; };
@@ -366,6 +372,8 @@
             fpga-m3-xilinx-fit = fpga-m3-xilinx.fpga-m3-xilinx-fit;
             fpga-m3-vivado-fit = fpga-m3-vivado.fpga-m3-vivado-fit;
             fpga-vivado-license-check = fpga-vivado-license-check.fpga-vivado-license-check;
+            fpga-soc-vivado = fpga-soc-vivado.fpga-soc-vivado;
+            fpga-mig-check = fpga-mig-check.fpga-mig-check;
             vivado-fhs = vivado-fhs.vivado-fhs;
             vivado-fhs-vivado = vivado-fhs.vivado-fhs-vivado;
             # The pinned vendor examples + their prebuilt 6-LED bitstream.
@@ -688,6 +696,23 @@
           apps.fpga-vivado-license-check = {
             type = "app";
             program = "${fpga-vivado-license-check.fpga-vivado-license-check}/bin/fpga-vivado-license-check";
+          };
+
+          # Phase-A pre-buy: turnkey full Vivado build (synth->impl->bitstream->timing)
+          # of the whole CVA6 SoC + DDR3 on the Genesys 2 / AX7325B die (xc7k325tffg900-2).
+          #   nix run .#fpga-soc-vivado                (turnkey genesys2 build -> bit + timing)
+          #   nix run .#fpga-soc-vivado -- clean       (remove this target's build tree)
+          apps.fpga-soc-vivado = {
+            type = "app";
+            program = "${fpga-soc-vivado.fpga-soc-vivado}/bin/fpga-soc-vivado";
+          };
+
+          # Phase-B pre-buy: DDR3 MIG generate + OOC-synth from an explicit .prj (no board).
+          #   nix run .#fpga-mig-check              (validate fpga/ax7325b/mig_ax7325b.prj)
+          #   nix run .#fpga-mig-check -- genesys2  (control: stock 32-bit .prj)
+          apps.fpga-mig-check = {
+            type = "app";
+            program = "${fpga-mig-check.fpga-mig-check}/bin/fpga-mig-check";
           };
 
           # Run Vivado (installer + tools) on NixOS inside a buildFHSEnv sandbox.
