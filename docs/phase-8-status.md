@@ -694,12 +694,45 @@ successfully` (11.4 MB `.bit`). So — correcting the earlier "synth-only" assum
 complete routed bitstream + timing on the exact AX7325B die is free-tier; no edu license
 needed.** This unblocks the full-SoC impl proofs below at zero license cost.
 
-Remaining pre-buy steps (planned, reproducible targets): A2 full turnkey **Genesys 2** SoC
-build (synth→impl→bitstream+timing on the same `xc7k325tffg900-2` die — proves the flow +
-CVA6+DDR3 route/timing without new RTL); B3 **MIG** pinout validation on `mig_ax7325b.prj`;
-B4 the **AX7325B** `ariane_xilinx` variant full-SoC build; C5 **10G MAC + GTX** build-only
-fit on the 325T; D6 end-to-end **functional sim** (packets → parser → flow_keys + a CVA6
-NIC driver). Plan: `~/.claude/.../plans/ok-in-this-folder-jolly-perlis.md`.
+**A2 — turnkey full SoC build: CVA6+DDR3 routes and CLOSES TIMING on the die (2026-09-20).**
+New target `nix run .#fpga-soc-vivado` (`nix/fpga-soc-vivado.nix`, `scripts/fpga-soc-vivado.sh`)
+materializes the pinned CVA6 tree, applies a board-file-free source-prep, and drives CVA6's
+turnkey `make fpga BOARD=genesys2` (bootrom → 8 IPs incl. the DDR3 MIG → synth → impl →
+`write_bitstream` → `write_cfgmem`) on `xc7k325tffg900-2` inside the FHS-boxed free-Basic
+Vivado. **Result: 0 errors, `ariane_xilinx.bit` (11 MB) + `.mcs` produced; timing MET.**
+
+| metric | value | note |
+|---|---|---|
+| worst-path slack (WNS) | **+0.065 ns (MET)** | the critical path is *inside the DDR3 MIG* (a 200 MHz `clk_pll_i` write path), not CVA6 logic |
+| CVA6 core clock | 50 MHz (20 ns) | ample margin; MIG PHY is the timing-critical block, as expected for DDR3 |
+| SoC LUTs (`ariane_xilinx`) | **75,267 = 37% of 325T** | whole SoC: core + DDR3 MIG + peripherals + debug |
+| CVA6 core LUTs (`i_ariane`) | 49,571 | cross-checks the 48,217 synth-only fit (A200T oracle) — consistent |
+| FF / RAMB36 / DSP | 45,930 / 50 / 27 | leaves headroom for the 10G MAC + parser |
+
+This is the strongest single pre-buy datapoint: our boxed Vivado drives the **entire** flow
+(MIG IP gen, `read_ip`, place, route, bitstream) and the full CVA6 SoC + DDR3 **routes and
+meets timing** on the exact AX7325B die. Three integration issues were fixed reproducibly in
+the target (fresh throwaway tree, no upstream edit): bootrom `main.c` vs modern GCC (compile
+with `-std=gnu17`); `gen_rom.py` exec bit lost under `cp --no-preserve=mode` (preserve mode +
+`chmod u+w`); and — key for the AX7325B — **`board_part` not found** (Digilent board files
+aren't installed), fixed by making the flow **board-file-free / part-only**, which is exactly
+what an ALINX board (not in Vivado's board store) requires anyway.
+
+**B3 — AX7325B DDR3 MIG pinout is LEGAL on the die (2026-09-20).**
+New target `nix run .#fpga-mig-check -- ax7325b` (`nix/fpga-mig-check.nix`,
+`scripts/fpga-mig-check.sh`, `fpga/vivado/mig-check.tcl`) generates a MIG 7-series
+controller from `fpga/ax7325b/mig_ax7325b.prj` (2 GiB / **64-bit** DDR3, 8 byte lanes,
+sys_clk AE10/AF10) targeting `xc7k325tffg900-2`, board-file-free, and OOC-synthesizes it.
+**Result: `MIG_GENERATE_OK` + `MIG_SYNTH_OK` (synth_design Complete!, 100%)** — the 64-bit
+byte-lane / bank grouping is legal on the exact AX7325B die with **no board and no full SoC**.
+This retires the MEDIUM-risk DDR3 item from the plan: the datasheet-derived memory pinout is
+validated pre-buy, isolated from CVA6 so a pin/bank error surfaces here rather than in a
+multi-hour SoC impl.
+
+Remaining pre-buy steps (reproducible targets): B4 the **AX7325B** `ariane_xilinx`
+variant full-SoC build; C5 **10G MAC + GTX** build-only fit on the 325T; D6 end-to-end
+**functional sim** (packets → parser → flow_keys + a CVA6 NIC driver). Plan:
+`~/.claude/.../plans/ok-in-this-folder-jolly-perlis.md`.
 
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 
