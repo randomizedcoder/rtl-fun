@@ -588,8 +588,8 @@ the port = creating the ALINX equivalent of each piece:
 
 | Piece | Genesys 2 (exists) | AX7325B (we create) | Effort / risk |
 |---|---|---|---|
-| Pin constraints | `constraints/genesys-2.xdc` | `ax7325b.xdc` (clk, rst, UART, SD, JTAG, LED, DDR3) | mechanical — **LOW** (pinout in hand) |
-| DDR3 MIG | `mig_genesys2.prj` | new MIG: 4× MT41K256M16, 64-bit, 2 GiB, HP banks | **the real work — MEDIUM** |
+| Pin constraints | `constraints/genesys-2.xdc` | `fpga/ax7325b/ax7325b.xdc` — **first draft done** (clk, rst, UART, SD, JTAG, LED) | mechanical — **LOW** (pinout in hand) |
+| DDR3 MIG | `mig_genesys2.prj` | `fpga/ax7325b/mig_ax7325b.prj` — **first draft done** (64-bit, 2 GiB, 4× MT41K256M16, banks 32/33/34) | **the real work — MEDIUM** (needs MIG-regen verify) |
 | Clocking | clk wizard @ Genesys 2 | retarget to AX7325B 200 MHz `SYS_CLK` | **LOW** |
 | Top-level board select | `ariane_xilinx` `GENESYS2` ifdef | add an `AX7325B` variant | LOW–MEDIUM |
 | Programming | `program_genesys2.tcl` | JTAG via openFPGALoader / Vivado | **LOW** |

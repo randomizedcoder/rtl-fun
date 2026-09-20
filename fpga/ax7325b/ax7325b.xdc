@@ -15,9 +15,9 @@
 ##
 ## SCOPE (matches genesys-2.xdc): this file carries board I/O only. Two things are
 ## deliberately NOT here:
-##   * DDR3 + the 200 MHz SYS_CLK (AE10/AF10) — owned by the MIG-generated .xdc /
-##     mig project (as on Genesys 2). AX7325B DDR3 = 4x MT41K256M16 (2 GiB, 64-bit)
-##     on the HP banks; build a MIG config from ALINX's DDR3 memtest demo.
+##   * DDR3 + the 200 MHz SYS_CLK (AE10/AF10) — owned by the MIG project, drafted
+##     alongside this file as `fpga/ax7325b/mig_ax7325b.prj` (64-bit, 2 GiB,
+##     4x MT41K256M16, banks 32/33/34). Regenerate it in the MIG GUI to verify.
 ##   * The 10G SFP+ / 40G QSFP+ GTX pins + their 156.25 MHz (SFP, BANK117) and
 ##     125 MHz (QSFP, BANK118) reference clocks — Phase 9 (10G MAC on GTX).
 ##
