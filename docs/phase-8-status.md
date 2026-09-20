@@ -629,6 +629,31 @@ branches next to the existing `\`ifdef GENESYSII`):
   `mig_ax7325b.prj`, `ax7325b.svh`, and a `program_ax7325b.tcl` (openFPGALoader or Vivado
   over the board's standard JTAG), then re-export as a reproducible `nix run` target.
 
+#### Phase-9 test topology + the QSFP reference-clock gotcha
+
+Planned bring-up assets (user, 2026-09-20): SFP+ and QSFP fiber optics/DACs inserted when
+needed; possibly **2× AX7325B for FPGA-to-FPGA back-to-back**; plus host **10GE and QSFP
+NICs**. Testing against a real NIC (not just board-to-board) is the stricter, better target:
+it forces the FPGA path to be **standards-compliant** — 10GBASE-R (64b/66b PCS, 10.3125
+Gbps) for SFP+, 40GBASE-R4 for QSFP — which the open **verilog-ethernet (Forencich)** MAC
+provides. Back-to-back is more forgiving (both ends agree on a rate), so it's the easy first
+milestone; NIC interop is the compliance gate.
+
+**Gotcha — the AX7325B GTX reference clocks are fixed crystals, and the two banks differ**
+(datasheet Part 6/8/9, confirmed): SFP+ **BANK117 = 156.25 MHz** (native 10GBASE-R — clean
+for the 10GE NICs), but QSFP **BANK118 = 125 MHz**. 125 MHz cleanly makes 1.25/2.5/5/10.0G,
+**not** the 10.3125 Gbps/lane that standard **40GBASE-R4** (and a 40GbE NIC) needs — GTX QPLL
+integer-N can't synthesize 10.3125G from 125 MHz. Consequences + options for the 40G path:
+- **Preferred:** route BANK117's 156.25 MHz `MGTREFCLK` into the QSFP quad (BANK118). A
+  Kintex-7 GTX quad can source its refclk from an adjacent quad (±1), so if 117/118 are
+  neighbours this needs only refclk-routing constraints, no board change. **VERIFY quad
+  adjacency** (117↔118) in the 7-series transceiver user guide / floorplan.
+- **Alternative:** use **4× SFP+ as the 40G aggregate** — all four lanes are already on the
+  156.25 MHz BANK117 clock, and a 40GbE NIC's QSFP breaks out to 4× 10G anyway.
+- **Board-to-board only:** two AX7325Bs over QSFP could run a non-standard 10.0G/lane (both
+  ends agree), but that won't interop with a NIC — so don't rely on it for the NIC leg.
+The SFP+ 10G path has no such issue; it is the primary target and is clock-ready as wired.
+
 **Best de-risking step:** download ALINX's **AX7325B example-design / documentation package**
 (separate from the user manual + PCB `.rar`) — it contains working **DDR3-MIG memtest** and
 **SFP/QSFP GT loopback** demos, which hand us a proven MIG `.prj` and a GT wrapper with the
