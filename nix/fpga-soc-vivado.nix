@@ -8,11 +8,14 @@
 # drives the entire make (MIG IP gen, read_ip, place, route, write_bitstream).
 #
 #   nix run .#fpga-soc-vivado                turnkey genesys2 build -> bit + timing
+#   nix run .#fpga-soc-vivado -- ax7325b     AX7325B CVA6 port, synth-only fit-check
 #   nix run .#fpga-soc-vivado -- clean       remove this target's build tree
 #
-# We build the STOCK pinned CVA6 tree (cva6-src), BOARD=genesys2 — the known-good
-# turnkey path — to isolate "die/flow/license works" from "AX7325B port correct"
-# (that port lands in a later phase). The bootrom is compiled by `make fpga`, so a
+# BOARD=genesys2 builds the STOCK pinned CVA6 tree (cva6-src) — the known-good
+# turnkey path — to isolate "die/flow/license works" from "AX7325B port correct".
+# BOARD=ax7325b applies the AX7325B port (nix/cva6-fpga/ax7325b-board.patch +
+# fpga/ax7325b/*) to the throwaway tree and runs STAGE=synth (impl needs the board;
+# the .xdc pins carry #VERIFY markers). The bootrom is compiled by `make fpga`, so a
 # bare-metal RISC-V toolchain (merged gcc+binutils prefix), dtc and python3 are
 # injected alongside the shell utilities; Vivado stays the host dependency.
 #
@@ -37,7 +40,7 @@ let
     name = "fpga-soc-vivado";
     runtimeInputs = [
       pkgs.coreutils pkgs.gnused pkgs.gnugrep pkgs.findutils
-      pkgs.gnumake pkgs.python3 pkgs.dtc
+      pkgs.gnumake pkgs.python3 pkgs.dtc pkgs.patch
       toolchain.gcc toolchain.binutils
     ];
     # SC2329: the prepended common.sh defines shared helpers this script does not call,

@@ -19,8 +19,16 @@
 # Nix wrapper puts them on PATH and points $RISCV at a merged gcc+binutils prefix.
 #
 #   nix run .#fpga-soc-vivado                 turnkey genesys2 build -> bit + timing
-#   nix run .#fpga-soc-vivado -- genesys2     (explicit board; only genesys2 for now)
+#   nix run .#fpga-soc-vivado -- genesys2     (explicit board; full synth->impl->bit)
+#   nix run .#fpga-soc-vivado -- ax7325b      AX7325B board port, synth-only fit-check
 #   nix run .#fpga-soc-vivado -- clean        remove this target's build tree
+#
+# BOARD=ax7325b applies the AX7325B CVA6 port (nix/cva6-fpga/ax7325b-board.patch +
+# fpga/ax7325b/{ax7325b.svh,ax7325b.xdc,mig_ax7325b.prj}) to the throwaway tree and,
+# by default, runs STAGE=synth: synthesis + utilization/timing reports only. The
+# AX7325B pin/bank impl sign-off genuinely needs the physical board (its .xdc pins
+# carry #VERIFY markers), so B4 validates the port builds+fits pre-buy; impl is a
+# board-in-hand residual. Force a stage with FPGA_SOC_VIVADO_STAGE=synth|all.
 #
 # HOST-TOOL DEPENDENCY (documented impurity, like the other Vivado targets): Vivado
 # is NOT in nixpkgs. Put `vivado` on PATH (source settings64.sh) or export $VIVADO;
@@ -46,8 +54,25 @@ case "$BOARD" in
     echo "cleaned ${FPGA_SOC_VIVADO_OUT:-$REPO_ROOT/build/fpga-soc-vivado}"
     exit 0 ;;
   genesys2) ;;
-  *) echo "ERROR: board '$BOARD' not supported yet (only genesys2; the AX7325B port is a later phase)" >&2; exit 2 ;;
+  ax7325b) ;;
+  *) echo "ERROR: board '$BOARD' not supported (genesys2, ax7325b)" >&2; exit 2 ;;
 esac
+
+# STAGE: 'all' = full synth->impl->bitstream->mcs (the turnkey die proof, default for
+# genesys2); 'synth' = synthesis + reports only (default for ax7325b, whose pin/bank
+# impl needs the physical board). Override with FPGA_SOC_VIVADO_STAGE.
+if [ -n "${FPGA_SOC_VIVADO_STAGE:-}" ]; then
+  STAGE="$FPGA_SOC_VIVADO_STAGE"
+elif [ "$BOARD" = "ax7325b" ]; then
+  STAGE="synth"
+else
+  STAGE="all"
+fi
+case "$STAGE" in
+  synth|all) ;;
+  *) echo "ERROR: STAGE must be 'synth' or 'all' (got '$STAGE')" >&2; exit 2 ;;
+esac
+export STAGE   # run.tcl reads $::env(STAGE) to early-exit after synthesis
 
 VIVADO="${VIVADO:-vivado}"
 
@@ -110,16 +135,47 @@ find "$TREE/corev_apu/fpga/scripts" "$TREE/corev_apu/fpga/xilinx" \
   -name '*.tcl' -print0 2>/dev/null \
   | xargs -0 -r sed -i -E 's/^([[:space:]]*)set_property board_part/\1# board_part disabled (board-file-free, part-only flow): set_property board_part/'
 
+# ---- AX7325B board port: apply the CVA6 patch + drop in the board files ---------------
+# The port is delivered as a patch (Makefile BOARD=ax7325b + FPGA_TARGET knob; run.tcl
+# xdc/svh branches + STAGE=synth early-exit; corev_apu/fpga/Makefile `synth` target;
+# ariane_xilinx.sv `elsif AX7325B` port/reset/InclEthernet/led-sw) plus three board
+# files, applied to the throwaway tree only — no upstream edit, fully reproducible.
+if [ "$BOARD" = "ax7325b" ]; then
+  PATCH="$REPO_ROOT/nix/cva6-fpga/ax7325b-board.patch"
+  BOARD_DIR="$REPO_ROOT/fpga/ax7325b"
+  [ -f "$PATCH" ] || { echo "ERROR: missing board patch $PATCH" >&2; exit 1; }
+  for f in ax7325b.svh ax7325b.xdc mig_ax7325b.prj; do
+    [ -f "$BOARD_DIR/$f" ] || { echo "ERROR: missing board file $BOARD_DIR/$f" >&2; exit 1; }
+  done
+  echo "=== fpga-soc-vivado: apply AX7325B board port ($PATCH) ==="
+  ( cd "$TREE" && patch -p1 --no-backup-if-mismatch < "$PATCH" )
+  # src/ax7325b.svh (board defines), constraints/ax7325b.xdc (pins), and the 64-bit
+  # DDR3 project mig_ax7325b.prj (picked up by xlnx_mig_7_ddr3/tcl/run.tcl's
+  # `cp mig_$BOARD.prj`). The MIG .prj was already generate+OOC-synth validated (B3).
+  cp -f "$BOARD_DIR/ax7325b.svh"     "$TREE/corev_apu/fpga/src/ax7325b.svh"
+  cp -f "$BOARD_DIR/ax7325b.xdc"     "$TREE/corev_apu/fpga/constraints/ax7325b.xdc"
+  cp -f "$BOARD_DIR/mig_ax7325b.prj" "$TREE/corev_apu/fpga/xilinx/xlnx_mig_7_ddr3/mig_ax7325b.prj"
+fi
+
 # CVA6_REPO_DIR defaults to the tree with a warning; set it explicitly. TARGET_CFG /
 # HPDCACHE_DIR / PLATFORM / part all self-default from BOARD in CVA6's Makefile.
 export CVA6_REPO_DIR="$TREE"
 
-echo "=== fpga-soc-vivado: turnkey Vivado build (BOARD=$BOARD) ==="
+# STAGE=synth -> inner make goal `synth` (IPs + run.tcl, no impl/bit/mcs);
+# STAGE=all   -> inner make goal `all`   (full synth->impl->bitstream->mcs).
+FPGA_TARGET="all"
+[ "$STAGE" = "synth" ] && FPGA_TARGET="synth"
+
+echo "=== fpga-soc-vivado: turnkey Vivado build (BOARD=$BOARD, STAGE=$STAGE) ==="
 echo "    vivado:  $VIVADO"
 echo "    riscv:   $RISCV/bin/${CROSSCOMPILE}gcc"
 echo "    tree:    $TREE"
 echo "    log:     $LOG"
-echo "    (full synth+impl+bitstream — expect ~1-2 h; pin with taskset on isolcpus hosts)"
+if [ "$STAGE" = "synth" ]; then
+  echo "    (synth-only fit-check — IP gen + synthesis + reports; pin with taskset on isolcpus hosts)"
+else
+  echo "    (full synth+impl+bitstream — expect ~1-2 h; pin with taskset on isolcpus hosts)"
+fi
 
 # `make fpga` runs: bootrom compile -> flist -> IP gen (bare vivado) -> run.tcl
 # (synth, impl, write_bitstream) -> write_cfgmem (mcs). VIVADO is exported so the
@@ -131,7 +187,7 @@ echo "    (full synth+impl+bitstream — expect ~1-2 h; pin with taskset on isol
 # code was written against. Command-line vars propagate as overrides to the bootrom
 # sub-make, and the fpga path's ONLY C compile is that bootrom, so this is scoped.
 set +e
-( cd "$TREE" && make fpga BOARD="$BOARD" VIVADO="$VIVADO" \
+( cd "$TREE" && make fpga BOARD="$BOARD" VIVADO="$VIVADO" FPGA_TARGET="$FPGA_TARGET" \
     CC="$RISCV/bin/${CROSSCOMPILE}gcc -std=gnu17" ) 2>&1 | tee "$LOG"
 rc="${PIPESTATUS[0]}"
 set -e
@@ -149,7 +205,30 @@ mkdir -p "$ART"
 find "$FPGA_DIR" -maxdepth 4 -name 'ariane_xilinx*.bit' -exec cp -f {} "$ART/" \; 2>/dev/null || true
 
 echo ""
-echo "=== fpga-soc-vivado: VERDICT (BOARD=$BOARD, part xc7k325tffg900-2) ==="
+echo "=== fpga-soc-vivado: VERDICT (BOARD=$BOARD, STAGE=$STAGE, part xc7k325tffg900-2) ==="
+
+UTIL="$ART/ariane.utilization.rpt"
+[ -f "$UTIL" ] || UTIL="$(find "$REPORTS" -name '*.utilization.rpt' 2>/dev/null | head -n1 || true)"
+
+if [ "$STAGE" = "synth" ]; then
+  # Synth-only fit-check: success = make returned 0 (the inner `synth` target has no
+  # impl/bit/mcs step) AND a post-synth utilization report exists. Impl/pin placement
+  # is a board-in-hand residual (the .xdc pins carry #VERIFY markers).
+  if [ "$rc" -eq 0 ] && [ -n "${UTIL:-}" ] && [ -f "$UTIL" ]; then
+    echo "  SYNTHESIS: OK — the AX7325B port elaborates + synthesises on the die."
+    luts="$(grep -m1 -iE '(CLB|Slice) LUTs' "$UTIL" | grep -oE '[0-9]+' | head -n1 || true)"
+    [ -n "$luts" ] && echo "  UTIL:      ~${luts} LUTs (report summary row)"
+    echo "  UTIL:      full report -> $UTIL"
+    TIMING="$ART/ariane.timing.rpt"
+    [ -f "$TIMING" ] && echo "  TIMING:    post-synth estimate -> $TIMING (impl sign-off needs the board)"
+    echo "  RESULT:    positive — the AX7325B CVA6+DDR3 port BUILDS + FITS on xc7k325tffg900-2 (impl/pins need the board)."
+    exit 0
+  fi
+  echo "  SYNTHESIS: FAILED (make rc=$rc) — the AX7325B port did not synthesise; inspect $LOG" >&2
+  exit "$rc"
+fi
+
+# STAGE=all: full bitstream + timing sign-off verdict (turnkey die proof).
 if [ -f "$ART/ariane_xilinx.bit" ] || [ -f "$BIT" ]; then
   echo "  BITSTREAM: OK -> $ART/ariane_xilinx.bit"
 else

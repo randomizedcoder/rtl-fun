@@ -104,7 +104,8 @@
                                               (RESULT: free Basic does FULL impl+bitstream on xc7k325t — no edu license)
       Pre-buy gateware proof (turnkey full Vivado flow + AX7325B deltas, no board):
         nix run .#fpga-soc-vivado             turnkey CVA6 SoC+DDR3 full build (synth->impl->bitstream->timing) on the die
-                                              (BOARD=genesys2; board-file-free/part-only, as the AX7325B port will be)
+                                              (BOARD=genesys2; board-file-free/part-only, as the AX7325B port also is)
+        nix run .#fpga-soc-vivado -- ax7325b  AX7325B CVA6 port synth-only fit-check (applies the board patch; impl needs the board)
         nix run .#fpga-mig-check [-- ax7325b] DDR3 MIG generate + OOC-synth from mig_<board>.prj — validate the pinout pre-buy
         CPU-isolated host (isolcpus=)? pin Vivado to spare cores: taskset -c 2-7 nix run .#fpga-m3-vivado-fit
       Guide: docs/fpga-bringup-tang-mega-138k-pro.md · status: docs/phase-8-status.md

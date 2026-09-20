@@ -57,6 +57,11 @@ echo "    vivado: $(command -v "$VIVADO")"
 echo "    out:    $OUT_DIR"
 echo "    (trivial design -> synth -> place -> route -> write_bitstream)"
 
+# Remove any bitstream from a PRIOR probe (OUT_DIR is reused across parts) so the
+# "probe.bit written" line below reflects THIS run only — a stale .bit from an
+# earlier part would otherwise mask a probe that never got to write_bitstream.
+rm -f "$OUT_DIR/probe.bit"
+
 # Run the probe; capture the full log. Do not abort on a non-zero exit — a license denial
 # is itself the answer we want to report (parsed from the log below).
 ( cd "$OUT_DIR" && "$VIVADO" -mode batch -nojournal -nolog -source "$TCL" -tclargs "$PART" "$OUT_DIR" ) >"$LOG" 2>&1 || true
@@ -84,7 +89,7 @@ echo "  impl license:   feature Vivado_Implementation granted = $impl_lic"
 echo "  place ran:      $place_ok"
 echo "  route ran:      $route_ok"
 echo "  bitstream:      $bit_ok"
-if [ -s "$OUT_DIR/probe.bit" ]; then
+if [ "$bit_ok" = yes ] && [ -s "$OUT_DIR/probe.bit" ]; then
   echo "  probe.bit:      $(du -h "$OUT_DIR/probe.bit" | cut -f1) written"
 fi
 echo "------------------------------------------------"

@@ -729,10 +729,47 @@ This retires the MEDIUM-risk DDR3 item from the plan: the datasheet-derived memo
 validated pre-buy, isolated from CVA6 so a pin/bank error surfaces here rather than in a
 multi-hour SoC impl.
 
-Remaining pre-buy steps (reproducible targets): B4 the **AX7325B** `ariane_xilinx`
-variant full-SoC build; C5 **10G MAC + GTX** build-only fit on the 325T; D6 end-to-end
-**functional sim** (packets → parser → flow_keys + a CVA6 NIC driver). Plan:
-`~/.claude/.../plans/ok-in-this-folder-jolly-perlis.md`.
+**B4 — AX7325B `ariane_xilinx` port BUILDS + FITS on the die (2026-09-20).**
+`nix run .#fpga-soc-vivado -- ax7325b` applies the AX7325B CVA6 port
+(`nix/cva6-fpga/ax7325b-board.patch` + `fpga/ax7325b/{ax7325b.svh,ax7325b.xdc,
+mig_ax7325b.prj}`) to a throwaway tree and runs a synth-only build-check (STAGE=synth)
+on `xc7k325tffg900-2`. **Result: synthesis finished with 0 errors, 0 critical
+warnings** — the new board variant elaborates and synthesises cleanly.
+
+| metric (post-synth) | value | note |
+|---|---|---|
+| SoC LUTs (`ariane_xilinx`) | **80,251 = ~39% of 325T** | synth-stage estimate; impl trims (cf. A2 post-impl 75,267 = 37%) |
+| CVA6 core LUTs (`i_ariane`) | 50,091 | within ~1% of A2's 49,571 (genesys2) — consistent |
+| FF / RAMB36 / RAMB18 / DSP | 49,795 / 40 / 2 / 27 | `InclEthernet(1'b0)` drops the 1G RGMII MAC, as intended (no on-board PHY) |
+
+The port is delivered as a reproducible CVA6-tree patch (applied to the throwaway
+copy, no upstream edit): Makefile `BOARD=ax7325b` + a general `FPGA_TARGET` knob;
+`run.tcl` xdc/svh branches + a `STAGE=synth` early-exit; a `synth` target in
+`corev_apu/fpga/Makefile`; and in `ariane_xilinx.sv` an `` `elsif AX7325B `` port
+block (64-bit DDR3, `cpu_resetn`, `led[3:0]`, no eth/sw/fan_pwm), reset-polarity
+branch, `InclEthernet(1'b0)` reordered ahead of `KINTEX7`, guarded eth connections,
+and a `led`/`dip_switches` tie-off. Impl/pin sign-off is a deliberate board-in-hand
+residual — the `ax7325b.xdc` pins carry `#VERIFY` markers, so B4 validates
+build+fit pre-buy and leaves place/route to hardware.
+
+**AX7325B pre-buy verdict: GO.** A2 proved the die/flow/timing (turnkey Genesys 2,
+same `xc7k325tffg900-2`); B3 proved the 64-bit DDR3 pinout; B4 proves the AX7325B
+CVA6 port itself builds + fits. The three risks that could have been discovered only
+after purchase are retired on `hp5` with no board.
+
+**Aside — KCU1500 / Kintex UltraScale KU115 evaluated + rejected (2026-09-20).** A
+cheap ($495) 2×QSFP28 KCU1500 (`XCKU115-2FLVB2104E`, `xcku115-flvb2104-2-e`) was
+considered. Rejected: (1) KU115 is Vivado ML **Enterprise-only** — our free **Basic**
+tier (which A1 proved does the 325T end-to-end) does not cover it; (2) the boxed
+Vivado is a 7-series-only install (`fpga-vivado-license-check` on the part →
+`[Device 21-436] No parts matched`), so even evaluating it needs a much larger
+re-install; (3) an UltraScale CVA6 port (DDR4 controller, GTH, new clocking) plus a
+headless PCIe-accelerator form factor are far larger efforts than the 7-series
+AX7325B path. Staying with the AX7325B.
+
+Remaining pre-buy steps (reproducible targets): C5 **10G MAC + GTX** build-only fit
+on the 325T; D6 end-to-end **functional sim** (packets → parser → flow_keys + a
+CVA6 NIC driver). Plan: `~/.claude/.../plans/ok-in-this-folder-jolly-perlis.md`.
 
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 
