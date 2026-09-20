@@ -600,6 +600,35 @@ licensed 10G IP). The AX7325B advantage is that the SFP+ cage and its 156.25 MHz
 already wired and proven by ALINX's own demo; the Genesys 2 would need the FMC mezzanine +
 refclk sourced first.
 
+**Progress (drafted this session, in `fpga/ax7325b/`):**
+- `ax7325b.xdc` — board I/O constraints (see checklist above).
+- `mig_ax7325b.prj` — the 64-bit DDR3 MIG config (see checklist above).
+- `ax7325b.svh` — board-defines header (`\`define AX7325B` + `\`KINTEX7`), the anchor for
+  the `ariane_xilinx` port; mirrors `genesysii.svh`.
+
+**`ariane_xilinx` AX7325B variant — exact change-list (the remaining RTL work).** This is
+a CVA6 patch (applied via nix, like `nix/cva6-parser/m3a-wbuf-depth.patch`), NOT an edit to
+`build/`. It needs the full Vivado SoC build to validate, so it is scheduled for board-in-hand
+/ first-SoC-build time. Against `corev_apu/fpga/src/ariane_xilinx.sv` (add `\`elsif AX7325B`
+branches next to the existing `\`ifdef GENESYSII`):
+- **Port list** (the `\`ifdef GENESYSII` block, ~L16): keep `sys_clk_p/n`, `cpu_resetn`,
+  JTAG (`trst_n/tck/tms/tdi/tdo`); **widen DDR3 to 64-bit** (`ddr3_dq[63:0]`,
+  `ddr3_dqs_p/n[7:0]`, `ddr3_dm[7:0]` — matching `mig_ax7325b.prj`); **narrow `led` to
+  `[3:0]`**; **drop the 9 `eth_*` RGMII ports**, `sw[7:0]`, and `fan_pwm` (no board
+  equivalents).
+- **Ethernet MAC** (`ariane-ethernet`, instantiated in the body + wired in
+  `ariane_peripherals_xilinx.sv`): the AX7325B has no onboard 1G PHY, so guard the RGMII
+  MAC out for this board (or stub its AXI port). 1G Ethernet is not part of the 10G goal;
+  the SFP+/GTX 10G MAC is separate Phase-9 work.
+- **DDR3 / clocking**: reuse the shared `\`ifdef KINTEX7` MIG/clock branch (~L1162) that
+  GENESYSII already uses — `mig_ax7325b.prj` drives it; no new logic expected there beyond
+  the wider data bus.
+- **led/sw fan-out**: tie off internal references to the removed `sw`/`fan_pwm` and the
+  upper `led` bits.
+- **Build wiring**: a `BOARD=ax7325b` path (Makefile/tcl) selecting `ax7325b.xdc`,
+  `mig_ax7325b.prj`, `ax7325b.svh`, and a `program_ax7325b.tcl` (openFPGALoader or Vivado
+  over the board's standard JTAG), then re-export as a reproducible `nix run` target.
+
 **Best de-risking step:** download ALINX's **AX7325B example-design / documentation package**
 (separate from the user manual + PCB `.rar`) — it contains working **DDR3-MIG memtest** and
 **SFP/QSFP GT loopback** demos, which hand us a proven MIG `.prj` and a GT wrapper with the
