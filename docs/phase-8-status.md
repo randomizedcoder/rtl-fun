@@ -338,6 +338,30 @@ second port. Evidence in the pinned tree (`build/cva6/corev_apu/fpga/`):
   that Vivado avoids by reading SystemVerilog natively, (4) GowinSynthesis's ABC being ~3×
   worse than yosys on the identical netlist. A well-mapped CVA6 is ~80–110k LUT4-equiv, so
   the GW5AST-138's 138k LUT4 was marginal even ideally, and the bad tools pushed it far over.
+- **Reading the LUT numbers — three separate axes; don't conflate them.** The blow-up
+  figures we quote come from three *independent* effects. Mixing them is what makes this
+  confusing, so keep them straight. All CVA6 numbers below are the same design:
+
+  | # | Axis (what changes) | Comparison | Factor | Same target? |
+  |---|---|---|---|---|
+  | 1 | **Input quality** — native SystemVerilog vs sv2v-flattened Verilog | native Vivado **48,217** → sv2v→Vivado **277,751** | ~5.8× | yes, both Xilinx LUT6 |
+  | 2 | **Mapper quality** — Vivado synth vs open yosys/abc9 | sv2v→Vivado **277,751** → sv2v→abc9 (openXC7) **628,762** | ~2.3× | yes, both Xilinx LUT6 |
+  | 3 | **Fabric** — Xilinx LUT6 vs Gowin LUT4 | different cell entirely | ~1.6–2× more LUT4s + no DSP mapping | **no** — unit mismatch |
+
+  Takeaways:
+  - **The one trustworthy CVA6 number is native Vivado: 48,217 LUT6 (~24% of the 325T).**
+    Everything larger is an artifact of axis 1 and/or 2, not the design.
+  - The eye-popping **"628k vs 48k" (~12×) headline is Xilinx-vs-Xilinx** — sv2v input
+    (axis 1) *stacked with* the open abc9 mapper (axis 2). It says **nothing about Gowin.**
+  - **Gowin-vs-Vivado is axis 3 and is a different, uncontrolled comparison.** You cannot
+    compare a Vivado LUT6 count to a Gowin LUT4 count directly: a LUT4 fabric needs ~1.6–2×
+    more cells for the same logic *even with a perfect tool* (a coarser cell, not a weaker
+    algorithm). GowinSynthesis is *very likely* also algorithmically weaker than Vivado
+    (Vivado is far more mature and multithreaded; GowinSynthesis is single-threaded), but we
+    never captured a clean CVA6 GowinSynthesis LUT6-equivalent under controlled inputs, so
+    treat "Gowin's mapper is weak" as **strongly indicated, not measured here.**
+  - Practical rule: **feed Vivado native `.sv` (never sv2v)**; use sv2v only for the open
+    tools (yosys/GowinSynthesis), which cannot read SystemVerilog directly.
 - Board has DDR3 SODIMM (real DRAM via the in-tree MIG flow — M3b could use it instead
   of a BSRAM scratchpad), USB-UART, USB-JTAG, and **GTX transceivers (~12.5 Gb/s → true
   10GE)**. Needs Vivado (free ML Standard/WebPACK does **not** cover Kintex-7 325T; requires
@@ -767,9 +791,32 @@ re-install; (3) an UltraScale CVA6 port (DDR4 controller, GTH, new clocking) plu
 headless PCIe-accelerator form factor are far larger efforts than the 7-series
 AX7325B path. Staying with the AX7325B.
 
-Remaining pre-buy steps (reproducible targets): C5 **10G MAC + GTX** build-only fit
-on the 325T; D6 end-to-end **functional sim** (packets → parser → flow_keys + a
-CVA6 NIC driver). Plan: `~/.claude/.../plans/ok-in-this-folder-jolly-perlis.md`.
+**C5 — 10G MAC BUILDS + FITS + meets Fmax on the die (2026-09-20).**
+`taskset -c 2-7 nix run .#fpga-10g-fit` (stage `all`) synthesizes + OOC-places-and-routes
+Alex Forencich's verilog-ethernet `eth_mac_10g` (64-bit XGMII, AXI-Stream fabric side —
+the 10G sibling of the 1G MAC already vendored under `corev_apu/fpga/src/ariane-ethernet/`)
+on `xc7k325tffg900-2`. The DUT is pinned as the flake input `verilog-ethernet-src`
+(rev `77320a9`, `flake=false` — same convention as `openfpgaloader-src`). It is synthesized
+directly as an `out_of_context` top (no fit harness — OOC ports are primary I/O and are not
+constant-folded, the same faithful idiom as `fpga-m3-vivado-fit-native.tcl`), with both MAC
+clock domains constrained at 6.400 ns (156.25 MHz) and split into async clock groups.
+
+| Metric (post-route) | Value | Note |
+|---|---|---|
+| LUT6 | **1,489** / 203,800 (0.7%) | plain framing MAC (PTP/PFC/LFC off) — trivially small |
+| FF | 577 / 407,600 (0.1%) | |
+| DSP48 / RAMB36 | 0 / 0 | pure logic; no DSP or block RAM |
+| WNS @ 156.25 MHz | **+2.081 ns** | meets timing with ~2 ns slack (implied Fmax ≈ 230 MHz) |
+
+**Result:** the 10G MAC datapath BUILDS, FITS and closes timing on the 325T fabric with
+huge margin. Combined with B4 (SoC 80,251 LUT ≈ 39%), **CVA6 + a 10G MAC comfortably
+co-reside** on the die — 1,489 + 80,251 ≈ 40% of the 325T's LUT6. The **GTX / 10GBASE-R
+PCS-PMA transceiver** leg (BANK117 156.25 MHz refclk + serdes SI) is deliberately *not*
+built here: it is the board-in-hand residual (see §"Out of scope"). This is a fabric-fit +
+Fmax feasibility check, not a bitstream.
+
+Remaining pre-buy step (reproducible target): D6 end-to-end **functional sim** (packets →
+parser → flow_keys + a CVA6 NIC driver). Plan: `~/.claude/.../plans/ok-in-this-folder-jolly-perlis.md`.
 
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 

@@ -107,6 +107,8 @@
                                               (BOARD=genesys2; board-file-free/part-only, as the AX7325B port also is)
         nix run .#fpga-soc-vivado -- ax7325b  AX7325B CVA6 port synth-only fit-check (applies the board patch; impl needs the board)
         nix run .#fpga-mig-check [-- ax7325b] DDR3 MIG generate + OOC-synth from mig_<board>.prj — validate the pinout pre-buy
+        nix run .#fpga-10g-fit [-- synth|route] 10G XGMII MAC (verilog-ethernet eth_mac_10g) OOC fit + Fmax on the die
+                                              (proves the 10G datapath builds/fits/meets 156.25 MHz; GTX transceiver = board-in-hand)
         CPU-isolated host (isolcpus=)? pin Vivado to spare cores: taskset -c 2-7 nix run .#fpga-m3-vivado-fit
       Guide: docs/fpga-bringup-tang-mega-138k-pro.md · status: docs/phase-8-status.md
 

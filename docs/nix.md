@@ -63,6 +63,7 @@ nix/
   cva6-fpga/
     ax7325b-board.patch       # CVA6-tree patch for the AX7325B port: Makefile BOARD=ax7325b + FPGA_TARGET knob; run.tcl xdc/svh branches + STAGE=synth early-exit; corev_apu/fpga/Makefile `synth` target; ariane_xilinx.sv `elsif AX7325B` port/reset/InclEthernet(0)/led-sw. Applied to the throwaway tree by fpga-soc-vivado (Phase 8 B4)
   fpga-mig-check.nix          # Phase-B pre-buy: fpga-mig-check (DDR3 MIG generate + OOC-synth from an explicit mig_<board>.prj — validate byte-lane/bank pinout legality with no board; default ax7325b 64-bit; host-tool dep, free Vivado)
+  fpga-10g-fit.nix            # Phase-C pre-buy: fpga-10g-fit (OOC synth+route the verilog-ethernet eth_mac_10g 64-bit XGMII MAC on xc7k325tffg900-2 — 10G datapath build/fit/Fmax@156.25MHz, no board/transceiver; DUT pinned as flake input verilog-ethernet-src; host-tool dep, free Vivado)
   vivado-fhs.nix              # Run proprietary Vivado (installer + tools) on NixOS via buildFHSEnv sandbox: vivado-fhs (shell) + `vivado` wrapper for $VIVADO (NixOS analogue of the Gowin microVM)
   vivado-license-mac.nix      # The single repo-recorded MAC the free Vivado Basic license (2026.1+) is node-locked to — makes one license portable across machines
   vivado-license-netdev.nix   # NixOS module (flake output nixosModules.vivado-license-netdev): dummy NIC `vivadolic` carrying that MAC, so FlexLM sees the same host ID everywhere
@@ -99,6 +100,7 @@ scripts/
   fpga-m3-vivado-fit.sh       # M3a LUT oracle: Vivado synth-only on NATIVE CVA6 .sv (MODE=native default; sv2v=contrast), trustworthy util + fit verdict (Phase 8)
   fpga-soc-vivado.sh          # Phase-A pre-buy: materialize the pinned CVA6 tree, board-file-free source-prep, drive `make fpga` (bootrom→IP gen→synth→impl→bitstream→timing) on the die (Phase 8)
   fpga-mig-check.sh           # Phase-B pre-buy: DDR3 MIG generate + OOC-synth from fpga/<board>/mig_<board>.prj via fpga/vivado/mig-check.tcl — pinout legality verdict (Phase 8)
+  fpga-10g-fit.sh             # Phase-C pre-buy: OOC synth+route verilog-ethernet eth_mac_10g via fpga/ax7325b/10g-fit.tcl — 10G MAC fit + WNS/Fmax verdict on the die (Phase 8)
 ```
 
 ## Runnable apps (`nix run .#<name>`)
