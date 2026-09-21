@@ -86,6 +86,7 @@ module parser_wrap_tb
       .pc_i             (64'h8000_0000),
       .rs1_i            (rs1),
       .parse_len_i      (16'(PKT_MAX)),
+      .parse_rearm_i    (1'b0),             // single-shot TB: never re-arm (D6)
       .parse_exit_pc_i  (64'h8000_1000),   // exit landing PC (I5)
       .parser_ready_o   (ready),
       .commit_i         (commit),

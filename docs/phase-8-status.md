@@ -338,6 +338,30 @@ second port. Evidence in the pinned tree (`build/cva6/corev_apu/fpga/`):
   that Vivado avoids by reading SystemVerilog natively, (4) GowinSynthesis's ABC being ~3×
   worse than yosys on the identical netlist. A well-mapped CVA6 is ~80–110k LUT4-equiv, so
   the GW5AST-138's 138k LUT4 was marginal even ideally, and the bad tools pushed it far over.
+- **Reading the LUT numbers — three separate axes; don't conflate them.** The blow-up
+  figures we quote come from three *independent* effects. Mixing them is what makes this
+  confusing, so keep them straight. All CVA6 numbers below are the same design:
+
+  | # | Axis (what changes) | Comparison | Factor | Same target? |
+  |---|---|---|---|---|
+  | 1 | **Input quality** — native SystemVerilog vs sv2v-flattened Verilog | native Vivado **48,217** → sv2v→Vivado **277,751** | ~5.8× | yes, both Xilinx LUT6 |
+  | 2 | **Mapper quality** — Vivado synth vs open yosys/abc9 | sv2v→Vivado **277,751** → sv2v→abc9 (openXC7) **628,762** | ~2.3× | yes, both Xilinx LUT6 |
+  | 3 | **Fabric** — Xilinx LUT6 vs Gowin LUT4 | different cell entirely | ~1.6–2× more LUT4s + no DSP mapping | **no** — unit mismatch |
+
+  Takeaways:
+  - **The one trustworthy CVA6 number is native Vivado: 48,217 LUT6 (~24% of the 325T).**
+    Everything larger is an artifact of axis 1 and/or 2, not the design.
+  - The eye-popping **"628k vs 48k" (~12×) headline is Xilinx-vs-Xilinx** — sv2v input
+    (axis 1) *stacked with* the open abc9 mapper (axis 2). It says **nothing about Gowin.**
+  - **Gowin-vs-Vivado is axis 3 and is a different, uncontrolled comparison.** You cannot
+    compare a Vivado LUT6 count to a Gowin LUT4 count directly: a LUT4 fabric needs ~1.6–2×
+    more cells for the same logic *even with a perfect tool* (a coarser cell, not a weaker
+    algorithm). GowinSynthesis is *very likely* also algorithmically weaker than Vivado
+    (Vivado is far more mature and multithreaded; GowinSynthesis is single-threaded), but we
+    never captured a clean CVA6 GowinSynthesis LUT6-equivalent under controlled inputs, so
+    treat "Gowin's mapper is weak" as **strongly indicated, not measured here.**
+  - Practical rule: **feed Vivado native `.sv` (never sv2v)**; use sv2v only for the open
+    tools (yosys/GowinSynthesis), which cannot read SystemVerilog directly.
 - Board has DDR3 SODIMM (real DRAM via the in-tree MIG flow — M3b could use it instead
   of a BSRAM scratchpad), USB-UART, USB-JTAG, and **GTX transceivers (~12.5 Gb/s → true
   10GE)**. Needs Vivado (free ML Standard/WebPACK does **not** cover Kintex-7 325T; requires
@@ -434,18 +458,453 @@ openXC7 flow used (+ the `cva6_fit_top` harness) — so the Vivado-vs-abc9 delta
 apples-to-apples on identical RTL — and prints LUT6 / FF / DSP48 / RAMB36 / CARRY4 against the
 325T budget. Default part is **XC7A200T** (`xc7a200tsbg484-1`): the largest **free**-tier
 7-series part, with the *identical* LUT6 fabric to the Genesys 2's 325T, so an A200T count
-certifies the Kintex with **no board and no license cost**. Override `XILINX_PART=xc7k325tffg900-2`
-with an edu/paid license for the exact part.
+certifies the Kintex with **no board cost**. (The free Basic tier actually covers the 325T too —
+see licensing note below — so `XILINX_PART=xc7k325tffg900-2` also works for the exact part.)
 
 **Host-tool dependency (documented impurity, like the Gowin path):** Vivado is not in nixpkgs;
-install free WebPACK/ML Standard (covers A200T) and put `vivado` on `PATH` (source
-`settings64.sh`) or export `$VIVADO`. Synth-only, so this runs in minutes-to-an-hour, not the
-openXC7 days.
+install it (free tier covers the 7-series — see licensing note below) and put `vivado` on `PATH`
+(source `settings64.sh`) or export `$VIVADO`. Synth-only, so this runs in minutes-to-an-hour, not
+the openXC7 days.
 
-**Result (pending the run):** to be filled in once Vivado is installed and the target runs —
-expected ~40–60k LUT6 (per PERCIVAL + Tom), well under the 325T's 203,800, closing
-verify-before-buy on our actual RTL. Until then the buy decision rests on the two independent
-Vivado datapoints above; this target makes it *our* number, reproducibly.
+**Licensing reality (changed in 2026.1 — our earlier "no license cost" assumption was wrong).**
+Vivado **2026.1** moved to a **tiered licensing model** (Basic / Core / Pro / Enterprise / Gold).
+The old "Standard Edition needs no license" rule ended: even the **free "Vivado Basic" tier now
+requires a generated license file** — `synth_design` errors `valid license was not found` without
+one (proven here: a trivial 2-gate synth fails identically on xc7a35t, xc7a200t, *and* xc7k325t,
+so it is a license-**file** gate, not device-tier, not the sandbox). Two silver linings: (1) the
+free **Basic tier covers all 7-series** — Artix-7 **and** Kintex-7, so we can synth the exact
+`xc7k325t`, not just the A200T proxy; (2) our synth-only utilization flow is Basic-tier
+functionality (the tier-gating hits impl/timing-closure/DFX/encrypted-bitstream, which we do not
+run). The Basic license is FlexLM **node-locked to a NIC MAC** (host ID) — so, like Gowin, the free
+tier is effectively MAC-locked. Get it free from AMD Product Licensing (account login) against the
+recorded MAC below.
+
+**On NixOS:** Vivado ships as pre-built FHS binaries (its installer JRE and the tools link
+`libX11.so.6` / `libstdc++` / … at `/usr/lib` paths NixOS lacks — the raw `.bin` dies with
+`libX11.so.6: cannot open shared object file`, and the 98 GB SFD tar has the identical problem
+since it uses the same `xsetup`/JRE). Run both the installer and the tools inside a `buildFHSEnv`
+sandbox — the reproducible NixOS analogue of the Gowin microVM (`nix/vivado-fhs.nix`):
+
+```
+nix run .#vivado-fhs                 # interactive FHS shell — run the installer here (needs a display)
+#   inside: ./FPGAs_..._Lin64.bin  -> Vivado -> Vivado ML Standard (free) -> 7-Series only
+export VIVADO_SETTINGS=/path/to/Xilinx/<ver>/Vivado/settings64.sh
+export VIVADO="$(nix build --no-link --print-out-paths .#vivado-fhs-vivado)/bin/vivado"
+nix run .#fpga-m3-vivado-fit         # the `vivado` wrapper re-enters the sandbox automatically
+```
+
+*(On hp5 the hardened `vivado-box.nix` variant is used instead — confined FHS with a private home
+and read-only host. For the fit run its isolation hides the repo, so inputs are staged into the box
+home; the permissive `vivado-fhs` above is the general path.)*
+
+**Portable free license via a fixed, repo-recorded MAC.** Because the free Basic license is
+node-locked to a NIC MAC, locking to a *physical* NIC means a separate license per machine. Instead
+we record **one** MAC in the repo and make it present on every machine, so a **single** license is
+portable. `nix/vivado-license-mac.nix` holds it — **`02:ca:6f:00:00:01`** (host ID `02ca6f000001`;
+locally-administered + unicast, cannot collide with a real NIC). Creating an interface with a chosen
+MAC is blocked in unprivileged user namespaces on this kernel (`ip link add` → `Operation not
+permitted`), so the MAC is established at the system layer by a NixOS module,
+`nix/vivado-license-netdev.nix` (flake output `nixosModules.vivado-license-netdev`): it brings up a
+dummy NIC `vivadolic` with that MAC via a stack-agnostic systemd oneshot (adds a NIC, never touches
+real ones). The Vivado box shares the host network namespace, so FlexLM inside it sees `vivadolic`.
+
+```
+# in each machine's NixOS config:
+imports = [ /path/to/rtl-fun/nix/vivado-license-netdev.nix ];   # or inputs.rtl-fun.nixosModules.vivado-license-netdev
+sudo nixos-rebuild switch
+ip link show vivadolic                                          # confirm the fixed MAC is up
+# then: AMD Product Licensing -> free node-locked "Vivado Basic" for host ID 02ca6f000001
+#       -> drop the .lic at the box home ~/.Xilinx/  (or export XILINXD_LICENSE_FILE)
+```
+
+(Caveat: node-locking to a `dummy`-type interface is a common FlexLM-in-VM/container trick but is
+unverified until a `.lic` is in hand; if FlexLM rejects it, fall back to a per-machine license
+against a real NIC MAC.)
+
+**★ Result (2026-09-19): CVA6 FITS the xc7k325t at 23.7% LUT — verify-before-buy CLOSED on our own RTL.**
+Free Vivado 2026.1 (Basic tier, node-locked; run on hp5 in the NixOS FHS box) synthesized the **native
+CVA6 SystemVerilog** (top `cva6`, `cv64a6_imafdc_sv39`, the resolved `files.txt` flist — *not* sv2v)
+`-mode out_of_context -flatten_hierarchy none` on the actual Genesys 2 part `xc7k325tffg900-2`:
+
+| Resource | Native Vivado | 325T budget | Util | |
+|---|---|---|---|---|
+| **Slice LUTs (LUT6)** | **48,217** | 203,800 | **23.7%** | ✅ |
+| Slice Registers (FF) | 22,204 | 407,600 | 5.4% | ✅ |
+| DSP48E1 | 27 | 840 | 3.2% | ✅ |
+| Block RAM (RAMB36) | 36 | 445 | 8.1% | ✅ |
+| CARRY4 | 1,831 | — | — | |
+
+**FITS with ~4× LUT headroom** (conservative — `rvfi_probes_o` kept + hierarchy unflattened both only
+add LUTs). This lands exactly on the two independent Vivado datapoints (PERCIVAL ~40–50k same part;
+Tom ~50k Rocket). **Same RTL, three tools:** native Vivado **48.2k** → sv2v+Vivado **277.8k (5.8×)** →
+sv2v+abc9/openXC7 **628.8k (13×)**. The 13× openXC7 figure was *two* compounding artifacts — the abc9
+mapper (~2.3×) on top of the **sv2v input** flattening (~5.8×) — never the design; FF/DSP/BRAM were
+trustworthy in every flow. **Lesson: Vivado is SystemVerilog-native — feed it CVA6's real `.sv`, never
+sv2v** (sv2v is only for the open tools). Memory gotcha: raw `cva6` with rvfi outputs kept OOMs >61 GB
+under default whole-core flattening; `-flatten_hierarchy none` cut peak to ~2.3 GB and finished in ~22 min.
+Reports: `build/fpga-m3-vivado/util_native_k325t.rpt` (+ `_hier`, + `util_sv2v_k325t.rpt` for the contrast).
+The buy decision (Genesys 2) now rests on a first-party Vivado measurement of *our* RTL, not just external
+datapoints. (Productization TODO: a native-flist `nix run` target — the current `fpga-m3-vivado-fit`
+reads the sv2v file and so reports the inflated 277.8k; a follow-up target should read `files.txt`+incdirs
+natively with `-flatten_hierarchy none`, top `cva6`.)
+
+#### Candidate boards — 10 GbE-capable Kintex-7 (fit is settled; the differentiator is 10G I/O + bring-up cost)
+
+CVA6 fits any of these (48,217 LUT6 is 24% of the xc7k325t; LUT/FF/DSP/RAMB counts are
+package-independent, so every xc7k325t board is equivalent on *fit*). The real selection
+axes are **onboard SFP+ cages wired to GTX at 10G** (for the installed 10G optics — the
+whole reason for Kintex over Artix), **DDR3 for the CVA6 SoC**, and **board-support bring-up
+cost** (CVA6 ships turnkey files only for the Genesys 2).
+
+**All three boards carry the identical silicon** — `XC7K325T-2FFG900` (same die, same FFG900
+package, same speed grade **-2** we measured against; the ALINX parts are the industrial-temp
+`…FFG900I`, 16 GTX). So *fit is identical across all three*; the choice is purely 10G wiring
++ DDR3 + bring-up cost. Verified below against the ALINX user manuals
+(`downloads/AX7325B_User Manual.pdf`, `downloads/AV7K325_User_Manual.pdf`, ALINX 2022).
+
+| Board | Vendor | Part (all -2 FFG900, 16 GTX) | Onboard SFP+ (→GTX) | Other 10G/serial | DDR3 | CVA6 board support | Cost |
+|---|---|---|---|---|---|---|---|
+| **Genesys 2** | Digilent | xc7k325t-2ffg900 (comm) | **None onboard** — GTX exit on the FMC HPC; 10G needs an FMC→SFP+ mezzanine | PCIe (FMC) | 1 GiB | **Turnkey** (`genesys-2.xdc`, `mig_genesys2.prj`, `program_genesys2.tcl` in `corev_apu/fpga`) | ~$999 edu / ~$1,199 |
+| **ALINX AX7325B** | ALINX | xc7k325t-2ffg900I (ind) | **4× SFP on BANK117 GTX, refclk 156.25 MHz → native 10G-ready** | **QSFP+ 40G** (BANK118, 4×GTX); PCIe x8 Gen2 | **2 GiB** (4×512 MB, 64-bit) + SODIMM expansion | **None** — port `.xdc` + MIG DDR3 + SFP+/QSFP constraints | cheaper |
+| **ALINX AV7K325** | ALINX | xc7k325t-2ffg900I (ind) | **4× SFP on BANK117 GTX, refclk 125 MHz → native 1.25G** (10G needs a 156.25 MHz refclk supplied) | 2× HDMI; PCIe x8 Gen2 | **2 GiB** (4×512 MB, 64-bit) | **None** — same porting as above | cheaper |
+
+**The decisive 10G detail (from the datasheets):** both ALINX boards route 4× SFP to a full
+GTX quad on BANK117, but only the **AX7325B** clocks that bank at **156.25 MHz** — the
+reference 10GbE line-rate clock — and it adds a **40G QSFP+** on BANK118. The **AV7K325**
+clocks its SFP bank at **125 MHz** (native 1.25 GbE); its GTX are 10G-capable silicon, but
+you'd have to supply a 156.25 MHz reference to run them at 10G, and it swaps the QSFP for
+2× HDMI. **For a 10G packet-parser host, AX7325B is the clear ALINX pick.** Both ALINX
+boards carry 2 GiB DDR3 (double the Genesys 2's 1 GiB) and a PCIe x8 Gen2 edge.
+
+Links — [AX7325B](https://www.en.alinx.com/Product/FPGA-Development-Boards/Kintex-7/AX7325B.html)
+· [AV7K325](https://www.en.alinx.com/Product/FPGA-Development-Boards/Kintex-7/AV7K325.html)
+· [K7 line index](https://www.en.alinx.com/Product/FPGA-Development-Boards/Kintex-7.html)
+· AMD embedded-partner listing (contact request submitted 2026-09-20):
+<https://www.amd.com/en/search/partner/embedded-partner-solutions.html/5974>.
+
+**Trade-off in one line:** Genesys 2 = turnkey CVA6 software but 10G needs an FMC SFP+ card
+(and only 1 GiB DDR3); **AX7325B** = onboard 4× 10G SFP + 40G QSFP + 2 GiB DDR3, cheaper, but
+we write the board support (`.xdc`, MIG, SFP+/QSFP pinout) ourselves. All three are the exact
+`xc7k325t-2ffg900` we measured, so none changes the fit verdict — the decision is **turnkey
+bring-up (Genesys 2) vs. onboard 10G + more DDR3 for less money (AX7325B)**.
+
+#### What it takes to run CVA6 on the ALINX AX7325B (porting scope + risk)
+
+Onboard 10G/40G is the lower-risk path to the *end goal*: it replaces an open-ended
+integration problem (Genesys 2 needs an FMC→SFP+ mezzanine, plus sourcing a 156.25 MHz
+GTX reference clock onto the right FMC pins) with a **bounded, mostly-mechanical board
+port**. The AX7325B has a **1:1 equivalent for every peripheral CVA6's Genesys 2 flow
+uses**, and — critically — the 10G/40G reference clocks are already on the board:
+
+| CVA6 needs | AX7325B provides | Pin(s) / bank |
+|---|---|---|
+| 200 MHz sys clock (MIG) | 2× 200 MHz differential | `SYS_CLK` AE10/AF10 |
+| 10G refclk | **156.25 MHz** wired to SFP bank | BANK117 |
+| 40G refclk | 125 MHz wired to QSFP bank | BANK118 |
+| DDR3 | **2 GiB** (4× MT41K256M16, 64-bit) | HP banks 32/33/34 |
+| Console UART | USB-UART bridge | AJ26/AK26 *(verify — see caveat)* |
+| Boot media | Micro SD slot | ✓ |
+| Config | 10-pin JTAG (openFPGALoader / Vivado) | ✓ |
+| Status / input | 6 LEDs (4 user) + 2 buttons | ✓ |
+
+**Porting checklist** — CVA6 ships board support in `corev_apu/fpga` for `BOARD=genesys2`;
+the port = creating the ALINX equivalent of each piece:
+
+| Piece | Genesys 2 (exists) | AX7325B (we create) | Effort / risk |
+|---|---|---|---|
+| Pin constraints | `constraints/genesys-2.xdc` | `fpga/ax7325b/ax7325b.xdc` — **first draft done** (clk, rst, UART, SD, JTAG, LED) | mechanical — **LOW** (pinout in hand) |
+| DDR3 MIG | `mig_genesys2.prj` | `fpga/ax7325b/mig_ax7325b.prj` — **first draft done** (64-bit, 2 GiB, 4× MT41K256M16, banks 32/33/34) | **the real work — MEDIUM** (needs MIG-regen verify) |
+| Clocking | clk wizard @ Genesys 2 | retarget to AX7325B 200 MHz `SYS_CLK` | **LOW** |
+| Top-level board select | `ariane_xilinx` `GENESYS2` ifdef | add an `AX7325B` variant | LOW–MEDIUM |
+| Programming | `program_genesys2.tcl` | JTAG via openFPGALoader / Vivado | **LOW** |
+
+**The 10G/40G MAC itself is Phase-9 work, identical on either board** — likely the
+open-source **verilog-ethernet (Forencich) 10G/25G MAC + PCS/PMA on GTX** (avoids Xilinx's
+licensed 10G IP). The AX7325B advantage is that the SFP+ cage and its 156.25 MHz refclk are
+already wired and proven by ALINX's own demo; the Genesys 2 would need the FMC mezzanine +
+refclk sourced first.
+
+**Progress (drafted this session, in `fpga/ax7325b/`):**
+- `ax7325b.xdc` — board I/O constraints (see checklist above).
+- `mig_ax7325b.prj` — the 64-bit DDR3 MIG config (see checklist above).
+- `ax7325b.svh` — board-defines header (`\`define AX7325B` + `\`KINTEX7`), the anchor for
+  the `ariane_xilinx` port; mirrors `genesysii.svh`.
+
+**`ariane_xilinx` AX7325B variant — exact change-list (the remaining RTL work).** This is
+a CVA6 patch (applied via nix, like `nix/cva6-parser/m3a-wbuf-depth.patch`), NOT an edit to
+`build/`. It needs the full Vivado SoC build to validate, so it is scheduled for board-in-hand
+/ first-SoC-build time. Against `corev_apu/fpga/src/ariane_xilinx.sv` (add `\`elsif AX7325B`
+branches next to the existing `\`ifdef GENESYSII`):
+- **Port list** (the `\`ifdef GENESYSII` block, ~L16): keep `sys_clk_p/n`, `cpu_resetn`,
+  JTAG (`trst_n/tck/tms/tdi/tdo`); **widen DDR3 to 64-bit** (`ddr3_dq[63:0]`,
+  `ddr3_dqs_p/n[7:0]`, `ddr3_dm[7:0]` — matching `mig_ax7325b.prj`); **narrow `led` to
+  `[3:0]`**; **drop the 9 `eth_*` RGMII ports**, `sw[7:0]`, and `fan_pwm` (no board
+  equivalents).
+- **Ethernet MAC** (`ariane-ethernet`, instantiated in the body + wired in
+  `ariane_peripherals_xilinx.sv`): the AX7325B has no onboard 1G PHY, so guard the RGMII
+  MAC out for this board (or stub its AXI port). 1G Ethernet is not part of the 10G goal;
+  the SFP+/GTX 10G MAC is separate Phase-9 work.
+- **DDR3 / clocking**: reuse the shared `\`ifdef KINTEX7` MIG/clock branch (~L1162) that
+  GENESYSII already uses — `mig_ax7325b.prj` drives it; no new logic expected there beyond
+  the wider data bus.
+- **led/sw fan-out**: tie off internal references to the removed `sw`/`fan_pwm` and the
+  upper `led` bits.
+- **Build wiring**: a `BOARD=ax7325b` path (Makefile/tcl) selecting `ax7325b.xdc`,
+  `mig_ax7325b.prj`, `ax7325b.svh`, and a `program_ax7325b.tcl` (openFPGALoader or Vivado
+  over the board's standard JTAG), then re-export as a reproducible `nix run` target.
+
+#### Phase-9 test topology + the QSFP reference-clock gotcha
+
+Planned bring-up assets (user, 2026-09-20): SFP+ and QSFP fiber optics/DACs inserted when
+needed; possibly **2× AX7325B for FPGA-to-FPGA back-to-back**; plus host **10GE and QSFP
+NICs**. Testing against a real NIC (not just board-to-board) is the stricter, better target:
+it forces the FPGA path to be **standards-compliant** — 10GBASE-R (64b/66b PCS, 10.3125
+Gbps) for SFP+, 40GBASE-R4 for QSFP — which the open **verilog-ethernet (Forencich)** MAC
+provides. Back-to-back is more forgiving (both ends agree on a rate), so it's the easy first
+milestone; NIC interop is the compliance gate.
+
+**Gotcha — the AX7325B GTX reference clocks are fixed crystals, and the two banks differ**
+(datasheet Part 6/8/9, confirmed): SFP+ **BANK117 = 156.25 MHz** (native 10GBASE-R — clean
+for the 10GE NICs), but QSFP **BANK118 = 125 MHz**. 125 MHz cleanly makes 1.25/2.5/5/10.0G,
+**not** the 10.3125 Gbps/lane that standard **40GBASE-R4** (and a 40GbE NIC) needs — GTX QPLL
+integer-N can't synthesize 10.3125G from 125 MHz. Consequences + options for the 40G path:
+- **Preferred:** route BANK117's 156.25 MHz `MGTREFCLK` into the QSFP quad (BANK118). A
+  Kintex-7 GTX quad can source its refclk from an adjacent quad (±1), so if 117/118 are
+  neighbours this needs only refclk-routing constraints, no board change. **VERIFY quad
+  adjacency** (117↔118) in the 7-series transceiver user guide / floorplan.
+- **Alternative:** use **4× SFP+ as the 40G aggregate** — all four lanes are already on the
+  156.25 MHz BANK117 clock, and a 40GbE NIC's QSFP breaks out to 4× 10G anyway.
+- **Board-to-board only:** two AX7325Bs over QSFP could run a non-standard 10.0G/lane (both
+  ends agree), but that won't interop with a NIC — so don't rely on it for the NIC leg.
+The SFP+ 10G path has no such issue; it is the primary target and is clock-ready as wired.
+
+**Best de-risking step:** download ALINX's **AX7325B example-design / documentation package**
+(separate from the user manual + PCB `.rar`) — it contains working **DDR3-MIG memtest** and
+**SFP/QSFP GT loopback** demos, which hand us a proven MIG `.prj` and a GT wrapper with the
+correct pin/clock settings to copy. That turns the one MEDIUM item (DDR3) into "replicate
+ALINX's known-good config."
+
+**Risks / caveats on the ALINX side:**
+- **Docs are template-reused across ALINX's Zynq + Kintex lines** — e.g. the manual lists the
+  UART on `PS_MIO12/13` (Zynq PS naming) on a chip with *no* PS. **Verify every pin against the
+  schematic, not just the manual** before trusting the `.xdc`.
+- **No CVA6 community precedent** on this board (Genesys 2 is CVA6's reference) — we'd be first,
+  so less help if something is odd.
+- **DDR3 SI/timing:** trust that ALINX laid out DDR3 correctly — their shipped memtest demo
+  proves it, so replicate their MIG config rather than deriving one.
+- Vivado licensing unchanged — the **free Basic tier covers xc7k325t** (validated this session).
+
+**Assessment:** for the 10G/40G end goal, the AX7325B is genuinely lower-risk — a *bounded*
+port (realistic bring-up ~days: clock→UART→LED, then DDR3 memtest, then drop in CVA6) with a
+proven reference for the one hard part, vs. the Genesys 2's *open-ended* FMC 10G integration.
+The cost is that we own the board support. Board-bring-up files will live under
+`fpga/ax7325b/` (starting with `ax7325b.xdc`).
+
+#### Pre-purchase gateware+software validation (prove we can build it, before buying)
+
+The AX7325B is not turnkey for CVA6, so the risk is "can we create the gateware/software?",
+not "does it fit". Nearly all of that is provable **now on hp5, with no board**, using the
+installed Vivado (FHS box) + the reproducible `nix run` flow. Only silicon bring-up (DDR3
+calibration, GTX link SI to a real NIC, real throughput, final timing sign-off) needs
+hardware. Staged as reproducible targets; results recorded here as they land.
+
+**A1 — Vivado license boundary: FULL flow is free on the 325T (2026-09-20).** New target
+`nix run .#fpga-vivado-license-check` (`nix/fpga-vivado-license-check.nix`,
+`scripts/fpga-vivado-license-check.sh`, `fpga/vivado/license-probe.tcl`) pushes a trivial
+design through synth → place → route → `write_bitstream` on a part and reports which license
+features Vivado grants. **Result on the free "Basic" tier, `xc7k325tffg900-2`:** both
+`Vivado_Synthesis` *and* `Vivado_Implementation` granted; `write_bitstream completed
+successfully` (11.4 MB `.bit`). So — correcting the earlier "synth-only" assumption — **a
+complete routed bitstream + timing on the exact AX7325B die is free-tier; no edu license
+needed.** This unblocks the full-SoC impl proofs below at zero license cost.
+
+**A2 — turnkey full SoC build: CVA6+DDR3 routes and CLOSES TIMING on the die (2026-09-20).**
+New target `nix run .#fpga-soc-vivado` (`nix/fpga-soc-vivado.nix`, `scripts/fpga-soc-vivado.sh`)
+materializes the pinned CVA6 tree, applies a board-file-free source-prep, and drives CVA6's
+turnkey `make fpga BOARD=genesys2` (bootrom → 8 IPs incl. the DDR3 MIG → synth → impl →
+`write_bitstream` → `write_cfgmem`) on `xc7k325tffg900-2` inside the FHS-boxed free-Basic
+Vivado. **Result: 0 errors, `ariane_xilinx.bit` (11 MB) + `.mcs` produced; timing MET.**
+
+| metric | value | note |
+|---|---|---|
+| worst-path slack (WNS) | **+0.065 ns (MET)** | the critical path is *inside the DDR3 MIG* (a 200 MHz `clk_pll_i` write path), not CVA6 logic |
+| CVA6 core clock | 50 MHz (20 ns) | ample margin; MIG PHY is the timing-critical block, as expected for DDR3 |
+| SoC LUTs (`ariane_xilinx`) | **75,267 = 37% of 325T** | whole SoC: core + DDR3 MIG + peripherals + debug |
+| CVA6 core LUTs (`i_ariane`) | 49,571 | cross-checks the 48,217 synth-only fit (A200T oracle) — consistent |
+| FF / RAMB36 / DSP | 45,930 / 50 / 27 | leaves headroom for the 10G MAC + parser |
+
+This is the strongest single pre-buy datapoint: our boxed Vivado drives the **entire** flow
+(MIG IP gen, `read_ip`, place, route, bitstream) and the full CVA6 SoC + DDR3 **routes and
+meets timing** on the exact AX7325B die. Three integration issues were fixed reproducibly in
+the target (fresh throwaway tree, no upstream edit): bootrom `main.c` vs modern GCC (compile
+with `-std=gnu17`); `gen_rom.py` exec bit lost under `cp --no-preserve=mode` (preserve mode +
+`chmod u+w`); and — key for the AX7325B — **`board_part` not found** (Digilent board files
+aren't installed), fixed by making the flow **board-file-free / part-only**, which is exactly
+what an ALINX board (not in Vivado's board store) requires anyway.
+
+**B3 — AX7325B DDR3 MIG pinout is LEGAL on the die (2026-09-20).**
+New target `nix run .#fpga-mig-check -- ax7325b` (`nix/fpga-mig-check.nix`,
+`scripts/fpga-mig-check.sh`, `fpga/vivado/mig-check.tcl`) generates a MIG 7-series
+controller from `fpga/ax7325b/mig_ax7325b.prj` (2 GiB / **64-bit** DDR3, 8 byte lanes,
+sys_clk AE10/AF10) targeting `xc7k325tffg900-2`, board-file-free, and OOC-synthesizes it.
+**Result: `MIG_GENERATE_OK` + `MIG_SYNTH_OK` (synth_design Complete!, 100%)** — the 64-bit
+byte-lane / bank grouping is legal on the exact AX7325B die with **no board and no full SoC**.
+This retires the MEDIUM-risk DDR3 item from the plan: the datasheet-derived memory pinout is
+validated pre-buy, isolated from CVA6 so a pin/bank error surfaces here rather than in a
+multi-hour SoC impl.
+
+**B4 — AX7325B `ariane_xilinx` port BUILDS + FITS on the die (2026-09-20).**
+`nix run .#fpga-soc-vivado -- ax7325b` applies the AX7325B CVA6 port
+(`nix/cva6-fpga/ax7325b-board.patch` + `fpga/ax7325b/{ax7325b.svh,ax7325b.xdc,
+mig_ax7325b.prj}`) to a throwaway tree and runs a synth-only build-check (STAGE=synth)
+on `xc7k325tffg900-2`. **Result: synthesis finished with 0 errors, 0 critical
+warnings** — the new board variant elaborates and synthesises cleanly.
+
+| metric (post-synth) | value | note |
+|---|---|---|
+| SoC LUTs (`ariane_xilinx`) | **80,251 = ~39% of 325T** | synth-stage estimate; impl trims (cf. A2 post-impl 75,267 = 37%) |
+| CVA6 core LUTs (`i_ariane`) | 50,091 | within ~1% of A2's 49,571 (genesys2) — consistent |
+| FF / RAMB36 / RAMB18 / DSP | 49,795 / 40 / 2 / 27 | `InclEthernet(1'b0)` drops the 1G RGMII MAC, as intended (no on-board PHY) |
+
+The port is delivered as a reproducible CVA6-tree patch (applied to the throwaway
+copy, no upstream edit): Makefile `BOARD=ax7325b` + a general `FPGA_TARGET` knob;
+`run.tcl` xdc/svh branches + a `STAGE=synth` early-exit; a `synth` target in
+`corev_apu/fpga/Makefile`; and in `ariane_xilinx.sv` an `` `elsif AX7325B `` port
+block (64-bit DDR3, `cpu_resetn`, `led[3:0]`, no eth/sw/fan_pwm), reset-polarity
+branch, `InclEthernet(1'b0)` reordered ahead of `KINTEX7`, guarded eth connections,
+and a `led`/`dip_switches` tie-off. Impl/pin sign-off is a deliberate board-in-hand
+residual — the `ax7325b.xdc` pins carry `#VERIFY` markers, so B4 validates
+build+fit pre-buy and leaves place/route to hardware.
+
+**AX7325B pre-buy verdict: GO.** A2 proved the die/flow/timing (turnkey Genesys 2,
+same `xc7k325tffg900-2`); B3 proved the 64-bit DDR3 pinout; B4 proves the AX7325B
+CVA6 port itself builds + fits. The three risks that could have been discovered only
+after purchase are retired on `hp5` with no board.
+
+**Aside — KCU1500 / Kintex UltraScale KU115 evaluated + rejected (2026-09-20).** A
+cheap ($495) 2×QSFP28 KCU1500 (`XCKU115-2FLVB2104E`, `xcku115-flvb2104-2-e`) was
+considered. Rejected: (1) KU115 is Vivado ML **Enterprise-only** — our free **Basic**
+tier (which A1 proved does the 325T end-to-end) does not cover it; (2) the boxed
+Vivado is a 7-series-only install (`fpga-vivado-license-check` on the part →
+`[Device 21-436] No parts matched`), so even evaluating it needs a much larger
+re-install; (3) an UltraScale CVA6 port (DDR4 controller, GTH, new clocking) plus a
+headless PCIe-accelerator form factor are far larger efforts than the 7-series
+AX7325B path. Staying with the AX7325B.
+
+**C5 — 10G MAC BUILDS + FITS + meets Fmax on the die (2026-09-20).**
+`taskset -c 2-7 nix run .#fpga-10g-fit` (stage `all`) synthesizes + OOC-places-and-routes
+Alex Forencich's verilog-ethernet `eth_mac_10g` (64-bit XGMII, AXI-Stream fabric side —
+the 10G sibling of the 1G MAC already vendored under `corev_apu/fpga/src/ariane-ethernet/`)
+on `xc7k325tffg900-2`. The DUT is pinned as the flake input `verilog-ethernet-src`
+(rev `77320a9`, `flake=false` — same convention as `openfpgaloader-src`). It is synthesized
+directly as an `out_of_context` top (no fit harness — OOC ports are primary I/O and are not
+constant-folded, the same faithful idiom as `fpga-m3-vivado-fit-native.tcl`), with both MAC
+clock domains constrained at 6.400 ns (156.25 MHz) and split into async clock groups.
+
+| Metric (post-route) | Value | Note |
+|---|---|---|
+| LUT6 | **1,489** / 203,800 (0.7%) | plain framing MAC (PTP/PFC/LFC off) — trivially small |
+| FF | 577 / 407,600 (0.1%) | |
+| DSP48 / RAMB36 | 0 / 0 | pure logic; no DSP or block RAM |
+| WNS @ 156.25 MHz | **+2.081 ns** | meets timing with ~2 ns slack (implied Fmax ≈ 230 MHz) |
+
+**Result:** the 10G MAC datapath BUILDS, FITS and closes timing on the 325T fabric with
+huge margin. Combined with B4 (SoC 80,251 LUT ≈ 39%), **CVA6 + a 10G MAC comfortably
+co-reside** on the die — 1,489 + 80,251 ≈ 40% of the 325T's LUT6. The **GTX / 10GBASE-R
+PCS-PMA transceiver** leg (BANK117 156.25 MHz refclk + serdes SI) is deliberately *not*
+built here: it is the board-in-hand residual (see §"Out of scope"). This is a fabric-fit +
+Fmax feasibility check, not a bitstream.
+
+**D6 — in-core NIC ring driver parses the WHOLE corpus == the golden model, on Spike AND QEMU (2026-09-20).**
+`taskset -c 2-7 nix run .#cva6-parser-nic-cosim` builds **one** bare-metal ELF that parses the
+entire pinned xdp2 corpus in a **single re-arming run** — no per-packet reboot — and byte-compares
+every result against the reference model. Where `cva6-parser-cosim` / `parser-spike` / `parser-qemu`
+boot one ELF per packet (each a fresh one-shot parse), D6 proves the *multi-packet* datapath: a NIC
+RX descriptor-ring driver (`tests/cva6-parser/nic_ring.c` + `nic_ring_asm.S`) DMAs each frame into
+the `0x5000_0000` packet MMIO, writes `ParseLen` to (re-)arm, runs the in-core parse block, then
+compares `flow_keys` (META) and the exit code against the baked-in golden. `tohost=1` iff **every**
+packet matched (fesvr / QEMU `-M spike` exit 0 ⇒ PASS; else fail code 3=keys / 5=code / 7=no-exit).
+
+The re-arm is a small, **fidelity-preserving** addition to the two functional device models only:
+`parser_shared.rearm` (in `nix/{spike-tandem,qemu-parser}/parser_shared.h`) is set on every
+`ParseLen` (0x100) store and consumed by the arm gate (`parser_ext.cc` / `parser_helper.c`), so a
+new `ParseLen` re-binds the model to the next packet — `pm_init` zeroes `ps` (done=0) and the meta
+frame, matching a fresh golden init, while the CAM (programmed once) persists. A single-shot ELF
+writes `ParseLen` exactly once, so the gate reduces to the old `!armed` behaviour and every existing
+one-shot target is byte-identical. The corpus + per-packet golden `flow_keys`/exit-code are baked
+into one C header by a new generator mode, `gen_parser_rom --corpus-blob` (`verif/gen/gen_parser_rom.c`).
+
+| Leg | Result | Note |
+|---|---|---|
+| corpus blob | **306** Ethernet packets (72 non-Ethernet skipped) | emitted from the golden model, `META_LEN=48` |
+| Spike (primary) | **PASS** — all 306 == golden across a re-arming run | standalone parser Spike (`spike-parser`) |
+| QEMU (secondary) | **PASS** — all 306 == golden across a re-arming run | patched `qemu-system-riscv64 -M spike` |
+
+**Result:** the parser **software/logic is correct across a real, multi-packet re-arming run** —
+the whole corpus parses identically to the reference model on two independent ISA simulators, with
+no board and no per-packet reboot. This retires the Phase-8 pre-buy *functional* risk. Plan:
+`~/.claude/.../plans/ok-in-this-folder-jolly-perlis.md`.
+
+**D6 Increment 2 — the RTL parser FU itself re-arms; a multi-packet run through the CVA6 core == the golden model (2026-09-20).**
+
+Increment 1 re-armed only the two *functional* device models (Spike/QEMU). Increment 2 gives the
+**RTL functional unit** the same capability, so a single booted program parses many packets through
+the real CVA6 pipeline + `cva6_parser_wrap` — the hardware datapath, not a model. A new
+`parse_rearm_i` input (driven by the ParseLen-store strobe `parser_wr_plen`, threaded
+`ariane_testharness → ariane → cva6 → ex_stage → wrap`) re-initialises the parse state
+(`reset_state()`, the pend/CAM queues, the exit latches) and zeroes the metadata frame on each
+ParseLen store, while the CAM (a separate module, programmed once) persists — matching the golden
+model's per-packet `pm_init` memset. On a single-shot ELF the strobe fires once at reset, so the
+behaviour is bit-identical to the old one-shot FU (a fidelity no-op).
+
+New reproducible target — `nix run .#cva6-parser-rearm` — boots **once** and drives the *same*
+`nic_ring.c` NIC-ring driver as the Spike/QEMU leg over the `0x5000_0000` MMIO window through the
+CVA6 core, re-arming the FU between packets and comparing the committed flow_keys + exit code to the
+golden model baked in at build time.
+
+| Check | Result |
+|---|---|
+| `cva6-parser-rearm` (RTL, 8 corpus packets in ONE boot) | **PASS** — all 8 == golden across 7 re-arms (68,631 cycles; verified to 32 packets / 31 re-arms during bring-up) |
+| `parser-wrap-test` (I1–I5 commit/flush/MMIO invariants) | **PASS** — the re-init block + TB tie-off regress nothing |
+| `parser-formal` (k-induction, `parse_rearm_i` a *free* input) | **PASS** — the updated `a_arch_committed` invariant holds under adversarial re-arm timing |
+| `cva6-parser-cosim` (single-shot in-core fidelity) | **PASS** — 22/22, the one-shot path is unchanged |
+| `cva6-parser-tandem` (RVFI-vs-Spike lock-step) | **PASS** — 22 cases, 0 mismatches, base-ISA + parser-op lock-step clean |
+
+One subtlety surfaced and fixed here: the RTL MMIO slave returns the flow_keys frame as an
+**8-aligned 64-bit word at the request offset** (`parser_mmio.h`: "read, 8-aligned `ld`"), so a
+sub-word (byte) load lands on the wrong byte lane. Increment 1's `nic_ring.c` read the frame
+byte-by-byte — tolerated by the byte-addressable Spike/QEMU models but wrong on the RTL peripheral;
+the driver now reads aligned 64-bit words, mirroring `cosim_main.S` (correct on all three sims).
+
+**Result:** the parser **re-arms and parses a multi-packet stream correctly in real RTL** through
+the CVA6 core, provably safe under formal, with the functional (Spike/QEMU) and single-shot in-core
+paths all still green. This retires the remaining Increment-2 hardware-path item; the RTL FU is no
+longer one-shot.
+
+#### Pre-purchase validation — consolidated verdict: **GO** (2026-09-20)
+
+With D6 Increment 2 landed, every item of the A–D pre-purchase plan is complete. All of it is
+reproducible from `flake.nix` (`nix run .#<target>`) on `hp5`, with **no board**.
+
+| # | Item | Target | Result |
+|---|---|---|---|
+| A1 | Vivado license boundary on the 325T | `fpga-vivado-license-check` | **PASS** — free **Basic** does synth → place → route → `write_bitstream` on `xc7k325t`; no edu license needed |
+| A2 | Turnkey CVA6 SoC + DDR3, die/flow/timing | `fpga-soc-vivado` (genesys2) | **PASS** — full impl on `xc7k325tffg900-2` **routes and closes timing** (core ~49.6k LUT / SoC 75,267 = 37%) |
+| B3 | AX7325B 64-bit DDR3 pinout | `fpga-mig-check -- ax7325b` | **PASS** — MIG 7-series generates + OOC-synths clean; byte-lane/bank grouping legal |
+| B4 | AX7325B CVA6 port builds + fits | `fpga-soc-vivado -- ax7325b` | **PASS** — synth 0 errors / 0 crit-warns; SoC 80,251 LUT ≈ 39% |
+| C5 | 10G MAC datapath on the die | `fpga-10g-fit` | **PASS** — builds + OOC-routes + meets 156.25 MHz (WNS +2.081 ns); 1,489 LUT (0.7%) |
+| D6·1 | Whole corpus == golden, functional sims | `cva6-parser-nic-cosim` | **PASS** — 306 pkts, one re-arming boot, on Spike **and** QEMU |
+| D6·2 | RTL parser FU re-arms through the CVA6 core | `cva6-parser-rearm` (+ wrap-test / formal / cosim / tandem) | **PASS** — multi-packet run == golden in real RTL, proved safe under formal |
+
+**Gateware + software risk is retired.** CVA6 + a 10G MAC co-reside (~40% LUT), the AX7325B port
+builds/fits, the DDR3 pinout is legal, the flow+license close a real bitstream+timing on the exact
+die, and the parser software/logic parses the real corpus == the golden model — functionally (Spike/
+QEMU) and in cycle-accurate RTL through the core.
+
+**Strictly board-in-hand residual** (cannot be done pre-buy, deferred to Phase 9): DDR3 calibration
+on silicon; GTX/10GBASE-R PCS-PMA link-up + serdes SI to a real 10GE/QSFP NIC; real throughput &
+latency; final on-hardware timing sign-off; the AX7325B `#VERIFY` pin sign-off (place/route on the
+board); the physical back-to-back 2× AX7325B bring-up. **Recommendation: purchase the AX7325B.**
 
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 

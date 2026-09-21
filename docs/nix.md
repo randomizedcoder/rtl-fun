@@ -42,6 +42,8 @@ nix/
   cva6-baseline.nix           # cva6-baseline / cva6-parser builders (writeShellApplication)
   cva6-parser-test.nix        # cva6-parser-test: build patched model + run in-core custom-0 test
   cva6-parser-cosim.nix       # cva6-parser-cosim: table-driven in-core packet→flow_keys vs model (I5)
+  cva6-parser-nic-cosim.nix   # cva6-parser-nic-cosim: NIC ring driver, whole corpus in one re-arming run on Spike+QEMU (D6)
+  cva6-parser-rearm.nix       # cva6-parser-rearm: RTL companion — patched model re-arms the FU across N corpus packets in one boot (D6 Inc.2)
   parser-negative-control.nix # parser-negative-control: STOCK model must trap the custom-0 word (G11, N1)
   parser-trap-v7.nix          # cva6-parser-trap-v7: faulting instr must not corrupt an in-flight parser op (V7/G7, N4)
   parser-trap-v6.nix          # cva6-parser-trap-v6: async interrupt (msip) mid-parse must not corrupt an in-flight parser op (V6/G7, N5)
@@ -57,7 +59,16 @@ nix/
   fpga-m2.nix                 # Phase-8 M2: fpga-m2-loopback-check, fpga-m2-rtl (sv2v flatten), fpga-m2-inject (UART packet injection oracle)
   fpga-m3.nix                 # Phase-8 M3: fpga-m3-core-rtl (stock CVA6 → Gowin input, hierarchy KEPT for BSRAM inference)
   fpga-m3-xilinx.nix          # Phase-8 M3a pivot: fpga-m3-xilinx-fit (stock CVA6 fit+route on xc7k325t via openXC7 — yosys+nextpnr-xilinx, no Vivado/board)
-  fpga-m3-vivado.nix          # Phase-8 M3a LUT oracle: fpga-m3-vivado-fit (Vivado synth-only on our CVA6 RTL — trustworthy LUT count; host-tool dep, free Vivado on PATH)
+  fpga-m3-vivado.nix          # Phase-8 M3a LUT oracle: fpga-m3-vivado-fit (Vivado synth-only on NATIVE CVA6 RTL — trustworthy 48,217 LUT6 = 24% of 325T; MODE=sv2v for the inflated contrast; host-tool dep, free Vivado on PATH)
+  fpga-vivado-license-check.nix # Phase-A pre-buy: fpga-vivado-license-check (probe what the Vivado license permits on a part — trivial design through synth→place→route→bitstream; free Basic does FULL impl on xc7k325t)
+  fpga-soc-vivado.nix         # Phase-A/B pre-buy: fpga-soc-vivado (turnkey CVA6 SoC+DDR3 full Vivado build synth→impl→bitstream→timing on xc7k325tffg900-2; board-file-free/part-only; BOARD=ax7325b applies cva6-fpga/ax7325b-board.patch + fpga/ax7325b/* for a synth-only port fit-check; injects a merged RISC-V toolchain for the bootrom; host-tool dep, free Vivado)
+  cva6-fpga/
+    ax7325b-board.patch       # CVA6-tree patch for the AX7325B port: Makefile BOARD=ax7325b + FPGA_TARGET knob; run.tcl xdc/svh branches + STAGE=synth early-exit; corev_apu/fpga/Makefile `synth` target; ariane_xilinx.sv `elsif AX7325B` port/reset/InclEthernet(0)/led-sw. Applied to the throwaway tree by fpga-soc-vivado (Phase 8 B4)
+  fpga-mig-check.nix          # Phase-B pre-buy: fpga-mig-check (DDR3 MIG generate + OOC-synth from an explicit mig_<board>.prj — validate byte-lane/bank pinout legality with no board; default ax7325b 64-bit; host-tool dep, free Vivado)
+  fpga-10g-fit.nix            # Phase-C pre-buy: fpga-10g-fit (OOC synth+route the verilog-ethernet eth_mac_10g 64-bit XGMII MAC on xc7k325tffg900-2 — 10G datapath build/fit/Fmax@156.25MHz, no board/transceiver; DUT pinned as flake input verilog-ethernet-src; host-tool dep, free Vivado)
+  vivado-fhs.nix              # Run proprietary Vivado (installer + tools) on NixOS via buildFHSEnv sandbox: vivado-fhs (shell) + `vivado` wrapper for $VIVADO (NixOS analogue of the Gowin microVM)
+  vivado-license-mac.nix      # The single repo-recorded MAC the free Vivado Basic license (2026.1+) is node-locked to — makes one license portable across machines
+  vivado-license-netdev.nix   # NixOS module (flake output nixosModules.vivado-license-netdev): dummy NIC `vivadolic` carrying that MAC, so FlexLM sees the same host ID everywhere
   devshell.nix                # mkShell: tools + CVA6_SRC/CV_SW_PREFIX + banner + rtl-help
   shell-functions/
     help.nix                  # the rtl-help function
@@ -65,6 +76,8 @@ scripts/
   cva6-baseline.sh            # body of the cva6-baseline app (Phase 0 sim baseline)
   cva6-parser-test.sh         # in-core custom-0 directed test (assemble ELF + run) (Phase 5)
   cva6-parser-cosim.sh        # table-driven in-core packet→flow_keys co-sim vs model (Phase 6, I5)
+  cva6-parser-nic-cosim.sh    # in-core NIC ring driver: whole corpus in one re-arming run on Spike+QEMU (Phase 8, D6)
+  cva6-parser-rearm.sh        # RTL companion: patched model re-arms the FU across N corpus packets in one boot (Phase 8, D6 Inc.2)
   parser-negative-control.sh  # negative control: assemble negctl.S, run on STOCK model, assert trap (G11, N1)
   parser-trap-v7.sh           # V7: assemble parser_trap_v7.S, run on patched model, assert no fault-corruption (G7, N4)
   parser-trap-v6.sh           # V6: assemble parser_trap_v6.S, run on patched model, assert no interrupt-corruption (G7, N5)
@@ -88,7 +101,10 @@ scripts/
   fpga-m2-inject.sh           # M2: frame packets over UART, diff returned flow_keys vs the model (--suite = all 22) (Phase 8)
   fpga-m3-core-rtl.sh         # M3a: resolve stock-CVA6 flist + sv2v (NO flatten) so Gowin infers BSRAM; s0/s1/s2 ladder (Phase 8)
   fpga-m3-xilinx-fit.sh       # M3a pivot: openXC7 fit+route of stock CVA6 on xc7k325t (chipdb/synth/pnr stages) (Phase 8)
-  fpga-m3-vivado-fit.sh       # M3a LUT oracle: Vivado synth-only on our CVA6 RTL, trustworthy util + fit verdict (synth/report stages) (Phase 8)
+  fpga-m3-vivado-fit.sh       # M3a LUT oracle: Vivado synth-only on NATIVE CVA6 .sv (MODE=native default; sv2v=contrast), trustworthy util + fit verdict (Phase 8)
+  fpga-soc-vivado.sh          # Phase-A pre-buy: materialize the pinned CVA6 tree, board-file-free source-prep, drive `make fpga` (bootrom→IP gen→synth→impl→bitstream→timing) on the die (Phase 8)
+  fpga-mig-check.sh           # Phase-B pre-buy: DDR3 MIG generate + OOC-synth from fpga/<board>/mig_<board>.prj via fpga/vivado/mig-check.tcl — pinout legality verdict (Phase 8)
+  fpga-10g-fit.sh             # Phase-C pre-buy: OOC synth+route verilog-ethernet eth_mac_10g via fpga/ax7325b/10g-fit.tcl — 10G MAC fit + WNS/Fmax verdict on the die (Phase 8)
 ```
 
 ## Runnable apps (`nix run .#<name>`)
@@ -102,6 +118,8 @@ One `writeShellApplication` per runner; each puts its tools on `PATH` via
 | `cva6-parser` | build the **parser-patched** CVA6 Verilator model (compare vs baseline) | 5 |
 | `cva6-parser-test` | build patched model + run the in-core custom-0 directed test | 5 |
 | `cva6-parser-cosim` | table-driven in-core packet→flow_keys co-sim vs the model (22/22) | 6 |
+| `cva6-parser-nic-cosim` | in-core NIC ring driver: the whole xdp2 corpus parsed in **one** re-arming run, on Spike + QEMU vs the model (D6) | 8 |
+| `cva6-parser-rearm` | RTL companion: the patched CVA6 model re-arms the parser FU across N corpus packets in **one** boot vs the model (D6 Inc.2) | 8 |
 | `parser-negative-control` | negative control (G11): the **stock** core must trap the custom-0 parser word (illegal-instruction) | 6 |
 | `cva6-parser-trap-v7` | V7 (G7): a faulting instruction (`ecall`) that flushes an in-flight parser op must not corrupt its committed result | 6 |
 | `cva6-parser-trap-v6` | V6 (G7): an async machine software interrupt (`msip`) mid-parse that flushes an in-flight parser op must not corrupt its committed result | 6 |

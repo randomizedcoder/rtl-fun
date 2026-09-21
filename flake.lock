@@ -76,7 +76,8 @@
         "flake-utils": "flake-utils",
         "microvm": "microvm",
         "nixpkgs": "nixpkgs",
-        "openfpgaloader-src": "openfpgaloader-src"
+        "openfpgaloader-src": "openfpgaloader-src",
+        "verilog-ethernet-src": "verilog-ethernet-src"
       }
     },
     "spectrum": {
@@ -107,6 +108,22 @@
       "original": {
         "owner": "nix-systems",
         "repo": "default",
+        "type": "github"
+      }
+    },
+    "verilog-ethernet-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1740700225,
+        "narHash": "sha256-kJi8ZN83uIo+EhDEqmHVgEg+CnoD0QnIj4QE8HNQewQ=",
+        "owner": "alexforencich",
+        "repo": "verilog-ethernet",
+        "rev": "77320a9471d19c7dd383914bc049e02d9f4f1ffb",
+        "type": "github"
+      },
+      "original": {
+        "owner": "alexforencich",
+        "repo": "verilog-ethernet",
         "type": "github"
       }
     }

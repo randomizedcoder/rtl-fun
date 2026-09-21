@@ -49,6 +49,7 @@ static void parser_mmio_write(void *opaque, hwaddr addr, uint64_t val,
     }
     if (addr == 0x100) {
         g_parser_shared.parse_len = (uint32_t)(val & 0xFFFF);
+        g_parser_shared.rearm = 1;     /* ParseLen write => (re-)arm the next parse */
     } else if (addr == 0x108) {
         g_parser_shared.exit_pc = val;
     }

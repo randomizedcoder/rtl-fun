@@ -128,8 +128,13 @@ target_ulong HELPER(parser_c0)(CPURISCVState *env, uint32_t insn, target_ulong p
     if (d.op == OP_CAM || d.op == OP_CAMNEXT) {
         d.cam = &g_cam;                       /* attach the programmed table */
     }
-    if (!g_armed) {
-        parser_arm();                         /* lazily bind to the MMIO packet */
+    /* Bind to the MMIO packet on first parse; re-bind whenever the driver has
+     * written ParseLen again (multi-packet re-arm). parser_arm()->pm_init re-zeroes
+     * g_ps (done=0) and the meta frame; the CAM survives. A single-shot ELF writes
+     * ParseLen once, so this reduces to the old !g_armed gate. */
+    if (!g_armed || g_parser_shared.rearm) {
+        parser_arm();
+        g_parser_shared.rearm = 0;
     }
     cur = g_ps.next_pc;
     g_ps.pc      = cur;                        /* pm_run's per-step bookkeeping... */

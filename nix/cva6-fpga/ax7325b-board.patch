@@ -1,0 +1,183 @@
+--- a/Makefile
++++ b/Makefile
+@@ -86,6 +86,13 @@
+ 	XILINX_PART              := xc7a200tsbg484-1
+ 	XILINX_BOARD             := digilentinc.com:nexys_video:part0:1.1
+ 	CLK_PERIOD_NS            := 40
++else ifeq ($(BOARD), ax7325b)
++	# ALINX AX7325B: same die/package/speed as Genesys 2 / KC705 (xc7k325tffg900-2).
++	# XILINX_BOARD is cosmetic here — the flow is board-file-free/part-only (ALINX
++	# boards are not in Vivado's board store); set_property board_part is neutralised.
++	XILINX_PART              := xc7k325tffg900-2
++	XILINX_BOARD             := alinx.com:ax7325b:part0:1.0
++	CLK_PERIOD_NS            := 20
+ else
+ $(error Unknown board - please specify a supported FPGA board)
+ endif
+@@ -783,6 +790,11 @@
+ src/bootrom/bootrom_$(XLEN).sv:
+ 	$(MAKE) -C corev_apu/fpga/src/bootrom BOARD=$(BOARD) XLEN=$(XLEN) PLATFORM=$(PLATFORM) bootrom_$(XLEN).sv
+ 
++# FPGA_TARGET selects the inner corev_apu/fpga make goal: `all` (default) runs the
++# full synth->impl->bitstream->mcs flow; `synth` stops after synthesis + reports
++# (used with STAGE=synth for a verify-before-buy build-check, e.g. the AX7325B port
++# whose pin/bank impl sign-off needs the physical board).
++FPGA_TARGET ?= all
+ fpga: $(ariane_pkg) $(src) $(fpga_src) $(uart_src) $(src_flist)
+ 	@echo "[FPGA] Generate sources"
+ 	@echo read_vhdl        {$(uart_src)}    > corev_apu/fpga/scripts/add_sources.tcl
+@@ -791,7 +803,7 @@
+ 	@echo read_verilog -sv {$(filter-out $(fpga_filter), $(src))} 	   >> corev_apu/fpga/scripts/add_sources.tcl
+ 	@echo read_verilog -sv {$(fpga_src)}   >> corev_apu/fpga/scripts/add_sources.tcl
+ 	@echo "[FPGA] Generate Bitstream"
+-	$(MAKE) -C corev_apu/fpga BOARD=$(BOARD) XILINX_PART=$(XILINX_PART) XILINX_BOARD=$(XILINX_BOARD) CLK_PERIOD_NS=$(CLK_PERIOD_NS)
++	$(MAKE) -C corev_apu/fpga $(FPGA_TARGET) BOARD=$(BOARD) XILINX_PART=$(XILINX_PART) XILINX_BOARD=$(XILINX_BOARD) CLK_PERIOD_NS=$(CLK_PERIOD_NS)
+ 
+ altera: PLATFORM := "PLAT_AGILEX"
+ 
+--- a/corev_apu/fpga/Makefile
++++ b/corev_apu/fpga/Makefile
+@@ -28,6 +28,13 @@
+ 	$(VIVADO) $(VIVADOFLAGS) -source scripts/run.tcl
+ 	cp ariane.runs/impl_1/ariane_xilinx* ./$(work-dir)
+ 
++# synth-only build-check: build the IPs + run synthesis (run.tcl honours STAGE=synth
++# to stop after synth + reports). No impl, no bitstream copy, no mcs — so no board
++# pin/bank sign-off is required. Used by the AX7325B verify-before-buy target.
++synth: $(ips)
++	mkdir -p $(work-dir)
++	$(VIVADO) $(VIVADOFLAGS) -source scripts/run.tcl
++
+ $(ips): %.xci :
+ 	mkdir -p $(work-dir)
+ 	@echo Generating $(@F)
+--- a/corev_apu/fpga/scripts/run.tcl
++++ b/corev_apu/fpga/scripts/run.tcl
+@@ -24,6 +24,8 @@
+       add_files -fileset constrs_1 -norecurse constraints/vc707.xdc
+ } elseif {$::env(BOARD) eq "nexys_video"} {
+       add_files -fileset constrs_1 -norecurse constraints/nexys_video.xdc
++} elseif {$::env(BOARD) eq "ax7325b"} {
++      add_files -fileset constrs_1 -norecurse constraints/ax7325b.xdc
+ } else {
+       exit 1
+ }
+@@ -69,6 +71,10 @@
+       read_verilog -sv {src/nexys_video.svh ../../vendor/pulp-platform/common_cells/include/common_cells/registers.svh}
+       set file "src/nexys_video.svh"
+       set registers "../../vendor/pulp-platform/common_cells/include/common_cells/registers.svh"
++} elseif {$::env(BOARD) eq "ax7325b"} {
++      read_verilog -sv {src/ax7325b.svh ../../vendor/pulp-platform/common_cells/include/common_cells/registers.svh}
++      set file "src/ax7325b.svh"
++      set registers "../../vendor/pulp-platform/common_cells/include/common_cells/registers.svh"
+ } else {
+     exit 1
+ }
+@@ -98,6 +104,17 @@
+ report_cdc                                                              -file reports/$project.cdc.rpt
+ report_clock_interaction                                                -file reports/$project.clock_interaction.rpt
+ 
++# STAGE=synth early-exit (verify-before-buy build-check): stop after synthesis and
++# the post-synth reports (utilization + timing estimate), skipping impl/bitstream.
++# The AX7325B pin/bank sign-off (impl) genuinely needs the board — its .xdc pins
++# carry #VERIFY markers — so its port is validated synth-only pre-buy. When STAGE
++# is unset (the turnkey default, e.g. genesys2) the full synth->impl->bitstream
++# flow runs unchanged.
++if {[info exists ::env(STAGE)] && $::env(STAGE) eq "synth"} {
++    puts "STAGE=synth: synthesis + reports complete, skipping implementation/bitstream."
++    exit 0
++}
++
+ # set for RuntimeOptimized implementation
+ set_property "steps.place_design.args.directive" "RuntimeOptimized" [get_runs impl_1]
+ set_property "steps.route_design.args.directive" "RuntimeOptimized" [get_runs impl_1]
+--- a/corev_apu/fpga/src/ariane_xilinx.sv
++++ b/corev_apu/fpga/src/ariane_xilinx.sv
+@@ -80,6 +80,29 @@
+   input  logic [ 3:0]  sw          ,
+   output logic         fan_pwm     ,
+   input  logic         trst_n      ,
++`elsif AX7325B
++  input  logic         sys_clk_p   ,
++  input  logic         sys_clk_n   ,
++
++  input  logic         cpu_resetn  ,
++  inout  logic [63:0]  ddr3_dq     ,
++  inout  logic [ 7:0]  ddr3_dqs_n  ,
++  inout  logic [ 7:0]  ddr3_dqs_p  ,
++  output logic [13:0]  ddr3_addr   ,
++  output logic [ 2:0]  ddr3_ba     ,
++  output logic         ddr3_ras_n  ,
++  output logic         ddr3_cas_n  ,
++  output logic         ddr3_we_n   ,
++  output logic         ddr3_reset_n,
++  output logic [ 0:0]  ddr3_ck_p   ,
++  output logic [ 0:0]  ddr3_ck_n   ,
++  output logic [ 0:0]  ddr3_cke    ,
++  output logic [ 0:0]  ddr3_cs_n   ,
++  output logic [ 7:0]  ddr3_dm     ,
++  output logic [ 0:0]  ddr3_odt    ,
++
++  output logic [ 3:0]  led         ,
++  input  logic         trst_n      ,
+ `elsif VC707
+   input  logic         sys_clk_p   ,
+   input  logic         sys_clk_n   ,
+@@ -281,6 +304,10 @@
+ `elsif NEXYS_VIDEO
+ logic cpu_reset;
+ assign cpu_reset  = ~cpu_resetn;
++`elsif AX7325B
++logic cpu_reset;
++assign cpu_reset  = ~cpu_resetn;
++logic fan_pwm; // no fan_pwm top port on AX7325B; fan_ctrl (KINTEX7 MIG block) drives this internal net
+ `endif
+ 
+ logic pll_locked;
+@@ -855,6 +882,8 @@
+ `ifdef KC705
+   logic [7:0] unused_led;
+   logic [3:0] unused_switches = 4'b0000;
++`elsif AX7325B
++  logic [7:0] unused_led; // AX7325B exposes led[3:0]; pad the GPIO's upper bits
+ `endif
+ 
+ logic clk_200MHz_ref;
+@@ -866,7 +895,10 @@
+     .AxiUserWidth ( AxiUserWidth     ),
+     .InclUART     ( 1'b1             ),
+     .InclGPIO     ( 1'b1             ),
+-    `ifdef KINTEX7
++    `ifdef AX7325B
++    .InclSPI      ( 1'b1         ),
++    .InclEthernet ( 1'b0         ) // AX7325B has no on-board 1G RGMII PHY (10G/40G via GTX, Phase C)
++    `elsif KINTEX7
+     .InclSPI      ( 1'b1         ),
+     .InclEthernet ( 1'b1         )
+     `elsif KC705
+@@ -896,6 +928,7 @@
+     .irq_o        ( irq                          ),
+     .rx_i         ( rx                           ),
+     .tx_o         ( tx                           ),
++    `ifndef AX7325B
+     .eth_txck,
+     .eth_rxck,
+     .eth_rxctl,
+@@ -905,6 +938,7 @@
+     .eth_txd,
+     .eth_mdio,
+     .eth_mdc,
++    `endif
+     .phy_tx_clk_i   ( phy_tx_clk                  ),
+     .sd_clk_i       ( sd_clk_sys                  ),
+     .spi_clk_o      ( spi_clk_o                   ),
+@@ -914,6 +948,9 @@
+     `ifdef KC705
+       .leds_o         ( {led[3:0], unused_led[7:4]}),
+       .dip_switches_i ( {sw, unused_switches}     )
++    `elsif AX7325B
++      .leds_o         ( {led[3:0], unused_led[7:4]}),
++      .dip_switches_i ( 8'b0                      ) // AX7325B has no user DIP switches
+     `else
+       .leds_o         ( led                       ),
+       .dip_switches_i ( sw                        )

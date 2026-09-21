@@ -62,7 +62,10 @@ class parser_mmio_dev : public abstract_device_t {
     }
     uint64_t v = 0;
     for (size_t i = 0; i < len && i < 8; i++) v |= (uint64_t)bytes[i] << (8 * i);
-    if (addr == 0x100)      g_parser_shared.parse_len = (uint32_t)(v & 0xFFFF);
+    if (addr == 0x100) {
+      g_parser_shared.parse_len = (uint32_t)(v & 0xFFFF);
+      g_parser_shared.rearm     = 1;   // ParseLen write => (re-)arm the next parse
+    }
     else if (addr == 0x108) g_parser_shared.exit_pc   = v;
     // other in-window offsets: accepted and ignored
     return true;

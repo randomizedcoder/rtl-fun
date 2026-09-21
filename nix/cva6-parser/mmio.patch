@@ -1,8 +1,8 @@
 diff --git a/core/cva6.sv b/core/cva6.sv
-index df939ad..70e3b79 100644
+index df939ad..cd318ce 100644
 --- a/core/cva6.sv
 +++ b/core/cva6.sv
-@@ -327,7 +327,17 @@ module cva6
+@@ -327,7 +327,18 @@ module cva6
      // noc request, can be AXI or OpenPiton - SUBSYSTEM
      output noc_req_t noc_req_o,
      // noc response, can be AXI or OpenPiton - SUBSYSTEM
@@ -14,6 +14,7 @@ index df939ad..70e3b79 100644
 +    input  logic [7:0]                        parser_pkt_wr_be_i,
 +    input  logic [63:0]                       parser_pkt_wr_data_i,
 +    input  logic [15:0]                       parser_parse_len_i,
++    input  logic                              parser_rearm_i,       // ParseLen store => re-arm the FU (D6)
 +    input  logic [CVA6Cfg.VLEN-1:0]           parser_exit_pc_i,
 +    input  logic [parser_pkg::META_OFF_W-1:0] parser_meta_rd_addr_i,
 +    output logic [63:0]                       parser_meta_rd_data_o,
@@ -21,7 +22,7 @@ index df939ad..70e3b79 100644
  );
  
    localparam type interrupts_t = struct packed {
-@@ -1035,6 +1045,16 @@ module cva6
+@@ -1035,6 +1046,17 @@ module cva6
        // commit notification for parser state (I1): commit_ack[0] + its trans_id
        .parser_commit_i         (commit_ack[0]),
        .parser_commit_trans_id_i(commit_instr_id_commit[0].trans_id),
@@ -31,6 +32,7 @@ index df939ad..70e3b79 100644
 +      .parser_pkt_wr_be_i      (parser_pkt_wr_be_i),
 +      .parser_pkt_wr_data_i    (parser_pkt_wr_data_i),
 +      .parser_parse_len_i      (parser_parse_len_i),
++      .parser_rearm_i          (parser_rearm_i),
 +      .parser_exit_pc_i        (parser_exit_pc_i),
 +      .parser_meta_rd_addr_i   (parser_meta_rd_addr_i),
 +      .parser_meta_rd_data_o   (parser_meta_rd_data_o),
@@ -39,10 +41,10 @@ index df939ad..70e3b79 100644
        .acc_valid_i             (acc_valid_acc_ex),
        // Performance counters
 diff --git a/core/ex_stage.sv b/core/ex_stage.sv
-index 5619a38..2b8d430 100644
+index 5619a38..cbead3c 100644
 --- a/core/ex_stage.sv
 +++ b/core/ex_stage.sv
-@@ -177,6 +177,16 @@ module ex_stage
+@@ -177,6 +177,17 @@ module ex_stage
      input logic parser_commit_i,
      // PARSER committing trans_id (commit port 0) - COMMIT_STAGE
      input logic [CVA6Cfg.TRANS_ID_BITS-1:0] parser_commit_trans_id_i,
@@ -52,6 +54,7 @@ index 5619a38..2b8d430 100644
 +    input  logic [7:0]                        parser_pkt_wr_be_i,
 +    input  logic [63:0]                       parser_pkt_wr_data_i,
 +    input  logic [15:0]                       parser_parse_len_i,
++    input  logic                              parser_rearm_i,       // ParseLen store => re-arm the FU (D6)
 +    input  logic [CVA6Cfg.VLEN-1:0]           parser_exit_pc_i,
 +    input  logic [parser_pkg::META_OFF_W-1:0] parser_meta_rd_addr_i,
 +    output logic [63:0]                       parser_meta_rd_data_o,
@@ -59,7 +62,7 @@ index 5619a38..2b8d430 100644
      // accelerate port result is valid - ACC_DISPATCHER
      input logic acc_valid_i,
      // Enable virtual memory translation - CSR_REGFILE
-@@ -698,8 +708,15 @@ module ex_stage
+@@ -698,8 +709,15 @@ module ex_stage
          .illegal_o(parser_dec_illegal)
      );
  
@@ -76,17 +79,18 @@ index 5619a38..2b8d430 100644
          .req_off_i(parser_pkt_off),
          .win_be_o (parser_pkt_win_be)
      );
-@@ -734,7 +751,8 @@ module ex_stage
+@@ -734,7 +752,9 @@ module ex_stage
          .trans_id_i       (fu_data_i[0].trans_id),
          .pc_i             (pc_i),
          .rs1_i            (fu_data_i[0].operand_a),    // integer rs1 (custom-3 moves, I4b)
 -        .parse_len_i      (16'(parser_pkg::PKT_MAX)),  // provisional; real ParseLen via pkt buffer (Phase 8)
 +        .parse_len_i      (parser_parse_len_i),        // PktLen.ParseLen via SoC MMIO (I5)
++        .parse_rearm_i    (parser_rearm_i),            // re-arm on a new ParseLen store (D6)
 +        .parse_exit_pc_i  (parser_exit_pc_i),          // caller landing PC on parse exit (I5)
          .parser_ready_o   (parser_ready_o),
          .parser_valid_o   (parser_valid_o),
          .parser_trans_id_o(parser_trans_id_o),
-@@ -756,7 +774,10 @@ module ex_stage
+@@ -756,7 +776,10 @@ module ex_stage
          .cam_prog_valid_o (parser_cam_prog_valid),
          .cam_prog_share_o (parser_cam_prog_share),
          .cam_prog_match_o (parser_cam_prog_match),
@@ -99,10 +103,10 @@ index 5619a38..2b8d430 100644
      // the parser drives no CPU exception (exits redirect via resolved_branch_o)
      assign parser_exception_o = '0;
 diff --git a/corev_apu/src/ariane.sv b/corev_apu/src/ariane.sv
-index 866c6d6..4fb8dc3 100644
+index 866c6d6..74e9c17 100644
 --- a/corev_apu/src/ariane.sv
 +++ b/corev_apu/src/ariane.sv
-@@ -63,7 +63,17 @@ module ariane import ariane_pkg::*; #(
+@@ -63,7 +63,18 @@ module ariane import ariane_pkg::*; #(
    output rvfi_probes_t rvfi_probes_o,
    // memory side
    output noc_req_t                     noc_req_o,
@@ -114,6 +118,7 @@ index 866c6d6..4fb8dc3 100644
 +  input  logic [7:0]                        parser_pkt_wr_be_i,
 +  input  logic [63:0]                       parser_pkt_wr_data_i,
 +  input  logic [15:0]                       parser_parse_len_i,
++  input  logic                              parser_rearm_i,       // ParseLen store => re-arm the FU (D6)
 +  input  logic [CVA6Cfg.VLEN-1:0]           parser_exit_pc_i,
 +  input  logic [parser_pkg::META_OFF_W-1:0] parser_meta_rd_addr_i,
 +  output logic [63:0]                       parser_meta_rd_data_o,
@@ -121,7 +126,7 @@ index 866c6d6..4fb8dc3 100644
  );
  
    cvxif_req_t  cvxif_req;
-@@ -105,7 +115,17 @@ module ariane import ariane_pkg::*; #(
+@@ -105,7 +116,18 @@ module ariane import ariane_pkg::*; #(
      .cvxif_req_o          ( cvxif_req                 ),
      .cvxif_resp_i         ( cvxif_resp                ),
      .noc_req_o            ( noc_req_o                 ),
@@ -133,6 +138,7 @@ index 866c6d6..4fb8dc3 100644
 +    .parser_pkt_wr_be_i   ( parser_pkt_wr_be_i        ),
 +    .parser_pkt_wr_data_i ( parser_pkt_wr_data_i      ),
 +    .parser_parse_len_i   ( parser_parse_len_i        ),
++    .parser_rearm_i       ( parser_rearm_i            ),
 +    .parser_exit_pc_i     ( parser_exit_pc_i          ),
 +    .parser_meta_rd_addr_i( parser_meta_rd_addr_i     ),
 +    .parser_meta_rd_data_o( parser_meta_rd_data_o     ),
@@ -171,10 +177,10 @@ index d20b6a6..a86a993 100644
    } soc_bus_start_t;
  
 diff --git a/corev_apu/tb/ariane_testharness.sv b/corev_apu/tb/ariane_testharness.sv
-index 12c38a0..15d3f21 100644
+index 12c38a0..5260659 100644
 --- a/corev_apu/tb/ariane_testharness.sv
 +++ b/corev_apu/tb/ariane_testharness.sv
-@@ -368,6 +368,101 @@ module ariane_testharness #(
+@@ -368,6 +368,107 @@ module ariane_testharness #(
      .rdata_o    ( rom_rdata )
    );
  
@@ -235,6 +241,12 @@ index 12c38a0..15d3f21 100644
 +  wire parser_wr_pkt  = parser_mmio_req &  parser_mmio_we & (parser_off <  12'h100);
 +  wire parser_wr_plen = parser_mmio_req &  parser_mmio_we & (parser_off == 12'h100);
 +  wire parser_wr_expc = parser_mmio_req &  parser_mmio_we & (parser_off == 12'h108);
++  // D6 multi-packet re-arm: a ParseLen store (0x100) re-binds the FU to the next
++  // packet. The strobe is the same cycle parser_parse_len_q latches, so the new
++  // ParseLen and the re-init take effect together. A single-shot program writes
++  // 0x100 once (before its only parse, when the FU is already at reset), so the
++  // re-init is a no-op there and every one-shot flow is bit-identical (fidelity).
++  wire parser_rearm   = parser_wr_plen;
 +
 +  assign parser_pkt_wr_en   = parser_wr_pkt;
 +  assign parser_pkt_wr_addr = parser_off[parser_pkg::PKT_OFF_W-1:0];
@@ -276,7 +288,7 @@ index 12c38a0..15d3f21 100644
    // ------------------------------
    // GPIO
    // ------------------------------
-@@ -505,6 +584,7 @@ module ariane_testharness #(
+@@ -505,6 +606,7 @@ module ariane_testharness #(
      '{ idx: ariane_soc::SPI,      start_addr: ariane_soc::SPIBase,      end_addr: ariane_soc::SPIBase + ariane_soc::SPILength           },
      '{ idx: ariane_soc::Ethernet, start_addr: ariane_soc::EthernetBase, end_addr: ariane_soc::EthernetBase + ariane_soc::EthernetLength },
      '{ idx: ariane_soc::GPIO,     start_addr: ariane_soc::GPIOBase,     end_addr: ariane_soc::GPIOBase + ariane_soc::GPIOLength         },
@@ -284,7 +296,7 @@ index 12c38a0..15d3f21 100644
      '{ idx: ariane_soc::DRAM,     start_addr: ariane_soc::DRAMBase,     end_addr: ariane_soc::DRAMBase + ariane_soc::DRAMLength         }
    };
  
-@@ -649,7 +729,17 @@ module ariane_testharness #(
+@@ -649,7 +751,18 @@ module ariane_testharness #(
      .debug_req_i          ( debug_req_core      ),
  `endif
      .noc_req_o            ( axi_ariane_req      ),
@@ -296,6 +308,7 @@ index 12c38a0..15d3f21 100644
 +    .parser_pkt_wr_be_i   ( parser_pkt_wr_be    ),
 +    .parser_pkt_wr_data_i ( parser_pkt_wr_data  ),
 +    .parser_parse_len_i   ( parser_parse_len_q  ),
++    .parser_rearm_i       ( parser_rearm        ),
 +    .parser_exit_pc_i     ( parser_exit_pc_q    ),
 +    .parser_meta_rd_addr_i( parser_meta_rd_addr ),
 +    .parser_meta_rd_data_o( parser_meta_rd_data ),

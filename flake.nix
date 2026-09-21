@@ -35,12 +35,20 @@
     # this builds `.#openfpgaloader-fork` for when we need to patch. See nix/fpga.nix.
     openfpgaloader-src.url = "github:randomizedcoder/openFPGALoader";
     openfpgaloader-src.flake = false;
+
+    # Alex Forencich's verilog-ethernet, pinned here (flake.lock) rather than as an
+    # untracked clone — same convention as openfpgaloader-src. This repo already vendors
+    # his 1G MAC (corev_apu/fpga/src/ariane-ethernet/eth_mac_1g*.sv); the C5 pre-buy 10G
+    # fit-check (nix/fpga-10g-fit.nix) pulls the 10G XGMII MAC (eth_mac_10g + axis_xgmii_*
+    # + lfsr) from this same source. See docs/phase-8-status.md §"C5".
+    verilog-ethernet-src.url = "github:alexforencich/verilog-ethernet";
+    verilog-ethernet-src.flake = false;
   };
 
   # Per-system outputs live inside eachDefaultSystem; the Gowin microVM is a single
   # x86_64-linux NixOS system merged in alongside them (recursiveUpdate, not //, so it
   # does not clobber the ~40 per-system packages). All VM logic is in nix/gowin-vm.nix.
-  outputs = { self, nixpkgs, flake-utils, microvm, openfpgaloader-src }:
+  outputs = { self, nixpkgs, flake-utils, microvm, openfpgaloader-src, verilog-ethernet-src }:
     let
       gowin = import ./nix/gowin-vm.nix { inherit nixpkgs microvm; };
     in
@@ -128,6 +136,22 @@
           # (I5): packet -> flow_keys equivalence vs the golden model, over real MMIO.
           cva6-parser-cosim = import ./nix/cva6-parser-cosim.nix {
             inherit pkgs;
+            cva6-src = cva6-parser-src;
+          };
+
+          # Phase 8 D6: the in-core NIC ring driver — ONE booted ELF parses the whole
+          # xdp2 corpus by re-arming the parser FU between packets, checked on BOTH
+          # functional sims (Spike primary, QEMU secondary) == the golden model.
+          cva6-parser-nic-cosim = import ./nix/cva6-parser-nic-cosim.nix {
+            inherit pkgs spike-parser qemu-parser xdp2-src;
+          };
+
+          # Phase 8 D6 Increment 2: the RTL companion — build the patched CVA6 model and
+          # run the SAME nic_ring driver on it, parsing several corpus packets in ONE
+          # boot by re-arming the parser FU (cva6_parser_wrap.parse_rearm_i). Proves the
+          # hardware FU re-arms, not just the Spike/QEMU functional models.
+          cva6-parser-rearm = import ./nix/cva6-parser-rearm.nix {
+            inherit pkgs xdp2-src;
             cva6-src = cva6-parser-src;
           };
 
@@ -235,6 +259,22 @@
           # CVA6 RTL — the trustworthy LUT oracle that closes the openXC7 mapper-artifact
           # thread. Host-tool dependency (free Vivado on PATH). See §8.4 M3a.
           fpga-m3-vivado = import ./nix/fpga-m3-vivado.nix { inherit pkgs; };
+          # Phase-A pre-buy: probe what the Vivado license permits on a part (synth vs
+          # impl vs bitstream) via a trivial design — no board, no CVA6. See §8.4.
+          fpga-vivado-license-check = import ./nix/fpga-vivado-license-check.nix { inherit pkgs; };
+          # Phase-A pre-buy: drive CVA6's turnkey full Vivado flow (synth->impl->bitstream
+          # ->timing) for the whole SoC+DDR3 on the Genesys 2 / AX7325B die. See §8.4.
+          fpga-soc-vivado = import ./nix/fpga-soc-vivado.nix { inherit pkgs cva6-src; };
+          # Phase-B pre-buy: generate + OOC-synth a DDR3 MIG from an explicit .prj to
+          # validate a memory pinout (AX7325B 64-bit) with no board/SoC. See §8.4.
+          fpga-mig-check = import ./nix/fpga-mig-check.nix { inherit pkgs; };
+          # Phase-C pre-buy: OOC synth+route a 10G XGMII MAC (Forencich verilog-ethernet)
+          # in a fit harness on the AX7325B die — proves the 10G datapath builds, fits,
+          # and meets Fmax on xc7k325t, no board/transceiver IP. See §8.4 / docs C5.
+          fpga-10g-fit = import ./nix/fpga-10g-fit.nix { inherit pkgs verilog-ethernet-src; };
+          # Run proprietary Vivado (installer + tools) on NixOS via a buildFHSEnv
+          # sandbox — the reproducible impurity boundary for the host tool. See §8.4 M3a.
+          vivado-fhs = import ./nix/vivado-fhs.nix { inherit pkgs; };
 
           # Phase-8 toolchain: the proprietary Gowin EDA installers as store paths,
           # consumed by nix/gowin-vm.nix via `gowinInstall` in nix/gowin/local.nix.
@@ -302,6 +342,8 @@
             cva6-parser = cva6-parser;
             cva6-parser-test = cva6-parser-test;
             cva6-parser-cosim = cva6-parser-cosim;
+            cva6-parser-nic-cosim = cva6-parser-nic-cosim;
+            cva6-parser-rearm = cva6-parser-rearm;
             cva6-parser-tandem = cva6-parser-tandem;
             cva6-parser-tandem-campaign = cva6-parser-tandem-campaign;
             parser-negative-control = parser-negative-control;
@@ -359,6 +401,12 @@
             fpga-m3-core-rtl = fpga-m3.fpga-m3-core-rtl;
             fpga-m3-xilinx-fit = fpga-m3-xilinx.fpga-m3-xilinx-fit;
             fpga-m3-vivado-fit = fpga-m3-vivado.fpga-m3-vivado-fit;
+            fpga-vivado-license-check = fpga-vivado-license-check.fpga-vivado-license-check;
+            fpga-soc-vivado = fpga-soc-vivado.fpga-soc-vivado;
+            fpga-mig-check = fpga-mig-check.fpga-mig-check;
+            fpga-10g-fit = fpga-10g-fit.fpga-10g-fit;
+            vivado-fhs = vivado-fhs.vivado-fhs;
+            vivado-fhs-vivado = vivado-fhs.vivado-fhs-vivado;
             # The pinned vendor examples + their prebuilt 6-LED bitstream.
             tang-mega-examples = fpga.tang-mega-examples;
             tang-mega-led-bitstream = fpga.tang-mega-led-bitstream;
@@ -395,6 +443,20 @@
           apps.cva6-parser-cosim = {
             type = "app";
             program = "${cva6-parser-cosim}/bin/cva6-parser-cosim";
+          };
+
+          # In-core NIC ring driver over the whole corpus in one re-arming run, on
+          # Spike + QEMU (Phase 8 D6): `nix run .#cva6-parser-nic-cosim`.
+          apps.cva6-parser-nic-cosim = {
+            type = "app";
+            program = "${cva6-parser-nic-cosim}/bin/cva6-parser-nic-cosim";
+          };
+
+          # RTL companion (Phase 8 D6 Increment 2): build the patched model and re-arm
+          # the parser FU across several corpus packets in one boot: `nix run .#cva6-parser-rearm`.
+          apps.cva6-parser-rearm = {
+            type = "app";
+            program = "${cva6-parser-rearm}/bin/cva6-parser-rearm";
           };
 
           # Base-ISA RVFI-vs-Spike lock-step (Phase 7, Stage 0): every retired RV64GC
@@ -672,6 +734,49 @@
             program = "${fpga-m3-vivado.fpga-m3-vivado-fit}/bin/fpga-m3-vivado-fit";
           };
 
+          # Phase-A pre-buy: what does the installed Vivado license permit on a part?
+          # Pushes a trivial design through synth -> place -> route -> write_bitstream.
+          #   nix run .#fpga-vivado-license-check                 (probe xc7k325tffg900-2)
+          #   XILINX_PART=<part> nix run .#fpga-vivado-license-check
+          apps.fpga-vivado-license-check = {
+            type = "app";
+            program = "${fpga-vivado-license-check.fpga-vivado-license-check}/bin/fpga-vivado-license-check";
+          };
+
+          # Phase-A pre-buy: turnkey full Vivado build (synth->impl->bitstream->timing)
+          # of the whole CVA6 SoC + DDR3 on the Genesys 2 / AX7325B die (xc7k325tffg900-2).
+          #   nix run .#fpga-soc-vivado                (turnkey genesys2 build -> bit + timing)
+          #   nix run .#fpga-soc-vivado -- clean       (remove this target's build tree)
+          apps.fpga-soc-vivado = {
+            type = "app";
+            program = "${fpga-soc-vivado.fpga-soc-vivado}/bin/fpga-soc-vivado";
+          };
+
+          # Phase-B pre-buy: DDR3 MIG generate + OOC-synth from an explicit .prj (no board).
+          #   nix run .#fpga-mig-check              (validate fpga/ax7325b/mig_ax7325b.prj)
+          #   nix run .#fpga-mig-check -- genesys2  (control: stock 32-bit .prj)
+          apps.fpga-mig-check = {
+            type = "app";
+            program = "${fpga-mig-check.fpga-mig-check}/bin/fpga-mig-check";
+          };
+
+          # Phase-C pre-buy: OOC synth+route a 10G XGMII MAC in a fit harness on the die.
+          #   nix run .#fpga-10g-fit              (synth+route -> util + Fmax verdict)
+          #   nix run .#fpga-10g-fit -- synth     (synth-only -> utilization)
+          #   nix run .#fpga-10g-fit -- report    (re-print utilization + timing verdict)
+          apps.fpga-10g-fit = {
+            type = "app";
+            program = "${fpga-10g-fit.fpga-10g-fit}/bin/fpga-10g-fit";
+          };
+
+          # Run Vivado (installer + tools) on NixOS inside a buildFHSEnv sandbox.
+          #   nix run .#vivado-fhs                          (interactive FHS shell — install here)
+          #   nix run .#vivado-fhs -- vivado -version       (run a command in the sandbox)
+          apps.vivado-fhs = {
+            type = "app";
+            program = "${vivado-fhs.vivado-fhs}/bin/vivado-fhs";
+          };
+
           # Single-step a parse for debugging: `nix run .#pm-trace [-- x.pcap]`.
           apps.pm-trace = {
             type = "app";
@@ -739,5 +844,11 @@
         #   nix run .#gowin-vm
         nixosConfigurations.gowin-vm = gowin.nixos;
         packages.x86_64-linux.gowin-vm = gowin.runner;
+
+        # NixOS module: a dummy NIC carrying the fixed Vivado-license MAC
+        # (nix/vivado-license-mac.nix), making one free Basic license portable across
+        # machines. Import into your system config + `nixos-rebuild switch`. See
+        # nix/vivado-license-netdev.nix and docs/phase-8-status.md §"Verify-before-buy".
+        nixosModules.vivado-license-netdev = import ./nix/vivado-license-netdev.nix;
       };
 }
