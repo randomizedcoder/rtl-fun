@@ -881,6 +881,31 @@ the CVA6 core, provably safe under formal, with the functional (Spike/QEMU) and 
 paths all still green. This retires the remaining Increment-2 hardware-path item; the RTL FU is no
 longer one-shot.
 
+#### Pre-purchase validation — consolidated verdict: **GO** (2026-09-20)
+
+With D6 Increment 2 landed, every item of the A–D pre-purchase plan is complete. All of it is
+reproducible from `flake.nix` (`nix run .#<target>`) on `hp5`, with **no board**.
+
+| # | Item | Target | Result |
+|---|---|---|---|
+| A1 | Vivado license boundary on the 325T | `fpga-vivado-license-check` | **PASS** — free **Basic** does synth → place → route → `write_bitstream` on `xc7k325t`; no edu license needed |
+| A2 | Turnkey CVA6 SoC + DDR3, die/flow/timing | `fpga-soc-vivado` (genesys2) | **PASS** — full impl on `xc7k325tffg900-2` **routes and closes timing** (core ~49.6k LUT / SoC 75,267 = 37%) |
+| B3 | AX7325B 64-bit DDR3 pinout | `fpga-mig-check -- ax7325b` | **PASS** — MIG 7-series generates + OOC-synths clean; byte-lane/bank grouping legal |
+| B4 | AX7325B CVA6 port builds + fits | `fpga-soc-vivado -- ax7325b` | **PASS** — synth 0 errors / 0 crit-warns; SoC 80,251 LUT ≈ 39% |
+| C5 | 10G MAC datapath on the die | `fpga-10g-fit` | **PASS** — builds + OOC-routes + meets 156.25 MHz (WNS +2.081 ns); 1,489 LUT (0.7%) |
+| D6·1 | Whole corpus == golden, functional sims | `cva6-parser-nic-cosim` | **PASS** — 306 pkts, one re-arming boot, on Spike **and** QEMU |
+| D6·2 | RTL parser FU re-arms through the CVA6 core | `cva6-parser-rearm` (+ wrap-test / formal / cosim / tandem) | **PASS** — multi-packet run == golden in real RTL, proved safe under formal |
+
+**Gateware + software risk is retired.** CVA6 + a 10G MAC co-reside (~40% LUT), the AX7325B port
+builds/fits, the DDR3 pinout is legal, the flow+license close a real bitstream+timing on the exact
+die, and the parser software/logic parses the real corpus == the golden model — functionally (Spike/
+QEMU) and in cycle-accurate RTL through the core.
+
+**Strictly board-in-hand residual** (cannot be done pre-buy, deferred to Phase 9): DDR3 calibration
+on silicon; GTX/10GBASE-R PCS-PMA link-up + serdes SI to a real 10GE/QSFP NIC; real throughput &
+latency; final on-hardware timing sign-off; the AX7325B `#VERIFY` pin sign-off (place/route on the
+board); the physical back-to-back 2× AX7325B bring-up. **Recommendation: purchase the AX7325B.**
+
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 
 Whole-flow CVA6-on-openXC7 is **long** and **memory-heavy** — the numbers below let a
