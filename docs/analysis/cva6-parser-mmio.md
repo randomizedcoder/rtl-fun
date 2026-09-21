@@ -153,6 +153,32 @@ Invariants (SVA in `cva6_parser_wrap.sv`):
 
 Exit takes priority over the node-delta jump in the redirect mux.
 
+### 5a. Multi-packet re-arm (Phase 8 D6)
+
+The mechanism above parses **one** packet per boot: after exit, `st_q.done` latches and
+`a_ready_low_when_done` keeps `parser_ready_o` low, so a second packet needs a fresh
+engine. Every existing path (per-packet ELF in `cva6-parser-cosim` / `parser-spike` /
+`parser-qemu`) reboots to get that, and the functional device models one-shot faithfully:
+Spike's `parser_ext.cc` and QEMU's `parser_helper.c` `arm()` only on the first custom-0
+after reset, and hold `ps.done` sticky.
+
+D6 adds a **re-arm** so one booted process (a NIC ring driver) can parse the whole
+corpus. A new `parser_shared.rearm` byte is set on **every** `ParseLen` (`0x100`) store
+and consumed by the extension's arm gate: `if (!armed || rearm) { arm(); rearm = 0; }`.
+`arm()` → `pm_init` re-zeroes `ps` (so `done`, meta, and code clear) and re-binds the
+packet/ParseLen window; the **CAM persists** (bound separately, programmed once). A
+single-shot ELF writes `ParseLen` exactly once, so this reduces to the old `!armed`
+gate — the one-shot fidelity of the per-packet suites is unchanged, and re-arm zeroing
+via `pm_init` matches the golden's fresh-init semantics (`model/libparsermodel/parser.c`
+`pm_init` memsets `ps` and the meta frame), so per-packet goldens are byte-identical.
+
+This is implemented for the **functional sims only** (Spike + QEMU). The **RTL FU is
+still one-shot** — `parser_ready_o` re-arms only on `!rst_ni` (`cva6_parser_wrap.sv`),
+and `a_ready_low_when_done` still holds. Threading a re-arm pulse from the `0x100` write
+into the FU (clearing `st_q.done`) is the RTL increment; until then the ring driver
+(`nix run .#cva6-parser-nic-cosim`) runs on Spike/QEMU, and the per-packet cosim remains
+the in-core RTL path.
+
 ## 6. Contiguity assumption (why the walk stays consistent)
 
 The redirect target is derived as `parse_base = pc_i − cur_node×4`, recomputed each

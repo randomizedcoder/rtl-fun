@@ -30,6 +30,7 @@ struct parser_shared {
     uint64_t exit_pc;     /* exit landing PC    (device store, off == 0x108)     */
     int32_t  code;        /* model exit code    (helper -> device load 0x100 [31:0]) */
     uint8_t  exit_seen;   /* model `done`       (helper -> device load 0x100 [32]) */
+    uint8_t  rearm;       /* re-arm request     (device store 0x100 sets; c0 consumes) */
 };
 
 extern struct parser_shared g_parser_shared;

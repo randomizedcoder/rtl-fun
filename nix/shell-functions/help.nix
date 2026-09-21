@@ -32,6 +32,7 @@
       nix run .#cva6-parser       build the parser-patched CVA6 model (compare vs baseline)
       nix run .#cva6-parser-test  build patched model + run the in-core custom-0 test
       nix run .#cva6-parser-cosim build patched model + run the in-core packet->flow_keys cosim (I5)
+      nix run .#cva6-parser-nic-cosim  in-core NIC ring driver: whole corpus in ONE re-arming run, on Spike+QEMU (D6)
       nix run .#cva6-parser-tandem build patched model w/ RVFI-vs-Spike lock-step + run base-ISA tandem (Phase 7)
       nix run .#cva6-parser-tandem-campaign  random + real-corpus packets under RVFI-vs-Spike lock-step (Phase 7 Stage 2)
       nix build .#spike-tandem     source-built tandem Spike (libriscv w/ RVFI DPI; cached derivation)

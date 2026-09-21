@@ -139,6 +139,13 @@
             cva6-src = cva6-parser-src;
           };
 
+          # Phase 8 D6: the in-core NIC ring driver — ONE booted ELF parses the whole
+          # xdp2 corpus by re-arming the parser FU between packets, checked on BOTH
+          # functional sims (Spike primary, QEMU secondary) == the golden model.
+          cva6-parser-nic-cosim = import ./nix/cva6-parser-nic-cosim.nix {
+            inherit pkgs spike-parser qemu-parser xdp2-src;
+          };
+
           # Phase 7, Stage 0 (G11): build the patched model WITH the RVFI-vs-Spike
           # lock-step (SPIKE_TANDEM=1) + run the base-ISA slice under per-instruction
           # tandem verification against the source-built tandem Spike.
@@ -326,6 +333,7 @@
             cva6-parser = cva6-parser;
             cva6-parser-test = cva6-parser-test;
             cva6-parser-cosim = cva6-parser-cosim;
+            cva6-parser-nic-cosim = cva6-parser-nic-cosim;
             cva6-parser-tandem = cva6-parser-tandem;
             cva6-parser-tandem-campaign = cva6-parser-tandem-campaign;
             parser-negative-control = parser-negative-control;
@@ -425,6 +433,13 @@
           apps.cva6-parser-cosim = {
             type = "app";
             program = "${cva6-parser-cosim}/bin/cva6-parser-cosim";
+          };
+
+          # In-core NIC ring driver over the whole corpus in one re-arming run, on
+          # Spike + QEMU (Phase 8 D6): `nix run .#cva6-parser-nic-cosim`.
+          apps.cva6-parser-nic-cosim = {
+            type = "app";
+            program = "${cva6-parser-nic-cosim}/bin/cva6-parser-nic-cosim";
           };
 
           # Base-ISA RVFI-vs-Spike lock-step (Phase 7, Stage 0): every retired RV64GC

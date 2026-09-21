@@ -42,6 +42,7 @@ nix/
   cva6-baseline.nix           # cva6-baseline / cva6-parser builders (writeShellApplication)
   cva6-parser-test.nix        # cva6-parser-test: build patched model + run in-core custom-0 test
   cva6-parser-cosim.nix       # cva6-parser-cosim: table-driven in-core packet→flow_keys vs model (I5)
+  cva6-parser-nic-cosim.nix   # cva6-parser-nic-cosim: NIC ring driver, whole corpus in one re-arming run on Spike+QEMU (D6)
   parser-negative-control.nix # parser-negative-control: STOCK model must trap the custom-0 word (G11, N1)
   parser-trap-v7.nix          # cva6-parser-trap-v7: faulting instr must not corrupt an in-flight parser op (V7/G7, N4)
   parser-trap-v6.nix          # cva6-parser-trap-v6: async interrupt (msip) mid-parse must not corrupt an in-flight parser op (V6/G7, N5)
@@ -74,6 +75,7 @@ scripts/
   cva6-baseline.sh            # body of the cva6-baseline app (Phase 0 sim baseline)
   cva6-parser-test.sh         # in-core custom-0 directed test (assemble ELF + run) (Phase 5)
   cva6-parser-cosim.sh        # table-driven in-core packet→flow_keys co-sim vs model (Phase 6, I5)
+  cva6-parser-nic-cosim.sh    # in-core NIC ring driver: whole corpus in one re-arming run on Spike+QEMU (Phase 8, D6)
   parser-negative-control.sh  # negative control: assemble negctl.S, run on STOCK model, assert trap (G11, N1)
   parser-trap-v7.sh           # V7: assemble parser_trap_v7.S, run on patched model, assert no fault-corruption (G7, N4)
   parser-trap-v6.sh           # V6: assemble parser_trap_v6.S, run on patched model, assert no interrupt-corruption (G7, N5)
@@ -114,6 +116,7 @@ One `writeShellApplication` per runner; each puts its tools on `PATH` via
 | `cva6-parser` | build the **parser-patched** CVA6 Verilator model (compare vs baseline) | 5 |
 | `cva6-parser-test` | build patched model + run the in-core custom-0 directed test | 5 |
 | `cva6-parser-cosim` | table-driven in-core packet→flow_keys co-sim vs the model (22/22) | 6 |
+| `cva6-parser-nic-cosim` | in-core NIC ring driver: the whole xdp2 corpus parsed in **one** re-arming run, on Spike + QEMU vs the model (D6) | 8 |
 | `parser-negative-control` | negative control (G11): the **stock** core must trap the custom-0 parser word (illegal-instruction) | 6 |
 | `cva6-parser-trap-v7` | V7 (G7): a faulting instruction (`ecall`) that flushes an in-flight parser op must not corrupt its committed result | 6 |
 | `cva6-parser-trap-v6` | V6 (G7): an async machine software interrupt (`msip`) mid-parse that flushes an in-flight parser op must not corrupt its committed result | 6 |

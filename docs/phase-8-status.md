@@ -815,8 +815,37 @@ PCS-PMA transceiver** leg (BANK117 156.25 MHz refclk + serdes SI) is deliberatel
 built here: it is the board-in-hand residual (see §"Out of scope"). This is a fabric-fit +
 Fmax feasibility check, not a bitstream.
 
-Remaining pre-buy step (reproducible target): D6 end-to-end **functional sim** (packets →
-parser → flow_keys + a CVA6 NIC driver). Plan: `~/.claude/.../plans/ok-in-this-folder-jolly-perlis.md`.
+**D6 — in-core NIC ring driver parses the WHOLE corpus == the golden model, on Spike AND QEMU (2026-09-20).**
+`taskset -c 2-7 nix run .#cva6-parser-nic-cosim` builds **one** bare-metal ELF that parses the
+entire pinned xdp2 corpus in a **single re-arming run** — no per-packet reboot — and byte-compares
+every result against the reference model. Where `cva6-parser-cosim` / `parser-spike` / `parser-qemu`
+boot one ELF per packet (each a fresh one-shot parse), D6 proves the *multi-packet* datapath: a NIC
+RX descriptor-ring driver (`tests/cva6-parser/nic_ring.c` + `nic_ring_asm.S`) DMAs each frame into
+the `0x5000_0000` packet MMIO, writes `ParseLen` to (re-)arm, runs the in-core parse block, then
+compares `flow_keys` (META) and the exit code against the baked-in golden. `tohost=1` iff **every**
+packet matched (fesvr / QEMU `-M spike` exit 0 ⇒ PASS; else fail code 3=keys / 5=code / 7=no-exit).
+
+The re-arm is a small, **fidelity-preserving** addition to the two functional device models only:
+`parser_shared.rearm` (in `nix/{spike-tandem,qemu-parser}/parser_shared.h`) is set on every
+`ParseLen` (0x100) store and consumed by the arm gate (`parser_ext.cc` / `parser_helper.c`), so a
+new `ParseLen` re-binds the model to the next packet — `pm_init` zeroes `ps` (done=0) and the meta
+frame, matching a fresh golden init, while the CAM (programmed once) persists. A single-shot ELF
+writes `ParseLen` exactly once, so the gate reduces to the old `!armed` behaviour and every existing
+one-shot target is byte-identical. The corpus + per-packet golden `flow_keys`/exit-code are baked
+into one C header by a new generator mode, `gen_parser_rom --corpus-blob` (`verif/gen/gen_parser_rom.c`).
+
+| Leg | Result | Note |
+|---|---|---|
+| corpus blob | **306** Ethernet packets (72 non-Ethernet skipped) | emitted from the golden model, `META_LEN=48` |
+| Spike (primary) | **PASS** — all 306 == golden across a re-arming run | standalone parser Spike (`spike-parser`) |
+| QEMU (secondary) | **PASS** — all 306 == golden across a re-arming run | patched `qemu-system-riscv64 -M spike` |
+
+**Result:** the parser **software/logic is correct across a real, multi-packet re-arming run** —
+the whole corpus parses identically to the reference model on two independent ISA simulators, with
+no board and no per-packet reboot. This retires the Phase-8 pre-buy *functional* risk. Increment 2
+(RTL FU re-arm + an in-core 2+-packet test through the CVA6 core, then re-verify tandem/formal) is
+the remaining hardware-path item; the RTL FU stays one-shot until then. Plan:
+`~/.claude/.../plans/ok-in-this-folder-jolly-perlis.md`.
 
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 

@@ -166,7 +166,11 @@ class parser_t : public extension_t
       return ::illegal_instruction(p, insn, pc);   // reserved / packet-only Fnc4
     if (d.op == OP_CAM || d.op == OP_CAMNEXT)
       d.cam = &e->cam;                            // attach the programmed table
-    if (!e->armed) e->arm();                       // Stage 1c: bind to the MMIO packet
+    // Stage 1c: bind to the MMIO packet on first parse; re-bind whenever the driver
+    // has written ParseLen again (multi-packet re-arm). arm()->pm_init re-zeroes ps
+    // (done=0) and the meta frame; the CAM survives (bound separately, above). A
+    // single-shot ELF writes ParseLen once, so this reduces to the old !armed gate.
+    if (!e->armed || g_parser_shared.rearm) { e->arm(); g_parser_shared.rearm = 0; }
     uint32_t cur = e->ps.next_pc;
     e->ps.pc      = cur;                          // pm_run's per-step bookkeeping...
     e->ps.next_pc = cur + 1;                      // ...default fall-through
