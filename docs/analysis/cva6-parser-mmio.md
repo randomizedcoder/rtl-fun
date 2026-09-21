@@ -93,6 +93,14 @@ by the clocked `parser_pktbuf` write).
 - `cva6_parser_wrap` — added a 64-bit metadata read port (`meta_rd_addr_i` →
   `meta_rd_data_o`, 8 little-endian bytes from the committed frame), the
   `parse_exit_pc_i` input, and a latched exit-status output.
+  **Read granularity — 8-aligned only.** `meta_rd_data_o` is the 8 bytes *at* the
+  requested offset (`byte k = meta_rd_addr_i + k`), so a driver must read the frame
+  with 8-aligned 64-bit `ld`s (as `cosim_main.S`/`nic_ring.c` do). A sub-word `lbu`
+  at offset `b` makes the slave return bytes `[b..b+7]` and the core then selects
+  byte-lane `b&7` — i.e. `meta[b + (b&7)]`, correct only when `b` is a multiple of 8.
+  The byte-addressable Spike/QEMU device models tolerate byte reads; the RTL slave
+  does not. (D6 Increment 2 hit exactly this: an early byte-wise readback mismatched
+  on the RTL model while passing on Spike/QEMU.)
 
 ## 4. Port thread (5 hops)
 
@@ -172,12 +180,24 @@ gate — the one-shot fidelity of the per-packet suites is unchanged, and re-arm
 via `pm_init` matches the golden's fresh-init semantics (`model/libparsermodel/parser.c`
 `pm_init` memsets `ps` and the meta frame), so per-packet goldens are byte-identical.
 
-This is implemented for the **functional sims only** (Spike + QEMU). The **RTL FU is
-still one-shot** — `parser_ready_o` re-arms only on `!rst_ni` (`cva6_parser_wrap.sv`),
-and `a_ready_low_when_done` still holds. Threading a re-arm pulse from the `0x100` write
-into the FU (clearing `st_q.done`) is the RTL increment; until then the ring driver
-(`nix run .#cva6-parser-nic-cosim`) runs on Spike/QEMU, and the per-packet cosim remains
-the in-core RTL path.
+**Increment 2 — the RTL FU re-arms too.** `cva6_parser_wrap` gains a `parse_rearm_i`
+input. In the testharness a `ParseLen` (`0x100`) store pulses `parser_wr_plen`, exposed as
+`parser_rearm` and threaded `ariane → cva6 → ex_stage → cva6_parser_wrap` (all in
+`mmio.patch`). On the pulse the FU re-initialises the parse cursor and latched exit status
+to `reset_state()` and **zeroes the metadata frame** (`meta_mem`), exactly mirroring
+`pm_init`; the **CAM persists** (a separate module, programmed once via `CPPRSWRCAM`). The
+re-init is placed last in the `always_ff` and gated `~flush_i`, and lands in a quiescent
+window (the prior parse has exited so the queue has drained, and the `ParseLen` store is
+itself post-commit on the bus), so it cannot corrupt in-flight state. A single-shot ELF
+writes `ParseLen` once, before its only parse, when the FU is already at `reset_state()` and
+`meta_mem` is `0`, so the re-init is a **bit-for-bit no-op** — every one-shot flow (cosim,
+inline `parser_insn.S`, tandem) is unchanged, and the G2 SVAs still hold (`a_arch_committed`
+now also admits the explicit, post-commit re-arm as a legitimate writer of `st_arch_q`).
+
+Both re-arm legs share the **same** `nic_ring` driver: `nix run .#cva6-parser-nic-cosim`
+runs the whole corpus on Spike + QEMU (functional sims); `nix run .#cva6-parser-rearm`
+runs the first N packets on the patched **RTL** model (D6 Increment 2), proving the
+hardware FU re-arms, not just the functional models.
 
 ## 6. Contiguity assumption (why the walk stays consistent)
 

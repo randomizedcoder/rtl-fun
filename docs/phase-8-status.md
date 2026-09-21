@@ -842,10 +842,44 @@ into one C header by a new generator mode, `gen_parser_rom --corpus-blob` (`veri
 
 **Result:** the parser **software/logic is correct across a real, multi-packet re-arming run** —
 the whole corpus parses identically to the reference model on two independent ISA simulators, with
-no board and no per-packet reboot. This retires the Phase-8 pre-buy *functional* risk. Increment 2
-(RTL FU re-arm + an in-core 2+-packet test through the CVA6 core, then re-verify tandem/formal) is
-the remaining hardware-path item; the RTL FU stays one-shot until then. Plan:
+no board and no per-packet reboot. This retires the Phase-8 pre-buy *functional* risk. Plan:
 `~/.claude/.../plans/ok-in-this-folder-jolly-perlis.md`.
+
+**D6 Increment 2 — the RTL parser FU itself re-arms; a multi-packet run through the CVA6 core == the golden model (2026-09-20).**
+
+Increment 1 re-armed only the two *functional* device models (Spike/QEMU). Increment 2 gives the
+**RTL functional unit** the same capability, so a single booted program parses many packets through
+the real CVA6 pipeline + `cva6_parser_wrap` — the hardware datapath, not a model. A new
+`parse_rearm_i` input (driven by the ParseLen-store strobe `parser_wr_plen`, threaded
+`ariane_testharness → ariane → cva6 → ex_stage → wrap`) re-initialises the parse state
+(`reset_state()`, the pend/CAM queues, the exit latches) and zeroes the metadata frame on each
+ParseLen store, while the CAM (a separate module, programmed once) persists — matching the golden
+model's per-packet `pm_init` memset. On a single-shot ELF the strobe fires once at reset, so the
+behaviour is bit-identical to the old one-shot FU (a fidelity no-op).
+
+New reproducible target — `nix run .#cva6-parser-rearm` — boots **once** and drives the *same*
+`nic_ring.c` NIC-ring driver as the Spike/QEMU leg over the `0x5000_0000` MMIO window through the
+CVA6 core, re-arming the FU between packets and comparing the committed flow_keys + exit code to the
+golden model baked in at build time.
+
+| Check | Result |
+|---|---|
+| `cva6-parser-rearm` (RTL, 8 corpus packets in ONE boot) | **PASS** — all 8 == golden across 7 re-arms (68,631 cycles; verified to 32 packets / 31 re-arms during bring-up) |
+| `parser-wrap-test` (I1–I5 commit/flush/MMIO invariants) | **PASS** — the re-init block + TB tie-off regress nothing |
+| `parser-formal` (k-induction, `parse_rearm_i` a *free* input) | **PASS** — the updated `a_arch_committed` invariant holds under adversarial re-arm timing |
+| `cva6-parser-cosim` (single-shot in-core fidelity) | **PASS** — 22/22, the one-shot path is unchanged |
+| `cva6-parser-tandem` (RVFI-vs-Spike lock-step) | **PASS** — 22 cases, 0 mismatches, base-ISA + parser-op lock-step clean |
+
+One subtlety surfaced and fixed here: the RTL MMIO slave returns the flow_keys frame as an
+**8-aligned 64-bit word at the request offset** (`parser_mmio.h`: "read, 8-aligned `ld`"), so a
+sub-word (byte) load lands on the wrong byte lane. Increment 1's `nic_ring.c` read the frame
+byte-by-byte — tolerated by the byte-addressable Spike/QEMU models but wrong on the RTL peripheral;
+the driver now reads aligned 64-bit words, mirroring `cosim_main.S` (correct on all three sims).
+
+**Result:** the parser **re-arms and parses a multi-packet stream correctly in real RTL** through
+the CVA6 core, provably safe under formal, with the functional (Spike/QEMU) and single-shot in-core
+paths all still green. This retires the remaining Increment-2 hardware-path item; the RTL FU is no
+longer one-shot.
 
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 

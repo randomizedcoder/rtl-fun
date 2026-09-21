@@ -71,6 +71,7 @@ module cva6_parser_wrap
     input  logic [VLEN-1:0]          pc_i,             // PC of this instruction
     input  logic [63:0]              rs1_i,            // integer rs1 operand (custom-3)
     input  logic [15:0]              parse_len_i,      // PktLen.ParseLen
+    input  logic                     parse_rearm_i,    // ParseLen store => re-arm for the next packet (D6)
     input  logic [VLEN-1:0]          parse_exit_pc_i,  // byte PC to resume at on parse exit (I5)
     output logic                     parser_ready_o,   // unit can accept
 
@@ -480,6 +481,38 @@ module cva6_parser_wrap
         pend_head_q    <= '0;
         pend_tail_q    <= '0;
       end
+
+      // ---- RE-ARM (D6): a new ParseLen store re-binds the FU to the next packet ----
+      // The SoC MMIO ParseLen write (0x100) pulses parse_rearm_i (ariane_testharness's
+      // parser_wr_plen, threaded ariane->cva6->ex_stage). This mirrors pm_init in the
+      // golden/functional model (parser.c): reset the parse cursor + latched exit
+      // status, and ZERO the metadata frame so unwritten flow_keys bytes read 0 exactly
+      // as a fresh init does — while the CAM (a separate module, programmed once via
+      // CPPRSWRCAM) PERSISTS across the re-arm. The pending queue is reset too (it is
+      // already empty here — see below). This makes the FU multi-packet: a NIC ring
+      // driver parses the whole corpus in one boot by re-arming between packets.
+      //
+      // SAFE (no in-flight corruption): re-arm lands in a quiescent window. The prior
+      // parse has EXITED (st_q.done=1, so a_ready_low_when_done has stalled all new
+      // parse work and the queue has drained), and the ParseLen store that raises the
+      // strobe is itself post-commit on the AXI bus — it cannot race the store's own
+      // pipeline. FIDELITY: a single-shot program writes ParseLen exactly ONCE, before
+      // its only parse, when the FU is still at reset_state() and meta_mem is 0; the
+      // re-init is then a bit-for-bit no-op, so every existing one-shot flow (cosim,
+      // inline parser_insn.S, tandem) is unchanged. Gated ~flush_i so a real pipeline
+      // flush keeps priority (the store simply replays after it); placed last so an
+      // explicit re-arm overrides the accept/commit updates above.
+      if (parse_rearm_i & ~flush_i) begin
+        st_q           <= reset_state();
+        st_arch_q      <= reset_state();
+        pend_cnt_q     <= '0;
+        cam_pend_cnt_q <= '0;
+        pend_head_q    <= '0;
+        pend_tail_q    <= '0;
+        exit_seen_q    <= 1'b0;
+        exit_code_q    <= '0;
+        for (int unsigned i = 0; i < META_MAX; i++) meta_mem[i] <= 8'h0;
+      end
     end
   end
 
@@ -541,8 +574,12 @@ module cva6_parser_wrap
   // a dependent CAM lookup never issues while an older CPPRSWRCAM is still uncommitted
   `PRS_ASSERT(a_cam_lookup_interlock, clk_i, rst_ni,
               (accept & op_cam_lookup) |-> (cam_pend_cnt_q == '0))
-  // SPECULATION SAFETY (G2): the architectural state only ever advances on a commit
-  `PRS_ASSERT(a_arch_committed, clk_i, rst_ni, !$stable(st_arch_q) |-> $past(pend_commit))
+  // SPECULATION SAFETY (G2): the architectural state advances only on a commit — or is
+  // re-initialised by an explicit re-arm (D6). Re-arm is not speculative: it is the SoC
+  // ParseLen store (post-commit on the bus) resetting st_arch_q to reset_state() for the
+  // next packet, so it is the one other legitimate writer of the architectural shadow.
+  `PRS_ASSERT(a_arch_committed, clk_i, rst_ni,
+              !$stable(st_arch_q) |-> ($past(pend_commit) | $past(parse_rearm_i & ~flush_i)))
   // SPECULATION SAFETY (G2): after a flush the speculative state == committed state
   `PRS_ASSERT(a_flush_rollback, clk_i, rst_ni, $past(flush_i) |-> (st_q == st_arch_q))
   // REDIRECT (I5): a parse exit WITH a programmed landing PC steers fetch back to the

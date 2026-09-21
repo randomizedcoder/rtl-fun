@@ -146,6 +146,15 @@
             inherit pkgs spike-parser qemu-parser xdp2-src;
           };
 
+          # Phase 8 D6 Increment 2: the RTL companion — build the patched CVA6 model and
+          # run the SAME nic_ring driver on it, parsing several corpus packets in ONE
+          # boot by re-arming the parser FU (cva6_parser_wrap.parse_rearm_i). Proves the
+          # hardware FU re-arms, not just the Spike/QEMU functional models.
+          cva6-parser-rearm = import ./nix/cva6-parser-rearm.nix {
+            inherit pkgs xdp2-src;
+            cva6-src = cva6-parser-src;
+          };
+
           # Phase 7, Stage 0 (G11): build the patched model WITH the RVFI-vs-Spike
           # lock-step (SPIKE_TANDEM=1) + run the base-ISA slice under per-instruction
           # tandem verification against the source-built tandem Spike.
@@ -334,6 +343,7 @@
             cva6-parser-test = cva6-parser-test;
             cva6-parser-cosim = cva6-parser-cosim;
             cva6-parser-nic-cosim = cva6-parser-nic-cosim;
+            cva6-parser-rearm = cva6-parser-rearm;
             cva6-parser-tandem = cva6-parser-tandem;
             cva6-parser-tandem-campaign = cva6-parser-tandem-campaign;
             parser-negative-control = parser-negative-control;
@@ -440,6 +450,13 @@
           apps.cva6-parser-nic-cosim = {
             type = "app";
             program = "${cva6-parser-nic-cosim}/bin/cva6-parser-nic-cosim";
+          };
+
+          # RTL companion (Phase 8 D6 Increment 2): build the patched model and re-arm
+          # the parser FU across several corpus packets in one boot: `nix run .#cva6-parser-rearm`.
+          apps.cva6-parser-rearm = {
+            type = "app";
+            program = "${cva6-parser-rearm}/bin/cva6-parser-rearm";
           };
 
           # Base-ISA RVFI-vs-Spike lock-step (Phase 7, Stage 0): every retired RV64GC

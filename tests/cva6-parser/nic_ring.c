@@ -27,7 +27,6 @@
 
 #define WR(a, v) (*(volatile unsigned long *)(a) = (unsigned long)(v))
 #define RD(a)    (*(volatile unsigned long *)(a))
-#define RDB(a)   (*(volatile unsigned char *)(a))
 
 /* provided by nic_ring_asm.S + the model-generated prog.S */
 extern void nic_cam_program(void);
@@ -62,13 +61,28 @@ int nic_ring_run(void)
         nic_parse_run();
 
         /* drain margin: a no-op on the in-order functional sims, mirrors the RTL
-         * cosim's post-exit metadata-commit settle so the driver is RTL-ready too. */
-        for (volatile int d = 0; d < 64; d++) { }
+         * cosim's post-exit metadata-commit settle so the driver is RTL-ready too
+         * (cosim_main.S waits 256; the FU retires its commit-gated metadata writes
+         * in order after the exit redirect, so readback must let them drain). */
+        for (volatile int d = 0; d < 256; d++) { }
 
-        /* ---- 4a. committed flow_keys vs the golden, byte for byte ---- */
-        for (unsigned b = 0; b < CORPUS_META_LEN; b++)
-            if (RDB(PARSER_META + b) != corpus_meta[i][b])
-                return 3;       /* flow_keys mismatch */
+        /* ---- 4a. committed flow_keys vs the golden ---- */
+        /* Read the flow_keys frame as 8-aligned 64-bit words, per the MMIO contract
+         * (parser_mmio.h: "flow_keys frame : read, 8-aligned ld"). The RTL slave
+         * returns the little-endian 8-byte word AT the request offset; a sub-word
+         * (byte) load would pick the wrong lane, so mirror cosim_main.S's `ld` walk
+         * — correct on the RTL peripheral and on the byte-tolerant Spike/QEMU models
+         * alike. CORPUS_META_LEN is a multiple of 8; the guard is belt-and-braces. */
+        for (unsigned w = 0; w * 8u < CORPUS_META_LEN; w++) {
+            unsigned long got = RD(PARSER_META + (unsigned long)w * 8u);
+            unsigned long exp = 0;
+            for (unsigned b = 0; b < 8u; b++) {
+                unsigned idx = w * 8u + b;
+                unsigned char e = (idx < CORPUS_META_LEN) ? corpus_meta[i][idx] : 0u;
+                exp |= (unsigned long)e << (8u * b);
+            }
+            if (got != exp) return 3;   /* flow_keys mismatch */
+        }
 
         /* ---- 4b. exit code (sign-extended [31:0]) + require an exit was seen ---- */
         unsigned long st = RD(PARSER_STATUS);
