@@ -906,6 +906,59 @@ on silicon; GTX/10GBASE-R PCS-PMA link-up + serdes SI to a real 10GE/QSFP NIC; r
 latency; final on-hardware timing sign-off; the AX7325B `#VERIFY` pin sign-off (place/route on the
 board); the physical back-to-back 2× AX7325B bring-up. **Recommendation: purchase the AX7325B.**
 
+#### Vendor engagement — board-selection correspondence (OPEN, as of 2026-09-27)
+
+The internal fit verdict (buy the AX7325B) stands, but ALINX pre-sales has proposed a device
+change, so the **final board SKU is under active vendor discussion — no purchase placed yet.**
+
+**Timeline**
+- **2026-09-20 — Yae Wu** (Sales Engineer, ALINX): initial reply to the AX7325B enquiry;
+  qualifying questions (new vs upgrade / project stage / application + volumes) + a Dropbox link
+  to schematic, XDC, DXF, demo, baseboard PCB.
+- **~2026-09-22 — our reply:** framed the work in generalities — an AI-infrastructure platform
+  (high-performance key/value caching + network-layer acceleration), roadmap **40GbE demo now →
+  400/800GbE later** — and asked for the fullest software/reference/BSP enablement (10G/40G
+  transceiver + DDR3 MIG + PCIe reference designs, IP, FAE contact), positioning software support
+  as the deciding factor for the sale.
+- **2026-09-23 — Fernand Xie** (FAE, ALINX; `technical@` cc'd): **pushback on the K7 platform.**
+  Argues AMD's 40G/50G Ethernet Subsystem IP does not support Kintex-7, so the AX7325B is not
+  ideal for a "standard" 40GbE design in the AMD IP ecosystem. Recommends **Kintex UltraScale+
+  now, Versal for 400/800G** — specifically the **AXKU15 (XCKU15P) + a 40G QSFP+ FMC**, and offers
+  an **existing 40G UDP reference design** (characterised on a KU11P, same FFVE1517 package as the
+  XCKU15P).
+- **2026-09-27 — our reply:** stayed warm and open to the AXKU15; noted our design is built around
+  our *own* datapath (so we're device-flexible and software-enablement is what decides it);
+  requested the AXKU15 reference materials + the 40G UDP design, guidance on the **Vivado
+  licensing/tooling** the KU15P needs, and the US+ → Versal migration path. Kept "completeness of
+  software/IP/tooling support decides the sale" as the lever.
+
+**Technical assessment of Fernand's claims (verified 2026-09-27)**
+- *AMD 40G/50G Ethernet Subsystem = UltraScale/US+ only* — **true, but moot for us:** we use our
+  own open MAC datapath (C5 proved `eth_mac_10g` fits + closes timing on the 325T), not AMD's
+  stock subsystem.
+- *K7 can't do 40G* — **overstated:** K7 **-2 GTX in the FFG900 package run 10.3125 Gb/s/lane**, so
+  40G-as-4×10G (40GBASE-R4) is within the AX7325B hardware (same die/package the Genesys 2 runs 10G
+  on). The 6.6 Gb/s figure seen online is the **FBG** package, not our **FFG900**. Transceiver SI
+  link-up was already the board-in-hand residual.
+- *400/800G needs US+ → Versal* — **legitimately true:** 25G+/lane needs GTY/GTM, so the long-term
+  roadmap does force a platform move eventually.
+- **Omitted by Fernand:** the **XCKU15P is *not* in the free Vivado tier** (only KU3P/KU5P are) →
+  the AXKU15 requires **paid Vivado Design/Enterprise**, which breaks the free, reproducible
+  tooling flow A1 proved for the 325T. A recurring cost the "more economical" framing hides.
+
+**Open decision (pending Fernand's materials)**
+| | **Option A — AX7325B (K7-325T)** | **Option B — AXKU15 (XCKU15P, US+)** |
+|---|---|---|
+| Fit/route/timing | Proven (all of Phase 8) | New device port (DDR4, GTY, clocking) |
+| Tooling | **Free** Vivado (proven end-to-end) | **Paid** Vivado Design/Enterprise |
+| Networking ceiling | 40G (4×10G); 100G+ out of reach | 25G+/lane → 100G+ reachable (GTY) |
+| Vendor software | we write the BSP | **offered 40G UDP reference design** + FAE support |
+| Cost | cheaper | higher board + tool cost |
+
+**Status:** awaiting Fernand's AXKU15 reference materials, the 40G UDP design, and a Vivado
+licensing/tooling answer. The 325T fabric-fit verdict is unaffected; the SKU decision is the only
+thing open. Phase-9 board-in-hand items are unchanged.
+
 #### openXC7 flow — runtime & observations log (for re-run estimation)
 
 Whole-flow CVA6-on-openXC7 is **long** and **memory-heavy** — the numbers below let a
